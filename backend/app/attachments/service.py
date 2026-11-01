@@ -13,6 +13,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from ..config import get_settings
+from ..branding import LEGACY_ATTACHMENT_BUCKET
 from ..db import connect, json_dump, row_to_dict, rows_to_dicts
 from ..workspace import attachments_dir
 
@@ -79,15 +80,27 @@ class AttachmentStore:
             "local" if local_root is not None else self.settings.attachment_storage
         )
 
+    def _bucket(self) -> str:
+        bucket = self.settings.minio_bucket
+        # Existing implicit-default deployments keep their original private bucket.
+        # Do not guess or probe another bucket when an operator configured one.
+        if (
+            bucket == "tuantuan-attachments"
+            and self.settings.minio_bucket_legacy_fallback
+            and self._minio_client().bucket_exists(LEGACY_ATTACHMENT_BUCKET)
+        ):
+            return LEGACY_ATTACHMENT_BUCKET
+        return bucket
+
     def put(self, attachment_id: str, filename: str, content: bytes) -> StoredAttachment:
         suffix = Path(filename).suffix.lower()
         object_key = f"{attachment_id[:2]}/{attachment_id}{suffix}"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         if self.storage == "minio":
             client = self._minio_client()
-            if not client.bucket_exists(self.settings.minio_bucket):
-                client.make_bucket(self.settings.minio_bucket)
-            client.put_object(self.settings.minio_bucket, object_key, BytesIO(content), len(content), content_type=content_type)
+            if not client.bucket_exists(self._bucket()):
+                client.make_bucket(self._bucket())
+            client.put_object(self._bucket(), object_key, BytesIO(content), len(content), content_type=content_type)
         else:
             self._write_local(object_key, content)
         return StoredAttachment(object_key, content_type, len(content), hashlib.sha256(content).hexdigest())
@@ -124,7 +137,7 @@ class AttachmentStore:
             from minio.error import S3Error
 
             try:
-                response = self._minio_client().get_object(self.settings.minio_bucket, object_key)
+                response = self._minio_client().get_object(self._bucket(), object_key)
             except S3Error as exc:
                 if exc.code in {"NoSuchKey", "NoSuchBucket"}:
                     raise ValueError("附件原文件不存在，可能已被移除") from exc
@@ -139,7 +152,7 @@ class AttachmentStore:
     def delete(self, object_key: str) -> None:
         path = self._local_path(object_key)
         if self.storage == "minio":
-            self._minio_client().remove_object(self.settings.minio_bucket, object_key)
+            self._minio_client().remove_object(self._bucket(), object_key)
         path.unlink(missing_ok=True)
         if path.parent != self.local_root and path.parent.exists() and not any(path.parent.iterdir()):
             shutil.rmtree(path.parent)
@@ -151,7 +164,7 @@ class AttachmentStore:
             raise RuntimeError("图片直传需要配置可被模型网关访问的 MINIO_PUBLIC_ENDPOINT")
         expires = timedelta(seconds=expires_seconds or self.settings.attachment_vision_url_ttl_seconds)
         return self._minio_client(endpoint=self.settings.minio_public_endpoint).presigned_get_object(
-            self.settings.minio_bucket,
+            self._bucket(),
             object_key,
             expires=expires,
         )

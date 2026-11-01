@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .branding import LEGACY_DATABASE_NAMES, env
+
 import json
 import os
 import sqlite3
@@ -13,21 +15,17 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 # Desktop bundles are read-only after installation.  Let the launcher put all
 # mutable state in the operating system's per-user application-data directory,
 # while keeping the repository-local default for development and self-hosting.
-DATA_DIR = Path(os.getenv("CAREERLOOP_DATA_DIR", ROOT_DIR / "data")).expanduser()
-DB_PATH = DATA_DIR / "careerloop.db"
-LEGACY_DB_PATH = DATA_DIR / "bosscopilot.db"
+DATA_DIR = Path(env("TUANTUAN_DATA_DIR", ROOT_DIR / "data")).expanduser()
+DB_PATH = DATA_DIR / "tuantuan.db"
+LEGACY_DB_PATH = DATA_DIR / LEGACY_DATABASE_NAMES[-1]
 DB_SCHEMA_VERSION = 31
 
 
 def adopt_legacy_database() -> None:
-    """Rename the pre-rebrand bosscopilot.db (and WAL/SHM sidecars) to careerloop.db."""
-    if DB_PATH.exists() or not LEGACY_DB_PATH.exists():
-        return
-    LEGACY_DB_PATH.rename(DB_PATH)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(f"{LEGACY_DB_PATH}{suffix}")
-        if sidecar.exists():
-            sidecar.rename(Path(f"{DB_PATH}{suffix}"))
+    """Adopt historical instance databases before initializing current storage."""
+    from .branding import adopt_database
+
+    adopt_database(DB_PATH.parent)
 
 
 @contextmanager

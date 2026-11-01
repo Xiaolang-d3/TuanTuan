@@ -1,9 +1,11 @@
+import { readStorageItem, removeStorageItem } from "../../storage";
+
 export type AuthUser = { id?: number; email: string; display_name?: string; has_avatar?: boolean };
 export type AuthSession = { access_token: string; user: AuthUser };
-export const tokenStorageKey = "careerloop-auth-token";
+export const tokenStorageKey = "tuantuan-auth-token";
 
 function readStorage(storage: "localStorage" | "sessionStorage") {
-  try { return window[storage].getItem(tokenStorageKey); } catch { return null; }
+  return readStorageItem(tokenStorageKey, storage);
 }
 
 export function readStoredToken() {
@@ -25,7 +27,7 @@ export function writeStoredToken(token: string, persistent: boolean) {
 
 export function clearStoredToken() {
   for (const storage of ["localStorage", "sessionStorage"] as const) {
-    try { window[storage].removeItem(tokenStorageKey); } catch { /* Storage may be disabled. */ }
+    removeStorageItem(tokenStorageKey, storage);
   }
 }
 

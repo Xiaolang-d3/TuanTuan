@@ -5,8 +5,8 @@ import { expect, test } from "@playwright/test";
 for (const theme of ["light", "dark"] as const) {
   test(`message tables stay readable and keyboard-scrollable in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("careerloop-auth-token", "table-e2e-token");
-      localStorage.setItem("careerloop-theme", value);
+      localStorage.setItem("tuantuan-auth-token", "table-e2e-token");
+      localStorage.setItem("tuantuan-theme", value);
     }, theme);
     const content = [
       "下面按方向整理资料中的重点：", "",

@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def _startup_log(message: str) -> None:
-    print(f"[careerloop-desktop] {message}", file=sys.stderr, flush=True)
+    print(f"[tuantuan-desktop] {message}", file=sys.stderr, flush=True)
 
 
 def main() -> None:
@@ -23,9 +23,9 @@ def main() -> None:
     parser.add_argument("--instance-id", required=True)
     args = parser.parse_args()
 
-    os.environ["CAREERLOOP_DATA_DIR"] = args.data_dir
-    os.environ["CAREERLOOP_DESKTOP"] = "true"
-    os.environ["CAREERLOOP_INSTANCE_ID"] = args.instance_id
+    os.environ["TUANTUAN_DATA_DIR"] = args.data_dir
+    os.environ["TUANTUAN_DESKTOP"] = "true"
+    os.environ["TUANTUAN_INSTANCE_ID"] = args.instance_id
     os.environ["BIND_HOST"] = "127.0.0.1"
     os.environ["API_DOCS_ENABLED"] = "false"
 

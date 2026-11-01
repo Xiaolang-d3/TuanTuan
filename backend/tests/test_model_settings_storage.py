@@ -18,7 +18,7 @@ from app.db import DB_SCHEMA_VERSION, connect, init_db
 def workspace(tmp_path, monkeypatch):
     config = SimpleNamespace(model_name="audit-model", model_base_url=None, model_protocol="auto", openai_api_key=None)
     monkeypatch.setattr(settings, "get_settings", lambda: config)
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "memory")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "memory")
     monkeypatch.setattr(secret_store, "_MEMORY_SECRETS", {})
     path = tmp_path / "settings.db"
     init_db(path)
@@ -182,7 +182,7 @@ def test_environment_key_cannot_follow_later_environment_address_changes(workspa
 def test_readonly_environment_does_not_delete_distinct_legacy_key(workspace, monkeypatch):
     path, config = workspace
     config.openai_api_key = "audit-fake-environment-credential"
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "environment")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "environment")
     with connect(path) as conn:
         conn.execute("UPDATE agent_settings SET model_api_key = 'audit-fake-legacy-credential'")
     actual = settings.get_model_connection(path)
@@ -265,10 +265,10 @@ def test_local_macos_web_uses_mock_keyring_for_save_and_reread(workspace, monkey
     keyring = SimpleNamespace(get_password=lambda service, account: credentials.get((service, account)), set_password=lambda service, account, value: credentials.__setitem__((service, account), value), delete_password=lambda service, account: credentials.pop((service, account), None))
     monkeypatch.setitem(sys.modules, "keyring", keyring)
     monkeypatch.setattr(secret_store.sys, "platform", "darwin")
-    monkeypatch.delenv("CAREERLOOP_SECRET_BACKEND")
+    monkeypatch.delenv("TUANTUAN_SECRET_BACKEND")
     monkeypatch.setenv("BIND_HOST", host)
-    monkeypatch.setenv("CAREERLOOP_DEPLOYMENT_MODE", "local")
-    monkeypatch.setenv("CAREERLOOP_DESKTOP", "false")
+    monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", "local")
+    monkeypatch.setenv("TUANTUAN_DESKTOP", "false")
     assert secret_store._backend() == "keyring"
     saved = configured(workspace)
     assert saved["api_key_source"] == "keyring" and saved["secret_storage_writable"]
@@ -278,10 +278,10 @@ def test_local_macos_web_uses_mock_keyring_for_save_and_reread(workspace, monkey
 @pytest.mark.parametrize("host,mode,platform", [("0.0.0.0", "hosted", "darwin"), ("127.0.0.1", "hosted", "darwin"), ("127.0.0.1", "local", "linux")])
 def test_hosted_or_unsupported_platform_default_is_readonly(workspace, monkeypatch, host, mode, platform):
     path, _ = workspace
-    monkeypatch.delenv("CAREERLOOP_SECRET_BACKEND")
+    monkeypatch.delenv("TUANTUAN_SECRET_BACKEND")
     monkeypatch.setattr(secret_store.sys, "platform", platform)
     monkeypatch.setenv("BIND_HOST", host)
-    monkeypatch.setenv("CAREERLOOP_DEPLOYMENT_MODE", mode)
+    monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", mode)
     assert secret_store._backend() == "environment"
     assert not settings.get_agent_settings(path)["secret_storage_writable"]
     before = raw_settings(path)

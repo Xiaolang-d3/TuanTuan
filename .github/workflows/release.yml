@@ -46,16 +46,16 @@ jobs:
           fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
           mkdir -p dist
-          tar -C frontend -czf "dist/careerloop-frontend-${TAG}.tar.gz" dist
+          tar -C frontend -czf "dist/tuantuan-frontend-${TAG}.tar.gz" dist
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "dist/careerloop-frontend-${RELEASE_TAG}.tar.gz" --clobber
+            gh release upload "$RELEASE_TAG" "dist/tuantuan-frontend-${RELEASE_TAG}.tar.gz" --clobber
           else
-            gh release create "$RELEASE_TAG" "dist/careerloop-frontend-${RELEASE_TAG}.tar.gz" \
+            gh release create "$RELEASE_TAG" "dist/tuantuan-frontend-${RELEASE_TAG}.tar.gz" \
               --title "$RELEASE_TAG" \
               --generate-notes \
               --verify-tag

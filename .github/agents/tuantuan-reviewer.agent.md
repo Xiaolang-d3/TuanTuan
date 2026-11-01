@@ -1,5 +1,5 @@
 ---
-name: dengdeng-reviewer
+name: tuantuan-reviewer
 description: 只读审查团团变更的正确性、账户隔离、数据保护、测试缺口与文档同步，给出有代码依据的反馈
 target: github-copilot
 tools: ["read", "search", "github/*"]

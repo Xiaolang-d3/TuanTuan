@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workingDirectory = (globalThis as typeof globalThis & { process: { cwd(): string } }).process.cwd();
-const careerloopStyles = ["src/styles/careerloop.css", "src/features/chat/styles-theme.css"]
+const tuantuanStyles = ["src/styles/tuantuan.css", "src/features/chat/styles-theme.css"]
   .map((path) => readFileSync(resolve(workingDirectory, path), "utf8")).join("\n");
 const settingsStyles = readFileSync(
   resolve(workingDirectory, "src/features/settings/settings-workspace.css"),
@@ -39,7 +39,7 @@ function mediaBlocks(styles: string, query: string): string[] {
 
 describe("responsive application shell styles", () => {
   it("keeps the desktop application top bar unchanged", () => {
-    const desktopTopbar = careerloopStyles.match(/\.app-topbar\s*\{([^}]*)\}/)?.[1];
+    const desktopTopbar = tuantuanStyles.match(/\.app-topbar\s*\{([^}]*)\}/)?.[1];
 
     expect(desktopTopbar).toContain("position: sticky");
     expect(desktopTopbar).toContain("display: flex");
@@ -47,7 +47,7 @@ describe("responsive application shell styles", () => {
   });
 
   it("hides only titleless application top bars at the mobile breakpoint", () => {
-    const mobileStyles = mediaBlocks(careerloopStyles, "(max-width: 820px)").join("\n");
+    const mobileStyles = mediaBlocks(tuantuanStyles, "(max-width: 820px)").join("\n");
     const mobileTopbarRules = [...mobileStyles.matchAll(/\.app-topbar[^{]*\{([^}]*)\}/g)]
       .map((match) => match[1].trim().replace(/\s+/g, " "));
 
@@ -58,8 +58,8 @@ describe("responsive application shell styles", () => {
   });
 
   it("sizes page and chat content from the fixed mobile navigation only", () => {
-    const tabletStyles = mediaBlocks(careerloopStyles, "(max-width: 820px)").join("\n");
-    const phoneStyles = mediaBlocks(careerloopStyles, "(max-width: 600px)").join("\n");
+    const tabletStyles = mediaBlocks(tuantuanStyles, "(max-width: 820px)").join("\n");
+    const phoneStyles = mediaBlocks(tuantuanStyles, "(max-width: 600px)").join("\n");
 
     expect(tabletStyles).toContain("margin-top: 62px");
     expect(tabletStyles).toContain("height: calc(100dvh - 62px)");

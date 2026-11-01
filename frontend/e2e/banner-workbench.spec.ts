@@ -48,7 +48,7 @@ async function mockBannerProduct(page: Page) {
     "/agent/capabilities": { configured: true, active_model_name: "gpt-image-2", tools: [], web_research: { enabled: false, provider: "none" } },
     "/attachments/config": { storage: "local", vision_enabled: false, checks: [] }
   };
-  await page.addInitScript(() => localStorage.setItem("careerloop-auth-token", "banner-e2e-token"));
+  await page.addInitScript(() => localStorage.setItem("tuantuan-auth-token", "banner-e2e-token"));
   await page.route("http://127.0.0.1:4173/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -65,7 +65,7 @@ async function mockBannerProduct(page: Page) {
       messages.push(userMessage, assistantMessage);
       const events = [
         { type: "RUN_STARTED", threadId: body.threadId, runId: body.runId },
-        { type: "STATE_SNAPSHOT", snapshot: { careerLoop: { status: "done", userMessage, assistantMessage } } },
+        { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
         { type: "RUN_FINISHED", threadId: body.threadId, runId: body.runId }
       ];
       return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });

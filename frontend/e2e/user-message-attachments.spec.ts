@@ -32,8 +32,8 @@ for (const theme of ["light", "dark"] as const) {
     };
     const writes: string[] = [];
     await page.addInitScript(value => {
-      localStorage.setItem("careerloop-auth-token", "image-message-test-token");
-      localStorage.setItem("careerloop-theme", value);
+      localStorage.setItem("tuantuan-auth-token", "image-message-test-token");
+      localStorage.setItem("tuantuan-theme", value);
     }, theme);
     await page.route("http://127.0.0.1:4173/**", route => {
       const path = new URL(route.request().url()).pathname;

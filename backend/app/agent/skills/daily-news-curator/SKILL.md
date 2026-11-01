@@ -2,7 +2,7 @@
 name: daily-news-curator
 description: Select evidence-backed model releases, capability evaluations and pricing changes.
 version: 0.2.0
-author: CareerLoop contributors
+author: tuantuan contributors
 license: MIT
 platforms: [linux, macos, windows]
 ---

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 
 test("conversation messages use the available width without crowding mobile or source panels", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("careerloop-auth-token", "chat-spacing-e2e-token"));
+  await page.addInitScript(() => localStorage.setItem("tuantuan-auth-token", "chat-spacing-e2e-token"));
   const source = { title: "示例参考资料", url: "https://example.com/reference", domain: "example.com" };
   const responses: Record<string, unknown> = {
     "/auth/me": { user: { id: 1, email: "reader@local.test", display_name: "测试读者", has_avatar: false } },

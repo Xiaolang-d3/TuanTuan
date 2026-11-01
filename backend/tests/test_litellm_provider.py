@@ -37,7 +37,7 @@ async def collect(provider, model_request):
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("DENGDENG_MODEL_BACKEND", "litellm")
+    monkeypatch.setenv("TUANTUAN_MODEL_BACKEND", "litellm")
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "litellm.db")
     db.init_db()
     clear_litellm_option_cache()
@@ -100,7 +100,7 @@ def test_openai_tool_calls_are_parsed(server):
     server.tool = True
     provider = LiteLLMProvider("sk", "deepseek-v3", f"{server.url}/v1", 10, protocol="openai")
     response = run(provider.generate(request()))
-    assert response.tool_calls == [ToolCall(id="call_1", name="search_library", arguments={"query": "灯灯"})]
+    assert response.tool_calls == [ToolCall(id="call_1", name="search_library", arguments={"query": "团团"})]
 
 
 def test_openai_stream_text_reasoning_tools_and_usage(server):
@@ -112,7 +112,7 @@ def test_openai_stream_text_reasoning_tools_and_usage(server):
     final = events[-1]
     assert final.type == "completed"
     assert final.response.content == "你好"
-    assert final.response.tool_calls == [ToolCall(id="call_9", name="search_library", arguments={"query": "灯灯"})]
+    assert final.response.tool_calls == [ToolCall(id="call_9", name="search_library", arguments={"query": "团团"})]
     assert final.response.usage.total_tokens == 29
     assert server.last()["body"]["stream"] is True
 
@@ -135,7 +135,7 @@ def test_anthropic_thinking_blocks_round_trip_across_tool_turn(server):
     follow_up = request(messages=[
         AgentMessage(role="user", content="你好"),
         AgentMessage(role="assistant", content="", payload={
-            "tool_calls": [{"id": "toolu_1", "name": "search_library", "arguments": {"query": "灯灯"}}],
+            "tool_calls": [{"id": "toolu_1", "name": "search_library", "arguments": {"query": "团团"}}],
             "thinking_blocks": blocks,
         }),
         AgentMessage(role="tool", content="{}", tool_call_id="toolu_1"),
@@ -165,7 +165,7 @@ def test_gemini_generate_and_stream(server):
     assert "thinkingConfig" in sent["body"]["generationConfig"]
     assert response.content == "你好" and response.provider_metadata["reasoning_summary"] == "思考中"
     events = run(collect(provider, request()))
-    assert events[-1].response.tool_calls[0].arguments == {"query": "灯灯"}
+    assert events[-1].response.tool_calls[0].arguments == {"query": "团团"}
 
 
 def test_ollama_generate_and_stream_cost_zero(server):
@@ -197,7 +197,7 @@ def test_responses_encrypted_reasoning_round_trip(server):
     run(provider.generate(request(messages=[
         AgentMessage(role="user", content="你好"),
         AgentMessage(role="assistant", content="", payload={
-            "tool_calls": [{"id": "call_r1", "name": "search_library", "arguments": {"query": "灯灯"}}],
+            "tool_calls": [{"id": "call_r1", "name": "search_library", "arguments": {"query": "团团"}}],
             "responses_reasoning_items": items,
         }),
         AgentMessage(role="tool", content="{}", tool_call_id="call_r1"),

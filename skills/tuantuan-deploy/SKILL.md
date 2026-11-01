@@ -1,6 +1,6 @@
 ---
-name: dengdeng-deploy
-description: 配置、检查和维护团团 CareerLoop 的 GitHub CI/CD 与 Mac + Cloudflare 自动部署；适用于推送后更新 xiaocheng.online、发布失败排查、部署状态和恢复，不用于普通功能开发或桌面应用打包。
+name: tuantuan-deploy
+description: 配置、检查和维护团团 的 GitHub CI/CD 与 Mac + Cloudflare 自动部署；适用于推送后更新 xiaocheng.online、发布失败排查、部署状态和恢复，不用于普通功能开发或桌面应用打包。
 ---
 
 # 团团持续部署
@@ -9,9 +9,9 @@ description: 配置、检查和维护团团 CareerLoop 的 GitHub CI/CD 与 Mac 
 
 ## 定位与约定
 
-- 当前工作区 `/Users/kkxny/CareerLoop`，应用子仓库 `CareerLoop/`；先验证位置，不在工作区根仓库提交应用代码。
-- GitHub：`Xiaolang-d3/CareerLoop`，生产分支 `main`。遵循仓库 AGENTS.md 和 CONTRIBUTING.md，走 PR 与 CI，不强推或绕过失败检查。
-- 公网：`https://xiaocheng.online`；固定隧道 `dengdeng-public`，已核实的回源为 `http://localhost:8000`。按实际状态核实，不重建健康隧道。
+- 先定位当前团团 Git 仓库并验证远程地址；部署根目录与源码仓库分别确认，不在其他工作区提交应用代码。
+- GitHub：`Xiaolang-d3/TuanTuan`，生产分支 `main`。遵循仓库 AGENTS.md 和 CONTRIBUTING.md，走 PR 与 CI，不强推或绕过失败检查。
+- 公网：`https://xiaocheng.online`；沿用当前已配置的固定隧道，按实际状态核实回源地址，不重建健康隧道。
 - 实现入口：`scripts/deployment.py`、`.github/workflows/cd.yml`。首次启用、恢复或迁移前读取应用仓库的 `docs/continuous-deployment.md`；项目不在当前工作区时先定位，不猜测脚本内容。
 - 用户已选择用户自带模型密钥。部署不创建新模型密钥、不导入运营者 .env、GitHub 令牌或个人凭证；保持用户数据目录和凭证引用稳定。
 - 用户要求网页操作在前台可见，涉及 Cloudflare/GitHub 网页设置时遵守此偏好。

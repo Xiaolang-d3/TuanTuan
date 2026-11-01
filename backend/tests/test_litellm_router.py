@@ -21,7 +21,7 @@ def run(coro):
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("DENGDENG_MODEL_BACKEND", "litellm")
+    monkeypatch.setenv("TUANTUAN_MODEL_BACKEND", "litellm")
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "router.db")
     db.init_db()
     clear_litellm_option_cache()

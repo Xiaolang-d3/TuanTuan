@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from .branding import env
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
@@ -54,12 +56,12 @@ _REQUIRE_LOGIN_WHITELIST = _OPEN_AUTH_PATHS | (_DOC_PATHS if _settings.api_docs_
 _PUBLIC_FRONTEND_FILES = {
     "/favicon.ico",
     "/vite.svg",
-    "/careerloop-mark-v2.png",
+    "/tuantuan-legacy-mark-v2.png",
     "/tuantuan-logo.png",
     "/tuantuan-favicon.png",
-    "/dengdeng-icon-v1.png",
-    "/dengdeng-mark-v1.png",
-    "/dengdeng-favicon-v1.png",
+    "/tuantuan-legacy-icon-v1.png",
+    "/tuantuan-legacy-mark-v1.png",
+    "/tuantuan-legacy-favicon-v1.png",
     "/intro-surface-v1.webp",
 }
 
@@ -72,7 +74,7 @@ def static_asset_cache_control(path: str) -> str | None:
 @app.middleware("http")
 async def require_login(request: Request, call_next: Any) -> Any:
     path = request.url.path
-    maintenance_file = os.getenv("CAREERLOOP_MAINTENANCE_FILE", "")
+    maintenance_file = env("TUANTUAN_MAINTENANCE_FILE", "")
     if maintenance_file and Path(maintenance_file).is_file() and path != "/health":
         return JSONResponse(
             status_code=503,

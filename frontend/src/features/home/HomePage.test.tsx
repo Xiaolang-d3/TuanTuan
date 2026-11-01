@@ -112,7 +112,7 @@ describe("developer HomePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "简洁" }));
     expect(screen.getByLabelText("开发者首页")).toHaveAttribute("data-mode", "compact");
     expect(screen.getByRole("link", { name: "测试 Agent 更新 9" })).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-home-mode:qa-account")).toBe("compact");
+    expect(window.localStorage.getItem("tuantuan-home-mode:qa-account")).toBe("compact");
     expect(screen.queryByRole("button", { name: /切换.*主题/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("开发者首页")).not.toHaveAttribute("data-theme");
     view.unmount();

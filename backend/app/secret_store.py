@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .branding import env
+
 import hashlib
 import os
 import sys
@@ -9,7 +11,9 @@ from uuid import uuid4
 from .workspace import current_user_id, resolve_db_path
 
 
-SERVICE_NAME = "com.careerloop.app"
+from .branding import LEGACY_DATABASE_NAMES, LEGACY_KEYRING_SERVICE
+
+SERVICE_NAME = "com.tuantuan.app"
 _MEMORY_SECRETS: dict[str, str] = {}
 
 
@@ -32,11 +36,11 @@ def _account_name(db_path: str | Path | None = None) -> str:
 
 
 def _backend() -> str:
-    override = (os.getenv("CAREERLOOP_SECRET_BACKEND") or "").strip().lower()
+    override = (env("TUANTUAN_SECRET_BACKEND") or "").strip().lower()
     if override:
         return override
-    hosted = (os.getenv("CAREERLOOP_DEPLOYMENT_MODE") or "local").strip().lower() == "hosted"
-    if hosted and os.getenv("CAREERLOOP_SECRET_MASTER_KEY"):
+    hosted = (env("TUANTUAN_DEPLOYMENT_MODE") or "local").strip().lower() == "hosted"
+    if hosted and env("TUANTUAN_SECRET_MASTER_KEY"):
         return "encrypted"
     # Listening on a LAN interface does not change where local credentials live.
     if sys.platform == "darwin" and not hosted:
@@ -57,7 +61,7 @@ def secret_storage_writable() -> bool:
 def _fernet():
     try:
         from cryptography.fernet import Fernet
-        return Fernet((os.getenv("CAREERLOOP_SECRET_MASTER_KEY") or "").encode("ascii"))
+        return Fernet((env("TUANTUAN_SECRET_MASTER_KEY") or "").encode("ascii"))
     except (ValueError, UnicodeError, ImportError) as exc:
         raise SecretStoreUnavailable("服务器密钥存储未正确配置") from exc
 
@@ -67,10 +71,39 @@ def _encrypted_path(account: str, db_path: str | Path | None) -> Path:
     return resolve_db_path(db_path).parent / ".model-secrets" / hashlib.sha256(account.encode()).hexdigest()
 
 
-def _keyring_read(account: str) -> str:
+def _legacy_namespaces(db_path: str | Path | None = None) -> list[str]:
+    path = resolve_db_path(db_path).resolve()
+    if path.name != "tuantuan.db":
+        return []
+    return [
+        "workspace:" + hashlib.sha256(str(path.with_name(name)).encode("utf-8")).hexdigest()[:24]
+        for name in LEGACY_DATABASE_NAMES
+    ]
+
+
+def _keyring_read(account: str, db_path: str | Path | None = None) -> str:
     try:
         import keyring
-        return str(keyring.get_password(SERVICE_NAME, account) or "")
+        value = keyring.get_password(SERVICE_NAME, account)
+        if value:
+            return str(value)
+        accounts = [account]
+        namespace = _workspace_namespace(db_path)
+        if account.startswith(namespace + ":"):
+            accounts.extend(old + account[len(namespace):] for old in _legacy_namespaces(db_path))
+        for candidate in accounts:
+            services = (LEGACY_KEYRING_SERVICE,) if candidate == account else (SERVICE_NAME, LEGACY_KEYRING_SERVICE)
+            for service in services:
+                value = keyring.get_password(service, candidate)
+                if not value:
+                    continue
+                # A locked/read-only keychain must not make an old key disappear.
+                try:
+                    keyring.set_password(SERVICE_NAME, account, value)
+                except Exception:
+                    pass
+                return str(value)
+        return ""
     except Exception as exc:
         raise SecretStoreUnavailable("无法读取系统钥匙串") from exc
 
@@ -82,7 +115,7 @@ def get_model_api_key(db_path: str | Path | None = None) -> str:
     if backend == "memory":
         return _MEMORY_SECRETS.get(account, "")
     if backend == "keyring":
-        return _keyring_read(account)
+        return _keyring_read(account, db_path)
     return str(os.getenv("OPENAI_API_KEY") or "")
 
 
@@ -124,7 +157,8 @@ def set_model_api_key(value: str, db_path: str | Path | None = None) -> None:
 def _reference_account(reference: str, db_path: str | Path | None) -> tuple[str, str]:
     backend, separator, account = reference.partition(":")
     namespace = _workspace_namespace(db_path)
-    if not separator or backend not in {"memory", "keyring", "encrypted"} or not account.startswith(f"{namespace}:connection:"):
+    namespaces = [namespace, *_legacy_namespaces(db_path)]
+    if not separator or backend not in {"memory", "keyring", "encrypted"} or not any(account.startswith(f"{candidate}:connection:") for candidate in namespaces):
         raise SecretStoreUnavailable("凭证引用不属于当前工作区")
     return backend, account
 
@@ -161,7 +195,7 @@ def get_secret(reference: str, db_path: str | Path | None = None) -> str:
             return _fernet().decrypt(_encrypted_path(account, db_path).read_bytes()).decode("utf-8")
         except (OSError, InvalidToken, UnicodeError) as exc:
             raise SecretStoreUnavailable("无法读取加密模型凭证，请检查服务器密钥和备份") from exc
-    return _keyring_read(account)
+    return _keyring_read(account, db_path)
 
 
 def delete_secret(reference: str, db_path: str | Path | None = None) -> None:

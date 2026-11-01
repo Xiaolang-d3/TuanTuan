@@ -1,7 +1,7 @@
 node_modules/
 src-tauri/target/
-src-tauri/binaries/careerloop-server-*
-src-tauri/resources/careerloop-runtime/
+src-tauri/binaries/*-server-*
+src-tauri/resources/*-runtime/
 .sidecar-build/
 .sidecar-dist/
 .pyinstaller-cache/

@@ -1,2 +1,2 @@
 APP_VERSION = "2.0.0"
-USER_AGENT = f"Dengdeng/{APP_VERSION}"
+USER_AGENT = f"tuantuan/{APP_VERSION}"

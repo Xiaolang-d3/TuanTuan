@@ -11,7 +11,7 @@ from app.library.sources import delete_source, get_source, list_sources, update_
 
 
 def legacy_workspace(tmp_path):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     init_v22(path)
     document_path(path).write_text(render(ProfileDocument(
         name="读者", skills="- 记录笔记", goals="- 历史求职目标",

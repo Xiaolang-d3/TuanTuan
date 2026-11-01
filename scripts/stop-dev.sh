@@ -12,7 +12,7 @@ for port in 5173 8000; do
   fi
 done
 
-for session in careerloop-frontend careerloop-backend; do
+for session in tuantuan-frontend tuantuan-backend; do
   if screen -ls | grep -q "$session"; then
     screen -S "$session" -X quit
     echo "Stopped screen session $session"

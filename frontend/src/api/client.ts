@@ -13,7 +13,7 @@ type DesktopStreamEvent = {
 type DesktopInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 type DesktopListen = (event: string, handler: (event: { payload: DesktopStreamEvent }) => void) => Promise<() => void>;
 
-export const SESSION_EXPIRED_EVENT = "careerloop:session-expired";
+export const SESSION_EXPIRED_EVENT = "tuantuan:session-expired";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly retryAfterSeconds = 0, public readonly details: Record<string, unknown> | null = null) {

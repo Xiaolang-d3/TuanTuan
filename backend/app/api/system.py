@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..branding import env
+
 import os
 from pathlib import Path
 from typing import Any
@@ -37,9 +39,9 @@ def startup() -> None:
 def health() -> dict[str, str]:
     return {
         "status": "ok",
-        "service": "careerloop",
+        "service": "tuantuan",
         "version": APP_VERSION,
-        "instance_id": os.getenv("CAREERLOOP_INSTANCE_ID", "web"),
+        "instance_id": env("TUANTUAN_INSTANCE_ID", "web"),
     }
 
 

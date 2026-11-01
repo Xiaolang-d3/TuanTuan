@@ -225,6 +225,6 @@ describe("App identity placement", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(expectSidebarIdentity(container).closest("aside")).toHaveClass("collapsed");
-    await waitFor(() => expect(localStorage.getItem("careerloop-sidebar:developer@example.test")).toBe("collapsed"));
+    await waitFor(() => expect(localStorage.getItem("tuantuan-sidebar:developer@example.test")).toBe("collapsed"));
   });
 });
