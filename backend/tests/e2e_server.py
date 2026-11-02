@@ -12,9 +12,9 @@ from pathlib import Path
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="careerloop-e2e-") as data_dir:
+    with tempfile.TemporaryDirectory(prefix="tuantuan-e2e-") as data_dir:
         os.environ.update({
-            "CAREERLOOP_DATA_DIR": data_dir, "MODEL_PROTOCOL": "ollama",
+            "TUANTUAN_DATA_DIR": data_dir, "MODEL_PROTOCOL": "ollama",
             "MODEL_NAME": "e2e-local-model", "EMBEDDING_BACKEND": "hash",
             "OPENAI_API_KEY": "", "ATTACHMENT_STORAGE": "local",
             "WEB_RESEARCH_ENABLED": "false", "BIND_HOST": "127.0.0.1",

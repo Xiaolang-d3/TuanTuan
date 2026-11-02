@@ -25,7 +25,7 @@ PATHS = {"openai": "/chat/completions", "responses": "/responses", "anthropic": 
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("DENGDENG_MODEL_BACKEND", "litellm")
+    monkeypatch.setenv("TUANTUAN_MODEL_BACKEND", "litellm")
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "redaction.db")
     db.init_db()
     clear_litellm_option_cache()
@@ -73,7 +73,7 @@ def test_litellm_errors_mask_the_connection_key(server, protocol, key):
 
 @pytest.mark.parametrize("protocol", list(BASES))
 def test_native_errors_mask_the_connection_key(server, protocol, monkeypatch):
-    monkeypatch.setenv("DENGDENG_MODEL_BACKEND", "native")
+    monkeypatch.setenv("TUANTUAN_MODEL_BACKEND", "native")
     echo(server, PATHS[protocol], PLAIN_KEY)
     provider = _NATIVE_CLASSES[protocol](
         api_key=PLAIN_KEY, model="gpt-4o", base_url=f"{server.url}{BASES[protocol]}", timeout_seconds=5,

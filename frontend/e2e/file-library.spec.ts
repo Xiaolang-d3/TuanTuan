@@ -19,8 +19,8 @@ const evidenceDir = resolve("..", "..", "output", "file-library-redesign");
 
 async function mockLibrary(page: Page, theme: "light" | "dark") {
   await page.addInitScript((value) => {
-    localStorage.setItem("careerloop-auth-token", "file-library-e2e-token");
-    localStorage.setItem("careerloop-theme", value);
+    localStorage.setItem("tuantuan-auth-token", "file-library-e2e-token");
+    localStorage.setItem("tuantuan-theme", value);
   }, theme);
   await page.route("http://127.0.0.1:4173/**", async (route) => {
     const path = new URL(route.request().url()).pathname;

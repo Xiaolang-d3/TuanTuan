@@ -193,21 +193,21 @@ def test_smoke_environment_never_inherits_operator_credentials(tmp_path, monkeyp
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-do-not-use")
     monkeypatch.setenv("GITHUB_TOKEN", "synthetic-do-not-use")
     monkeypatch.setenv("ARTIFICIAL_ANALYSIS_API_KEY", "fixture-benchmark-key")
-    monkeypatch.setenv("CAREERLOOP_BENCHMARK_ENV_FILE", "/operator/private.env")
+    monkeypatch.setenv("TUANTUAN_BENCHMARK_ENV_FILE", "/operator/private.env")
     env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "real")}, NEW,
                                          smoke_data=tmp_path / "isolated")
     assert env["OPENAI_API_KEY"] == ""
     assert "GITHUB_TOKEN" not in env
-    assert env["CAREERLOOP_DATA_DIR"] == str(tmp_path / "isolated")
-    assert env["CAREERLOOP_SECRET_BACKEND"] == "memory"
+    assert env["TUANTUAN_DATA_DIR"] == str(tmp_path / "isolated")
+    assert env["TUANTUAN_SECRET_BACKEND"] == "memory"
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
-    assert "CAREERLOOP_BENCHMARK_ENV_FILE" not in env
+    assert "TUANTUAN_BENCHMARK_ENV_FILE" not in env
 
 
 def test_release_uses_stable_service_config_outside_release(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTIFICIAL_ANALYSIS_API_KEY", "fixture-do-not-inherit")
     env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "real")}, NEW)
-    assert env["CAREERLOOP_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
+    assert env["TUANTUAN_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert env["PYTHON_DOTENV_DISABLED"] == "1"

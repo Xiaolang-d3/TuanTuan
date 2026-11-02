@@ -15,7 +15,7 @@ permissions:
 jobs:
   build-macos-arm64:
     name: macOS ARM64 internal package
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -24,7 +24,7 @@ jobs:
           if ! brew list --versions python@3.11 >/dev/null; then
             brew install python@3.11
           fi
-          echo "CAREERLOOP_BASE_PYTHON=$(brew --prefix python@3.11)/bin/python3.11" >> "$GITHUB_ENV"
+          echo "TUANTUAN_BASE_PYTHON=$(brew --prefix python@3.11)/bin/python3.11" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/backend/.venv/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v7
         with:
@@ -60,7 +60,7 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         env:
-          CAREERLOOP_SECRET_BACKEND: memory
+          TUANTUAN_SECRET_BACKEND: memory
         run: python -m pytest tests -q
       - name: Run frontend tests
         working-directory: frontend
@@ -86,7 +86,7 @@ jobs:
       - name: Upload internal package
         uses: actions/upload-artifact@v4
         with:
-          name: careerloop-macos-arm64-internal
+          name: tuantuan-macos-arm64-internal
           path: |
             desktop/src-tauri/target/release/bundle/macos/*.app
             desktop/src-tauri/target/release/bundle/dmg/*.dmg

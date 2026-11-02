@@ -216,7 +216,7 @@ def _parse_with_docling(filename: str, content: bytes) -> str:
     # is large and may need to initialize local OCR models on first use.
     from docling.document_converter import DocumentConverter
 
-    with TemporaryDirectory(prefix="careerloop-document-") as directory:
+    with TemporaryDirectory(prefix="tuantuan-document-") as directory:
         path = Path(directory) / Path(filename).name
         path.write_bytes(content)
         result = DocumentConverter().convert(path)

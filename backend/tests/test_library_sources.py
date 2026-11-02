@@ -23,7 +23,7 @@ from app.tools.library import SearchLibraryTool
 
 
 def test_legacy_resume_migrates_once_without_deleting_original(tmp_path):
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_legacy_db(db_path)
     document.document_path(db_path).write_text(document.render(document.ProfileDocument(name="读者", resume_text="旧资料内容：每周回顾一次。")))
     init_db(db_path)
@@ -36,7 +36,7 @@ def test_legacy_resume_migrates_once_without_deleting_original(tmp_path):
 
 
 def test_two_files_are_stored_as_independent_sources_with_private_permissions(tmp_path):
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_db(db_path)
     first = import_file_source(filename="one.txt", content_bytes="第一份资料：火星是一颗岩石行星，这份记录只属于第一个来源。".encode(), db_path=db_path)
     second = import_file_source(filename="two.txt", content_bytes="第二份资料：木星是一颗气态巨行星，这份记录只属于第二个来源。".encode(), db_path=db_path)
@@ -55,7 +55,7 @@ def test_two_files_are_stored_as_independent_sources_with_private_permissions(tm
 def test_disabled_source_leaves_search_and_reenable_restores_it(tmp_path):
     import asyncio
 
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_db(db_path)
     source = create_text_source(title="天文笔记", content="海王星是一颗冰巨星", enabled=True, db_path=db_path)
     tool = SearchLibraryTool(db_path)
@@ -68,7 +68,7 @@ def test_disabled_source_leaves_search_and_reenable_restores_it(tmp_path):
 
 
 def test_editing_extracted_text_updates_privacy_and_index_without_changing_original_file(tmp_path):
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_db(db_path)
     original = "原文件内容：木星是一颗气态巨行星，这份资料只用于验证原文件不会被正文校正覆盖。".encode()
     source = import_file_source(filename="notes.txt", content_bytes=original, enabled=True, db_path=db_path)
@@ -99,7 +99,7 @@ def test_editing_extracted_text_updates_privacy_and_index_without_changing_origi
 
 
 def test_deleting_source_removes_file_index_and_only_unconfirmed_exclusive_memory(tmp_path):
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_db(db_path)
     save_metadata(name="读者", db_path=db_path)
     source = import_file_source(filename="notes.txt", content_bytes="来源内容需要足够完整，用于验证删除原文件、索引和待确认知识。".encode(), db_path=db_path)
@@ -123,7 +123,7 @@ def test_deleting_source_removes_file_index_and_only_unconfirmed_exclusive_memor
 
 
 def test_failed_original_file_deletion_keeps_source_knowledge_and_index(tmp_path, monkeypatch):
-    db_path = tmp_path / "careerloop.db"
+    db_path = tmp_path / "tuantuan.db"
     init_db(db_path)
     source = import_file_source(filename="notes.txt", content_bytes="可供重试删除的原始笔记。".encode(), enabled=True, db_path=db_path)
     file_path, _, _ = get_source_file(source["id"], db_path=db_path)

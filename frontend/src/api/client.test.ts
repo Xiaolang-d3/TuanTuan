@@ -79,7 +79,7 @@ describe("fetchWithTimeout", () => {
       ? Promise.resolve()
       : new Promise((resolve) => { finish = resolve; }));
     const expired = vi.fn();
-    window.addEventListener("careerloop:session-expired", expired);
+    window.addEventListener("tuantuan:session-expired", expired);
     Object.assign(window, { __TAURI__: { core: { invoke } } });
     try {
       const result = fetchWithTimeout("http://127.0.0.1:8000/agent/settings", { headers: { Authorization: "Bearer synthetic-token" } }, 10);
@@ -93,7 +93,7 @@ describe("fetchWithTimeout", () => {
       await Promise.resolve();
       expect(expired).not.toHaveBeenCalled();
     } finally {
-      window.removeEventListener("careerloop:session-expired", expired);
+      window.removeEventListener("tuantuan:session-expired", expired);
       delete (window as Window & { __TAURI__?: unknown }).__TAURI__;
     }
   });

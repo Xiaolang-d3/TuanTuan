@@ -9,8 +9,8 @@ from app.workspace import ensure_workspace
 
 @pytest.mark.parametrize("missing_column", [True, False])
 def test_existing_v27_workspace_upgrades_preserving_history(tmp_path, monkeypatch, missing_column):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "careerloop.db")
-    path = tmp_path / "workspaces" / "7" / "careerloop.db"
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
+    path = tmp_path / "workspaces" / "7" / "tuantuan.db"
     db.init_db(path)
     with db.connect(path) as conn:
         conversation_id = conn.execute("SELECT id FROM conversations LIMIT 1").fetchone()[0]

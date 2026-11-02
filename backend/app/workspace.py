@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from . import db as db_module
+from .branding import DATABASE_NAME, LEGACY_DATABASE_NAMES, adopt_database
+
+
+def workspace_db_path(root: Path) -> Path:
+    return adopt_database(root)
 
 
 _user_id: ContextVar[int | None] = ContextVar("workspace_user_id", default=None)
@@ -48,7 +53,7 @@ def current_workspace_root() -> Path | None:
 
 def current_workspace_db() -> Path | None:
     root = _root.get()
-    return (root / "careerloop.db") if root is not None else None
+    return workspace_db_path(root) if root is not None else None
 
 
 def snapshot_workspace() -> tuple[int | None, Path | None]:
@@ -101,7 +106,7 @@ def existing_workspace_roots() -> list[Path]:
     return sorted(
         path
         for path in root.iterdir()
-        if path.is_dir() and (path / "careerloop.db").exists()
+        if path.is_dir() and any((path / name).exists() for name in (DATABASE_NAME, *LEGACY_DATABASE_NAMES))
     )
 
 
@@ -120,7 +125,7 @@ def resolve_db_path(explicit: str | Path | None = None) -> Path:
         return db_module.DB_PATH
     only = single_workspace_root()
     if only is not None:
-        return only / "careerloop.db"
+        return workspace_db_path(only)
     return db_module.DB_PATH
 
 
@@ -183,13 +188,13 @@ def _legacy_payload_exists() -> bool:
 
 def adopt_legacy_into(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _move_sqlite(db_module.DB_PATH, root / "careerloop.db")
+    _move_sqlite(db_module.DB_PATH, workspace_db_path(root))
     _move_path(data_dir() / "career-profile.md", root / "career-profile.md")
     _move_path(data_dir() / "attachments", root / "attachments")
 
 
 def migrate_users_from_legacy_db() -> None:
-    """Copy ``users`` rows out of a pre-split careerloop.db into auth.db."""
+    """Copy ``users`` rows out of a pre-split instance database into auth.db."""
     init_auth_db()
     source = db_module.DB_PATH
     if not source.exists() or source.resolve() == auth_db_path().resolve():
@@ -222,11 +227,11 @@ def migrate_users_from_legacy_db() -> None:
 def ensure_workspace(user_id: int) -> Path:
     """Create or adopt the on-disk workspace for ``user_id`` and apply migrations."""
     root = workspace_root_for(user_id)
-    db_file = root / "careerloop.db"
+    db_file = workspace_db_path(root)
     if not db_file.exists() and _legacy_payload_exists() and list_user_ids()[:1] == [user_id]:
         adopt_legacy_into(root)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    db_module.init_db(root / "careerloop.db")
+    db_module.init_db(workspace_db_path(root))
     return root
 
 

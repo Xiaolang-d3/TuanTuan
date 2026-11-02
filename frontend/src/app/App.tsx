@@ -1,3 +1,4 @@
+import { readStorageItem } from "../storage";
 import { useModelCatalog } from "../features/settings/useModelCatalog";
 import { useComposerModelDiscovery } from "../features/chat/useComposerModelDiscovery";
 import { useModelDiscovery } from "../features/settings/useModelDiscovery";
@@ -114,22 +115,12 @@ const pagePrefetcher = createPagePrefetcher({
   settings: loadSettingsWorkspace
 });
 
-for (const key of ["sidebar", "view"]) {
-  const legacy = window.localStorage.getItem(`bosscopilot-${key}`);
-  if (legacy !== null) {
-    if (window.localStorage.getItem(`careerloop-${key}`) === null) {
-      window.localStorage.setItem(`careerloop-${key}`, legacy);
-    }
-    window.localStorage.removeItem(`bosscopilot-${key}`);
-  }
-}
-
 function preferenceKey(base: string, email: string) {
   return `${base}:${email}`;
 }
 
 function readPreference(base: string, email: string) {
-  return window.localStorage.getItem(preferenceKey(base, email)) ?? window.localStorage.getItem(base);
+  return readStorageItem(preferenceKey(base, email)) ?? readStorageItem(base);
 }
 
 function appTopBarShowsTitle(route: AppRoute): boolean {
@@ -154,7 +145,7 @@ export function App({
   const voiceInput = useMemo(() => createVoiceInputService(fetchJson), [fetchJson]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarEpoch, setAvatarEpoch] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("careerloop-sidebar", userEmail) === "collapsed");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("tuantuan-sidebar", userEmail) === "collapsed");
   const [appRoute, setAppRoute] = useState<AppRoute>(() => initialAppRoute(window.location.hash));
   const activeView: ViewKey = appRoute.section;
   const workspaceLibraryOpen = appRoute.section === "chat" && appRoute.page === "library";
@@ -167,31 +158,31 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const [homeComposerDraft, setHomeComposerDraft] = useState<ChatComposerDraft | null>(null);
-  const composerDrafts = useMemo(() => readStringMap(preferenceKey("careerloop-composer-drafts", userEmail)), [userEmail]);
+  const composerDrafts = useMemo(() => readStringMap(preferenceKey("tuantuan-composer-drafts", userEmail)), [userEmail]);
   const persistComposerDrafts = useCallback(() => {
-    writeStringMap(preferenceKey("careerloop-composer-drafts", userEmail), composerDrafts);
+    writeStringMap(preferenceKey("tuantuan-composer-drafts", userEmail), composerDrafts);
   }, [composerDrafts, userEmail]);
-  const [pinnedConversationIds, setPinnedConversationIds] = useState<number[]>(() => readIdList(preferenceKey("careerloop-pinned-conversations", userEmail)));
+  const [pinnedConversationIds, setPinnedConversationIds] = useState<number[]>(() => readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
   useEffect(() => {
-    setPinnedConversationIds(readIdList(preferenceKey("careerloop-pinned-conversations", userEmail)));
+    setPinnedConversationIds(readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
   }, [userEmail]);
   function togglePinnedConversation(conversation: Conversation) {
     setPinnedConversationIds((current) => {
       const next = current.includes(conversation.id) ? current.filter((id) => id !== conversation.id) : [...current, conversation.id];
-      writeIdList(preferenceKey("careerloop-pinned-conversations", userEmail), next);
+      writeIdList(preferenceKey("tuantuan-pinned-conversations", userEmail), next);
       return next;
     });
   }
-  const storedFolders = useMemo(() => readConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail)), [userEmail]);
+  const storedFolders = useMemo(() => readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail)), [userEmail]);
   const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>(storedFolders.folders);
   const [conversationFolderAssignments, setConversationFolderAssignments] = useState<Record<number, string>>(storedFolders.assignments);
   useEffect(() => {
-    const next = readConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail));
+    const next = readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail));
     setConversationFolders(next.folders);
     setConversationFolderAssignments(next.assignments);
   }, [userEmail]);
   function storeFolders(folders: ConversationFolder[], assignments: Record<number, string>) {
-    writeConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail), folders, assignments);
+    writeConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail), folders, assignments);
   }
   function createConversationFolder(name: string) {
     const trimmed = name.trim().slice(0, 40);
@@ -433,7 +424,7 @@ export function App({
   }, [currentConversationId]);
 
   useEffect(() => {
-    window.localStorage.setItem(preferenceKey("careerloop-view", userEmail), activeView);
+    window.localStorage.setItem(preferenceKey("tuantuan-view", userEmail), activeView);
   }, [activeView]);
 
   useEffect(() => {
@@ -485,7 +476,7 @@ export function App({
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
       const next = !current;
-      window.localStorage.setItem(preferenceKey("careerloop-sidebar", userEmail), next ? "collapsed" : "expanded");
+      window.localStorage.setItem(preferenceKey("tuantuan-sidebar", userEmail), next ? "collapsed" : "expanded");
       return next;
     });
   }

@@ -1,3 +1,6 @@
+mod data_directory;
+mod environment;
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -100,7 +103,7 @@ fn health_response_matches(response: &str, instance_id: &str) -> bool {
         return false;
     };
     value["status"] == "ok"
-        && value["service"] == "careerloop"
+        && value["service"] == "tuantuan"
         && value["version"] == env!("CARGO_PKG_VERSION")
         && value["instance_id"] == instance_id
 }
@@ -145,9 +148,11 @@ fn start_api(
     instance_id: &str,
 ) -> Result<SidecarChild, Box<dyn std::error::Error>> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let python = root.join("backend/.venv/bin/python");
+    let python = environment::value("PYTHON")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("backend/.venv/bin/python"));
     let entrypoint = root.join("backend/app/desktop_server.py");
-    let data_dir = app.path().app_data_dir()?;
+    let data_dir = data_directory::discover(app.path().app_data_dir()?)?;
     std::fs::create_dir_all(&data_dir)?;
     let child = Command::new(python)
         .arg(entrypoint)
@@ -164,11 +169,11 @@ fn start_api(
     port: u16,
     instance_id: &str,
 ) -> Result<SidecarChild, Box<dyn std::error::Error>> {
-    let data_dir = app.path().app_data_dir()?;
+    let data_dir = data_directory::discover(app.path().app_data_dir()?)?;
     std::fs::create_dir_all(&data_dir)?;
     let (events, child) = app
         .shell()
-        .sidecar("careerloop-server")?
+        .sidecar("tuantuan-server")?
         .args([
             "--data-dir",
             data_dir.to_string_lossy().as_ref(),
@@ -237,7 +242,7 @@ fn encode_multipart(fields: Vec<DesktopFormField>) -> Result<(String, Vec<u8>), 
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let boundary = format!("careerloop-{}-{nonce}", std::process::id());
+    let boundary = format!("tuantuan-{}-{nonce}", std::process::id());
     let mut body = Vec::new();
     for field in fields {
         let name = multipart_header_value(&field.name);
@@ -609,16 +614,20 @@ mod tests {
     fn health_requires_matching_service_version_and_instance() {
         let response = format!(
             "HTTP/1.1 200 OK\r\n\r\n{}",
-            serde_json::json!({ "status": "ok", "service": "careerloop", "version": env!("CARGO_PKG_VERSION"), "instance_id": "test-instance" })
+            serde_json::json!({ "status": "ok", "service": "tuantuan", "version": env!("CARGO_PKG_VERSION"), "instance_id": "test-instance" })
         );
         assert!(health_response_matches(&response, "test-instance"));
         assert!(!health_response_matches(&response, "other-instance"));
+        assert!(!health_response_matches(
+            &response.replace("tuantuan", "careerloop"),
+            "test-instance"
+        ));
         assert!(!health_response_matches(
             &response.replace(env!("CARGO_PKG_VERSION"), "99.0.0"),
             "test-instance"
         ));
         assert!(!health_response_matches(
-            &response.replace("careerloop", "other-service"),
+            &response.replace("tuantuan", "other-service"),
             "test-instance"
         ));
         assert!(!health_response_matches(

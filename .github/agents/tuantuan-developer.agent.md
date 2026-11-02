@@ -1,5 +1,5 @@
 ---
-name: dengdeng-developer
+name: tuantuan-developer
 description: 实现团团的小范围功能、缺陷修复与确定性测试，遵守架构、文档同步和 Pull Request 规范
 target: github-copilot
 tools: ["read", "search", "edit", "execute"]

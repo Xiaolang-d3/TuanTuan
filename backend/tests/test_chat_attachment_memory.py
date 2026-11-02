@@ -15,12 +15,12 @@ from test_agent_runtime import ScriptedModel, runtime_for
 
 @pytest.fixture
 def uploaded(tmp_path, monkeypatch):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     monkeypatch.setattr(db, "DB_PATH", path)
     db.init_db(path)
     cid = create_conversation("附件续接")["id"]
     store = AttachmentStore(local_root=tmp_path / "objects")
-    text = "前页内容。" * 300 + "\nCareerLoop：个人开源项目，负责运行时、工具编排与中断恢复。\n第二页末尾。"
+    text = "前页内容。" * 300 + "\n团团：个人开源项目，负责运行时、工具编排与中断恢复。\n第二页末尾。"
     attachment = create_attachment(cid, "document", "resume.txt", text.encode(), store=store)
     attachment = parse_attachment(attachment["id"], store=store)
     row = save_chat_message("user", "帮我分析这份简历", {"attachments": [{"id": attachment["id"]}]}, cid)

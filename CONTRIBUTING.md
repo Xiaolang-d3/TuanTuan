@@ -2,7 +2,7 @@
 
 ## 参与协作
 
-参与交流与贡献前，请阅读 [社区行为准则](CODE_OF_CONDUCT.md)。普通问题、功能建议和使用咨询请通过 [Issue 模板](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose) 提交；安全漏洞请按 [安全政策](SECURITY.md) 私密报告。
+参与交流与贡献前，请阅读 [社区行为准则](CODE_OF_CONDUCT.md)。普通问题、功能建议和使用咨询请通过 [Issue 模板](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose) 提交；安全漏洞请按 [安全政策](SECURITY.md) 私密报告。
 
 提交 Pull Request 时请填写仓库提供的模板，说明变更目的、验证方式及配置或迁移影响；UI 变更附脱敏截图。项目采用 [MIT License](LICENSE)，提交贡献时应确保有权提供相关代码或材料，并保留第三方版权和许可证声明。
 

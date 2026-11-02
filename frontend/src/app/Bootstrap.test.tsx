@@ -113,6 +113,6 @@ describe("public product entry", () => {
     navigate("#/home");
     expect(await screen.findByLabelText("密码")).toHaveValue("");
     expect(screen.queryByText("当前账户：owner@example.test")).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 });

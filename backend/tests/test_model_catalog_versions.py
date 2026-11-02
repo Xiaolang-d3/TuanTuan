@@ -15,7 +15,7 @@ from app.observability.model_context import public_model_selection
 def workspace(tmp_path, monkeypatch):
     config = SimpleNamespace(model_name="test-model", model_base_url="https://test.example.test/v1", model_protocol="openai", openai_api_key=None)
     monkeypatch.setattr(settings, "get_settings", lambda: config)
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "memory")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "memory")
     monkeypatch.setattr(secret_store, "_MEMORY_SECRETS", {})
     path = tmp_path / "versions.db"
     init_db(path)
@@ -65,11 +65,11 @@ def test_legacy_binding_survives_migration_and_key_replacement(workspace, monkey
     path, _ = workspace
     with connect(path) as conn:
         conn.execute("UPDATE agent_settings SET model_api_key = 'synthetic-legacy-key'")
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "environment")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "environment")
     first = get_profile_connection(db_path=path)
     assert first["secret_ref"].startswith("legacy:")
     selection = internal_model_selection(first)
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "memory")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "memory")
     settings.save_agent_settings({"api_key": "synthetic-replacement-key"}, path)
     restored = get_profile_connection(db_path=path, selection=selection)
     assert restored["api_key"] == "synthetic-legacy-key"

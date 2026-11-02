@@ -82,9 +82,9 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                 yield chunk
             if event_name == "run_started":
                 yield encode(RunStartedEvent(threadId=thread_id, runId=run_id))
-                yield encode(CustomEvent(name="careerloop.user_message", value=data["user_message"]))
+                yield encode(CustomEvent(name="tuantuan.user_message", value=data["user_message"]))
                 if data.get("timing", {}).get("started_at"):
-                    yield encode(CustomEvent(name="careerloop.run_timing", value=data["timing"]))
+                    yield encode(CustomEvent(name="tuantuan.run_timing", value=data["timing"]))
                 continue
             if event_name == "text_reset":
                 if text_started:
@@ -120,7 +120,7 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                         ))
                     yield encode(ReasoningMessageEndEvent(messageId=reasoning_id))
                     yield encode(ReasoningEndEvent(messageId=reasoning_id))
-                    yield encode(CustomEvent(name="careerloop.agent_event", value=tool_event))
+                    yield encode(CustomEvent(name="tuantuan.agent_event", value=tool_event))
                     continue
                 if tool_call_id not in started_tool_calls:
                     started_tool_calls.add(tool_call_id)
@@ -141,7 +141,7 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                         content=json.dumps(tool_event, ensure_ascii=False),
                         role="tool",
                     ))
-                yield encode(CustomEvent(name="careerloop.agent_event", value=tool_event))
+                yield encode(CustomEvent(name="tuantuan.agent_event", value=tool_event))
                 continue
             if event_name in {"completed", "cancelled", "error"}:
                 if text_started:
@@ -156,7 +156,7 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                     else agent_payload.get("status", "done")
                 )
                 snapshot = {
-                    "careerLoop": {
+                    "tuantuan": {
                         "status": status,
                         "userMessage": data["user_message"],
                         "assistantMessage": data["assistant_message"],
@@ -164,7 +164,7 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                 }
                 yield encode(StateSnapshotEvent(snapshot=snapshot))
                 if event_name == "cancelled":
-                    yield encode(CustomEvent(name="careerloop.cancelled", value={"status": status}))
+                    yield encode(CustomEvent(name="tuantuan.cancelled", value={"status": status}))
                 if status == "failed":
                     agent_error = agent_payload.get("error") or {}
                     yield encode(RunErrorEvent(

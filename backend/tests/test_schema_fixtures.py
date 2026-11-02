@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def load(version: int | str, tmp_path: Path) -> Path:
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     with sqlite3.connect(path) as conn:
         conn.executescript((FIXTURES / f"workspace_v{version}.sql").read_text(encoding="utf-8"))
     return path
@@ -62,7 +62,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert {"library_collections", "library_collection_sources"} <= tables
         assert {"model_selection_json"} <= columns(conn, "agent_execution_runs")
 
-    backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "careerloop.db"
+    backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "tuantuan.db"
     with sqlite3.connect(backup) as conn:
         assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == old_version
 
@@ -72,7 +72,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
 
 
 def test_fresh_workspace_records_named_current_migration(tmp_path):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [

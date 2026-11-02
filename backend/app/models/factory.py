@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..branding import env
+
 import logging
 import os
 from collections.abc import Callable
@@ -16,7 +18,7 @@ from ..model_protocol import base_url_for_protocol, model_protocol_candidates, n
 
 logger = logging.getLogger(__name__)
 
-MODEL_BACKEND_ENV = "DENGDENG_MODEL_BACKEND"
+MODEL_BACKEND_ENV = "TUANTUAN_MODEL_BACKEND"
 _NATIVE_CLASSES = {
     "openai": OpenAICompatibleProvider,
     "responses": OpenAIResponsesProvider,
@@ -40,7 +42,7 @@ def _warn_once(key: str, message: str, *args: object) -> None:
 
 def model_backend() -> str:
     """``litellm`` (default) or ``native``; the native adapters stay for one release as a rollback."""
-    raw = os.getenv(MODEL_BACKEND_ENV) or ""
+    raw = env(MODEL_BACKEND_ENV) or ""
     requested = raw.strip().lower() or "litellm"
     if requested not in _BACKENDS:
         _warn_once(

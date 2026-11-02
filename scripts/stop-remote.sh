@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-for session in careerloop-remote careerloop-remote-backend; do
-  # screen prepends a numeric PID (e.g. 1234.careerloop-remote), so let
+for session in tuantuan-remote tuantuan-remote-backend; do
+  # screen prepends a numeric PID (e.g. 1234.tuantuan-remote), so let
   # screen resolve the suffix instead of parsing its CRLF-formatted listing.
   if screen -S "$session" -X quit 2>/dev/null; then
     echo "已停止 $session"

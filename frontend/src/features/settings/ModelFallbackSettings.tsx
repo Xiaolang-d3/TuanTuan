@@ -90,7 +90,7 @@ export function ModelFallbackSettings({ catalog, fetchJson, busy }: { catalog: M
   return <section className="settings-card model-settings-card model-connections-card model-fallback-card" aria-labelledby="model-fallback-title">
     <div className="model-connections-heading"><div><h3 id="model-fallback-title"><Shuffle size={15} aria-hidden="true" />备用模型</h3><p>主模型出错时按顺序换用，回答会标注实际使用的模型。</p></div>
       <label className="model-fallback-switch"><input type="checkbox" checked={draft.enabled} disabled={disabled} onChange={event => { setMessage(""); setDraft({ ...draft, enabled: event.target.checked }); }} />启用备用模型</label></div>
-    {native ? <p className="model-connections-hint">当前使用原生模型层（DENGDENG_MODEL_BACKEND=native），备用模型设置会保存，但不会生效。</p> : null}
+    {native ? <p className="model-connections-hint">当前使用原生模型层（TUANTUAN_MODEL_BACKEND=native），备用模型设置会保存，但不会生效。</p> : null}
     {profiles.length < 2 ? <p className="model-connections-hint">至少需要两个可用模型才能设置备用模型，请先在上方添加模型。</p> : null}
     {retainedIds.size ? <p className="model-connections-hint">历史选择已保留，可移除后改选当前服务的模型；不会自动替换。</p> : null}
     {draft.enabled ? <>

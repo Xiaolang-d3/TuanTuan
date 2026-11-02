@@ -79,7 +79,7 @@ def test_redundant_question_after_readme_is_repaired_into_a_project_draft():
             messages=[AgentMessage(role="user", content="帮我写简历，LocalDesk是我独立开发的项目。")],
             clarification=AgentClarification(question=question))
         result = await runtime_for(model, AskUserTool()).run(
-            "README：灯灯是本地优先的AI协作工作台，支持对话与资料管理。", resume=snapshot)
+            "README：团团是本地优先的AI协作工作台，支持对话与资料管理。", resume=snapshot)
         assert result.status == "done" and result.snapshot is None
         assert "LocalDesk｜独立开发" in result.content
         assert any(event.tool_name == "clarification_validator" for event in result.events)

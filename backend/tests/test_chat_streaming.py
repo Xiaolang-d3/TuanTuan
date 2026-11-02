@@ -225,12 +225,12 @@ class ChatStreamingApiTest(unittest.TestCase):
         completed_at = "2026-10-11T00:06:29.125+00:00"
         with patch("app.agent.run_store._utc_now", side_effect=[started_at, completed_at]):
             first = self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "计时", "run-timing"))
-        timing_index = next(index for index, event in enumerate(first) if event.get("name") == "careerloop.run_timing")
+        timing_index = next(index for index, event in enumerate(first) if event.get("name") == "tuantuan.run_timing")
         text_index = next(index for index, event in enumerate(first) if event["type"] == "TEXT_MESSAGE_CONTENT")
         self.assertLess(timing_index, text_index)
         self.assertEqual(first[timing_index]["value"], {"run_id": "run-timing", "started_at": started_at})
         snapshot = next(event["snapshot"] for event in first if event["type"] == "STATE_SNAPSHOT")
-        agent = snapshot["careerLoop"]["assistantMessage"]["payload"]["agent"]
+        agent = snapshot["tuantuan"]["assistantMessage"]["payload"]["agent"]
         self.assertEqual(agent["started_at"], started_at)
         self.assertEqual(agent["completed_at"], completed_at)
         self.assertEqual(agent["duration_ms"], 389000)
@@ -239,7 +239,7 @@ class ChatStreamingApiTest(unittest.TestCase):
 
         second = self.run_ag_ui(conversation["id"], "计时", "run-timing")
         replay = next(event["snapshot"] for event in second if event["type"] == "STATE_SNAPSHOT")
-        self.assertEqual(replay["careerLoop"]["assistantMessage"]["payload"]["agent"]["duration_ms"], 389000)
+        self.assertEqual(replay["tuantuan"]["assistantMessage"]["payload"]["agent"]["duration_ms"], 389000)
 
     def test_ag_ui_requires_user_text(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "空输入"}).json()
@@ -276,7 +276,7 @@ class ChatStreamingApiTest(unittest.TestCase):
 
         events = self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "整理资料", "run-wait"))
         snapshot = next(event["snapshot"] for event in events if event["type"] == "STATE_SNAPSHOT")
-        self.assertEqual(snapshot["careerLoop"]["status"], "waiting_user")
+        self.assertEqual(snapshot["tuantuan"]["status"], "waiting_user")
 
     def test_repeated_run_id_replays_without_duplicate_execution(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "幂等"}).json()
@@ -340,7 +340,7 @@ class ChatStreamingApiTest(unittest.TestCase):
         resources_module.get_settings = lambda: SimpleNamespace(
             attachment_storage="minio", attachment_vision_enabled=True,
             attachment_vision_url_ttl_seconds=300, minio_endpoint="127.0.0.1:9000",
-            minio_access_key="access", minio_secret_key="secret", minio_bucket="careerloop",
+            minio_access_key="access", minio_secret_key="secret", minio_bucket="tuantuan",
             minio_public_endpoint="https://files.example.test",
         )
         try:

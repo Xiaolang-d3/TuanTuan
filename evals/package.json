@@ -1,5 +1,5 @@
 {
-  "name": "careerloop-evals",
+  "name": "tuantuan-evals",
   "private": true,
   "scripts": {
     "eval": "PROMPTFOO_PYTHON=../backend/.venv/bin/python promptfoo eval --no-cache"

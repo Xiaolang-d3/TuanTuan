@@ -1,0 +1,4 @@
+interface:
+  display_name: "团团持续部署"
+  short_description: "维护团团 GitHub CI/CD、Mac 自动更新、健康检查与部署恢复"
+  default_prompt: "使用 $tuantuan-deploy 检查并完善团团的 GitHub 持续部署，验证最新 main 已通过 CI 后更新 Mac 上的线上服务。"

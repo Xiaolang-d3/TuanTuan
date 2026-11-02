@@ -6,8 +6,8 @@ import { defaultAgentSettings } from "../src/constants";
 for (const theme of ["light", "dark"] as const) {
   test(`settings entries remain aligned and reachable across breakpoints in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("careerloop-auth-token", "settings-e2e-token");
-      localStorage.setItem("careerloop-theme", value);
+      localStorage.setItem("tuantuan-auth-token", "settings-e2e-token");
+      localStorage.setItem("tuantuan-theme", value);
     }, theme);
     const responses: Record<string, unknown> = {
       "/auth/me": { user: { id: 1, email: "settings.reader.with.a.long.address@local.test", display_name: "", has_avatar: false } },

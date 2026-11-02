@@ -5,9 +5,9 @@
 
 **理解你的想法，帮你把事情做好。**
 
-[![CI](https://github.com/Xiaolang-d3/CareerLoop/actions/workflows/ci.yml/badge.svg)](https://github.com/Xiaolang-d3/CareerLoop/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/Xiaolang-d3/CareerLoop?color=blue)](LICENSE)
-[![Community Standards](https://img.shields.io/badge/Community-Standards-blue)](https://github.com/Xiaolang-d3/CareerLoop/community)
+[![CI](https://github.com/Xiaolang-d3/TuanTuan/actions/workflows/ci.yml/badge.svg)](https://github.com/Xiaolang-d3/TuanTuan/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/Xiaolang-d3/TuanTuan?color=blue)](LICENSE)
+[![Community Standards](https://img.shields.io/badge/Community-Standards-blue)](https://github.com/Xiaolang-d3/TuanTuan/community)
 
 </div>
 
@@ -17,7 +17,7 @@
 
 <div align="center">
 
-[贡献指南](CONTRIBUTING.md) · [问题反馈](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)
+[贡献指南](CONTRIBUTING.md) · [问题反馈](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)
 
 </div>
 
@@ -34,11 +34,11 @@
 | **多模型连接** | 管理多个模型服务和模型档案，在对话中切换；支持 OpenAI 兼容接口、Responses、Anthropic、Gemini、Ollama，以及备用模型策略。 |
 | **开发者资讯首页** | 浏览 AI / Agent 动态、GitHub 日榜与周榜、关注仓库的 Releases 和工程实践；收藏线索，或带入对话继续分析。 |
 
-多用户托管在单台服务器时，设置 `CAREERLOOP_DEPLOYMENT_MODE=hosted` 和 `CAREERLOOP_SECRET_MASTER_KEY`，各用户可在“设置 → 模型设置”中保存自己的模型连接。用 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成主密钥；通过服务器安全配置注入并单独备份，禁止提交到仓库。备份用户工作区时须保留其中的 `.model-secrets` 目录，并恢复到原数据路径（凭证引用与路径绑定）；主密钥丢失后，用户需要重新配置密钥。新用户不会自动继承服务器的模型环境变量，已有环境密钥引用仍保持兼容。
+多用户托管在单台服务器时，设置 `TUANTUAN_DEPLOYMENT_MODE=hosted` 和 `TUANTUAN_SECRET_MASTER_KEY`，各用户可在“设置 → 模型设置”中保存自己的模型连接。用 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成主密钥；通过服务器安全配置注入并单独备份，禁止提交到仓库。备份用户工作区时须保留其中的 `.model-secrets` 目录，并恢复到原数据路径（凭证引用与路径绑定）；主密钥丢失后，用户需要重新配置密钥。新用户不会自动继承服务器的模型环境变量，已有环境密钥引用仍保持兼容。
 
-托管模式仅接受 HTTPS 和允许的模型服务域名：OpenAI、Anthropic、Gemini 官方域名默认允许，其他域名由管理员通过 `CAREERLOOP_MODEL_ALLOWED_HOSTS`（逗号分隔）添加。本地模式不受此限制。该域名限制不能防止 DNS 重绑定和服务端重定向；部署时必须使用出站防火墙或安全代理阻止访问本机、私有网络和云元数据地址，并使用 HTTPS 保护用户到服务器的连接。
+托管模式仅接受 HTTPS 和允许的模型服务域名：OpenAI、Anthropic、Gemini 官方域名默认允许，其他域名由管理员通过 `TUANTUAN_MODEL_ALLOWED_HOSTS`（逗号分隔）添加。本地模式不受此限制。该域名限制不能防止 DNS 重绑定和服务端重定向；部署时必须使用出站防火墙或安全代理阻止访问本机、私有网络和云元数据地址，并使用 HTTPS 保护用户到服务器的连接。
 
-界面提供 **首页、AI 工作区、文件库、设置** 四个入口，支持浅色、深色和跟随系统外观。项目沿用 `CareerLoop` 仓库名，当前产品定位与功能以团团为准。
+界面提供 **首页、AI 工作区、文件库、设置** 四个入口，支持浅色、深色和跟随系统外观。产品名称为团团，英文标识统一使用 `tuantuan`。
 
 ## 技术栈
 
@@ -51,7 +51,7 @@
 ## 项目结构
 
 ```text
-CareerLoop/
+TuanTuan/
 ├── backend/
 │   ├── app/            # API 路由、资料库、聊天、Agent、解析及持久化
 │   ├── tests/
@@ -85,6 +85,12 @@ CareerLoop/
 
 功能是否可用取决于所选模型、服务权限与本地可选依赖。
 
+## 升级与命名兼容
+
+源码、包名、事件和新配置统一使用 `tuantuan`，产品名称为「团团」。旧版环境变量、浏览器登录与偏好、模型凭证和数据库通过兼容层读取；新旧环境变量同时存在时，以新变量为准。数据库更名同时保留 SQLite WAL/SHM 文件，桌面端继续使用已有数据目录，不自动合并不同工作区。
+
+升级前先停止使用同一数据目录的旧后端并备份数据，再启动新版；不要让两个版本同时操作同一工作区。无需手动改写数据库内容或重新录入模型密钥。
+
 ## 本地 MinIO（可选）
 
 附件默认保存在本地目录。使用 MinIO 时，在 `backend/.env` 中设置 `ATTACHMENT_STORAGE=minio`，并填写 `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET` 与 `MINIO_SECURE`。上传的新附件写入私有桶；预览和下载按需缓存到本地，历史本地附件仍可读取。切换存储不会自动迁移历史文件。
@@ -99,7 +105,7 @@ Windows 上可用 `powershell -File scripts/start-minio.ps1 -BinaryPath <MinIO�
 - 版本与里程碑摘要：[`CHANGELOG.md`](CHANGELOG.md)
 - 社区行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - 安全漏洞报告：[`SECURITY.md`](SECURITY.md)；请使用私密报告渠道。
-- 问题反馈、功能建议与使用咨询：[创建 Issue](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)
+- 问题反馈、功能建议与使用咨询：[创建 Issue](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)
 
 ## 许可证
 

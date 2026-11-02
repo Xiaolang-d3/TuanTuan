@@ -15,7 +15,7 @@ const conversation = {
 
 async function mockCurrentProduct(page: Page) {
   await page.addInitScript(() => {
-    window.localStorage.setItem("careerloop-auth-token", "e2e-token");
+    window.localStorage.setItem("tuantuan-auth-token", "e2e-token");
   });
   await page.route("http://127.0.0.1:4173/**", async (route) => {
     const url = new URL(route.request().url());
@@ -79,7 +79,7 @@ test.beforeEach(async ({ page }) => {
 
 for (const theme of ["light", "dark"] as const) {
   test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
-    await page.addInitScript(value => localStorage.setItem("careerloop-theme", value), theme);
+    await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
     await page.setViewportSize({ width: 874, height: 770 });
     await page.goto("/#/chat/1");
     const sidebar = page.locator("aside.sidebar");
@@ -182,7 +182,7 @@ for (const theme of ["light", "dark"] as const) {
 }
 
 test("mobile navigation keeps settings reachable through the account menu", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("careerloop-sidebar:e2e@local.test", "collapsed"));
+  await page.addInitScript(() => localStorage.setItem("tuantuan-sidebar:e2e@local.test", "collapsed"));
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 770 });
     await page.goto("/#/chat/1");

@@ -39,7 +39,7 @@ function emit(name: keyof AgentSubscriber, value: Record<string, unknown>) {
 
 const userMessage: ChatMessage = { id: 11, role: "user", content: "测试问题", created_at: "2026-10-10T00:00:00Z" };
 const assistantMessage: ChatMessage = { id: 12, role: "assistant", content: "测试回答", created_at: "2026-10-10T00:00:01Z" };
-const snapshot = { careerLoop: { status: "done", userMessage, assistantMessage } };
+const snapshot = { tuantuan: { status: "done", userMessage, assistantMessage } };
 
 beforeEach(() => { client.runAgent.mockReset(); client.abortRun.mockReset(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -72,7 +72,7 @@ describe("useChatRun stream reconciliation", () => {
   it("keeps all search options and the run ID after a failed stream, including a server-bound provider", async () => {
     const { result, fetchJson } = setup();
     client.runAgent.mockImplementationOnce(async () => {
-      emit("onCustomEvent", { event: { name: "careerloop.user_message", value: { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "finance", source_preference: "technical", provider: "tavily" } } } } });
+      emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "finance", source_preference: "technical", provider: "tavily" } } } } });
       throw new Error("连接中断");
     });
     await act(() => result.current.sendChatMessage(userMessage.content, ["doc-1"], [], true, "finance", "technical"));
@@ -211,16 +211,16 @@ describe("useChatRun stream reconciliation", () => {
       started_at: startedAt, completed_at: "2026-10-11T00:06:29.125+00:00", duration_ms: 389000,
     } } };
     act(() => {
-      emit("onCustomEvent", { event: { name: "careerloop.user_message", value: userMessage } });
-      emit("onCustomEvent", { event: { name: "careerloop.run_timing", value: { run_id: runId, started_at: startedAt } } });
-      emit("onCustomEvent", { event: { name: "careerloop.user_message", value: userMessage } });
+      emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: userMessage } });
+      emit("onCustomEvent", { event: { name: "tuantuan.run_timing", value: { run_id: runId, started_at: startedAt } } });
+      emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: userMessage } });
     });
     expect(result.current.chatMessages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(result.current.chatMessages[1].id).toBe(placeholder.id);
     expect(result.current.chatMessages[1].payload?.agent?.started_at).toBe(startedAt);
     act(() => {
-      emit("onStateSnapshotEvent", { event: { snapshot: { careerLoop: { status: "done", userMessage, assistantMessage: timedAnswer } } } });
-      emit("onCustomEvent", { event: { name: "careerloop.run_timing", value: { run_id: runId, started_at: "2026-10-11T01:00:00Z" } } });
+      emit("onStateSnapshotEvent", { event: { snapshot: { tuantuan: { status: "done", userMessage, assistantMessage: timedAnswer } } } });
+      emit("onCustomEvent", { event: { name: "tuantuan.run_timing", value: { run_id: runId, started_at: "2026-10-11T01:00:00Z" } } });
     });
     expect(result.current.chatMessages).toEqual([userMessage, timedAnswer]);
     expect(result.current.chatMessages[1].payload?.agent?.duration_ms).toBe(389000);
@@ -234,8 +234,8 @@ describe("useChatRun stream reconciliation", () => {
     await waitFor(() => expect(client.runAgent).toHaveBeenCalledOnce());
     const runId = client.runAgent.mock.calls[0][0].runId as string;
     act(() => {
-      emit("onCustomEvent", { event: { name: "careerloop.run_timing", value: { run_id: "other-run", started_at: "2026-10-11T00:00:00Z" } } });
-      emit("onCustomEvent", { event: { name: "careerloop.run_timing", value: { run_id: runId, started_at: "invalid" } } });
+      emit("onCustomEvent", { event: { name: "tuantuan.run_timing", value: { run_id: "other-run", started_at: "2026-10-11T00:00:00Z" } } });
+      emit("onCustomEvent", { event: { name: "tuantuan.run_timing", value: { run_id: runId, started_at: "invalid" } } });
     });
     expect(result.current.chatMessages[1].payload?.agent?.started_at).toBeUndefined();
     expect(result.current.chatMessages[1].payload?.agent?.duration_ms).toBeUndefined();
@@ -252,7 +252,7 @@ describe("useChatRun stream reconciliation", () => {
         { tool_call_id: "first", tool_name: "read_library", status: "running", message: "读取资料" },
         { tool_call_id: "second", tool_name: "search_public_web", status: "running", message: "搜索网页" },
         { tool_call_id: "first", tool_name: "read_library", status: "done", message: "资料已读取" },
-      ]) emit("onCustomEvent", { event: { name: "careerloop.agent_event", value: { ...event, round: 1 } } });
+      ]) emit("onCustomEvent", { event: { name: "tuantuan.agent_event", value: { ...event, round: 1 } } });
     });
     const events = result.current.chatMessages[1].payload?.agent?.events;
     expect(events?.map((event) => event.tool_call_id)).toEqual(["first", "second"]);
@@ -260,7 +260,7 @@ describe("useChatRun stream reconciliation", () => {
     await act(async () => { emit("onStateSnapshotEvent", { event: { snapshot } }); finish(); await pending; });
   });
 
-  it("merges standard reasoning and the matching CareerLoop event into one activity", async () => {
+  it("merges standard reasoning and the matching Tuantuan event into one activity", async () => {
     const { result, finish } = setup();
     let pending!: Promise<void | false>;
     act(() => { pending = result.current.sendChatMessage(userMessage.content); });
@@ -269,7 +269,7 @@ describe("useChatRun stream reconciliation", () => {
       emit("onReasoningMessageStartEvent", { event: { messageId: "reasoning:think-1" } });
       emit("onReasoningMessageContentEvent", { event: { messageId: "reasoning:think-1", delta: "检查资料" }, reasoningMessageBuffer: "" });
       emit("onReasoningMessageEndEvent", { event: { messageId: "reasoning:think-1" }, reasoningMessageBuffer: "检查资料" });
-      emit("onCustomEvent", { event: { name: "careerloop.agent_event", value: {
+      emit("onCustomEvent", { event: { name: "tuantuan.agent_event", value: {
         round: 1, tool_call_id: "think-1", tool_name: "agent_thinking", status: "done", message: "检查资料", data: { route: "library_qa" }
       } } });
     });
@@ -284,14 +284,14 @@ describe("useChatRun stream reconciliation", () => {
     act(() => { pending = result.current.sendChatMessage(userMessage.content); });
     await waitFor(() => expect(client.runAgent).toHaveBeenCalledOnce());
     act(() => {
-      emit("onCustomEvent", { event: { name: "careerloop.user_message", value: userMessage } });
+      emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: userMessage } });
       emit("onTextMessageStartEvent", { event: { messageId: "answer-1" } });
       emit("onTextMessageContentEvent", { event: { messageId: "answer-1", delta: assistantMessage.content } });
       emit("onStateSnapshotEvent", { event: { snapshot } });
       emit("onStateSnapshotEvent", { event: { snapshot } });
       emit("onTextMessageContentEvent", { event: { messageId: "answer-1", delta: assistantMessage.content } });
       emit("onReasoningMessageStartEvent", { event: { messageId: "reasoning:late" } });
-      emit("onCustomEvent", { event: { name: "careerloop.user_message", value: userMessage } });
+      emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: userMessage } });
     });
     expect(result.current.chatMessages).toEqual([userMessage, assistantMessage]);
     await act(async () => { finish(); await pending; });
@@ -351,7 +351,7 @@ describe("useChatRun stream reconciliation", () => {
       started_at: "2026-10-11T00:00:00.000+00:00", duration_ms: 1500,
     } } };
     client.runAgent.mockImplementationOnce(async () => {
-      emit("onStateSnapshotEvent", { event: { snapshot: { careerLoop: {
+      emit("onStateSnapshotEvent", { event: { snapshot: { tuantuan: {
         status: "cancelled", userMessage, assistantMessage: cancelledMessage,
       } } } });
     });
@@ -368,7 +368,7 @@ describe("useChatRun stream reconciliation", () => {
       error: { code, message: "服务暂时不可用", retryable: true }
     } } };
     client.runAgent.mockImplementationOnce(async () => {
-      emit("onStateSnapshotEvent", { event: { snapshot: { careerLoop: { status: "failed", userMessage, assistantMessage: failedMessage } } } });
+      emit("onStateSnapshotEvent", { event: { snapshot: { tuantuan: { status: "failed", userMessage, assistantMessage: failedMessage } } } });
       emit("onRunErrorEvent", { event: { message: "服务暂时不可用" } });
       throw new Error("服务暂时不可用");
     });
@@ -386,7 +386,7 @@ it("uses server-resolved automatic search options when a new turn needs retry", 
   client.runAgent.mockImplementationOnce(async () => {
     const forwarded = client.runAgent.mock.calls[0][0].forwardedProps;
     expect(forwarded).not.toHaveProperty("webSearch");
-    emit("onCustomEvent", { event: { name: "careerloop.user_message", value: { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "auto", source_preference: "none", provider: "tavily" } } } } });
+    emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "auto", source_preference: "none", provider: "tavily" } } } } });
     throw new Error("stream failed");
   });
   await act(() => result.current.sendChatMessage("查一下最新消息"));

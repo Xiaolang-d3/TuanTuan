@@ -63,9 +63,9 @@ def test_unlisted_origin_is_not_allowed(monkeypatch) -> None:
 
 def test_explicit_allowed_origins_are_honoured(monkeypatch) -> None:
     monkeypatch.delenv("BIND_HOST", raising=False)
-    monkeypatch.setenv("ALLOWED_ORIGINS", "https://careerloop.example.com")
+    monkeypatch.setenv("ALLOWED_ORIGINS", "https://tuantuan.example.com")
 
-    assert "https://careerloop.example.com" in get_settings().allowed_origins
+    assert "https://tuantuan.example.com" in get_settings().allowed_origins
 
 
 def test_login_locks_out_after_repeated_failures(monkeypatch) -> None:
@@ -132,19 +132,19 @@ def test_only_content_hashed_frontend_assets_receive_immutable_cache_policy() ->
 def test_public_brand_asset_path_bypasses_login() -> None:
     client = TestClient(app)
 
-    response = client.get("/careerloop-mark-v2.png")
-    expected_status = 200 if (FRONTEND_DIST_DIR / "careerloop-mark-v2.png").is_file() else 404
+    response = client.get("/tuantuan-legacy-mark-v2.png")
+    expected_status = 200 if (FRONTEND_DIST_DIR / "tuantuan-legacy-mark-v2.png").is_file() else 404
     assert response.status_code == expected_status
-    # careerloop-mark.svg 已随品牌切换移除；白名单不应再放行不存在的文件。
-    assert client.get("/careerloop-mark.svg").status_code == 401
+    # tuantuan-mark.svg 已随品牌切换移除；白名单不应再放行不存在的文件。
+    assert client.get("/tuantuan-mark.svg").status_code == 401
 
 
 @pytest.mark.parametrize("filename", [
     "tuantuan-logo.png",
     "tuantuan-favicon.png",
-    "dengdeng-icon-v1.png",
-    "dengdeng-mark-v1.png",
-    "dengdeng-favicon-v1.png",
+    "tuantuan-legacy-icon-v1.png",
+    "tuantuan-legacy-mark-v1.png",
+    "tuantuan-legacy-favicon-v1.png",
     "intro-surface-v1.webp",
 ])
 def test_current_public_images_load_without_authorization(tmp_path, filename: str) -> None:
@@ -171,10 +171,10 @@ def test_current_public_images_load_without_authorization(tmp_path, filename: st
 def test_deployment_maintenance_blocks_visitors_until_activation_finishes(tmp_path, monkeypatch):
     flag = tmp_path / "maintenance"
     flag.touch()
-    monkeypatch.setenv("CAREERLOOP_MAINTENANCE_FILE", str(flag))
+    monkeypatch.setenv("TUANTUAN_MAINTENANCE_FILE", str(flag))
     client = TestClient(app)
 
-    for path in ("/", "/auth/config", "/library", "/dengdeng-icon-v1.png"):
+    for path in ("/", "/auth/config", "/library", "/tuantuan-legacy-icon-v1.png"):
         response = client.get(path)
         assert response.status_code == 503
         assert response.headers["retry-after"] == "30"

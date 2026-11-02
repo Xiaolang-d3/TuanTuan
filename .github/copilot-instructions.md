@@ -1,6 +1,6 @@
 # 团团仓库协作约定
 
-团团是本地优先的智能工作伙伴。仓库名保留 `CareerLoop`，实现与产品说明以当前源码和 `README.md` 为准。先阅读 `CONTRIBUTING.md`，再按任务需要读取相关文档。
+团团是本地优先的智能工作伙伴。英文标识统一使用 `tuantuan`，实现与产品说明以当前源码和 `README.md` 为准。先阅读 `CONTRIBUTING.md`，再按任务需要读取相关文档。
 
 - `backend/app/`：FastAPI、账户隔离、资料库、模型连接和智能体运行时；测试在 `backend/tests/`。
 - `frontend/src/`：React 19、TypeScript、Vite；单元测试与源码相邻，浏览器测试在 `frontend/e2e/`。
