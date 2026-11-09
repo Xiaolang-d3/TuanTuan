@@ -1,6 +1,7 @@
 """Deployment transactions use temporary data and never contact GitHub/launchd."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import importlib.util
 import io
 import json
@@ -192,6 +193,71 @@ def test_failed_revision_is_not_replayed_without_retry(deployment_root, monkeypa
     deployment.once(root)
 
 
+@pytest.mark.parametrize("error", [TimeoutError(), deployment.URLError("offline"),
+                                   deployment.HTTPError("https://example.test", 503, "unavailable", {}, None),
+                                   subprocess.CalledProcessError(1, ["installer"])])
+def test_transient_prepare_failures_retry_with_backoff_but_stop_after_three(tmp_path, monkeypatch, error):
+    config = {"enabled": True, "data_dir": str(tmp_path / "data"), "port": 18000}
+    deployment.write_json(tmp_path / "config.json", config)
+    monkeypatch.setattr(deployment, "deploy_lock", lambda _: nullcontext(True))
+    monkeypatch.setattr(deployment, "recover", lambda *_: None)
+    monkeypatch.setattr(deployment, "latest_revision", lambda: NEW)
+    now = [1000]
+    monkeypatch.setattr(deployment.time, "time", lambda: now[0])
+    attempts = []
+
+    def fail(*_):
+        attempts.append(now[0])
+        raise error
+
+    monkeypatch.setattr(deployment, "prepare", fail)
+    monkeypatch.setattr(deployment, "activate", lambda *_: pytest.fail("must not activate"))
+    for attempt in range(1, 4):
+        with pytest.raises(type(error)):
+            deployment.once(tmp_path)
+        failure = deployment.read_json(tmp_path / "last-failure.json")
+        assert failure["phase"] == "prepare"
+        assert failure["attempts"] == attempt
+        deployment.once(tmp_path)
+        assert len(attempts) == attempt
+        if attempt < 3:
+            assert failure["retry_at"] == now[0] + 60 * 2 ** (attempt - 1)
+            now[0] = failure["retry_at"]
+        else:
+            assert "retry_at" not in failure
+    now[0] += 10000
+    deployment.once(tmp_path)
+    assert len(attempts) == 3
+    with pytest.raises(type(error)):
+        deployment.once(tmp_path, retry=True)
+    assert len(attempts) == 4
+
+
+@pytest.mark.parametrize("phase,error", [
+    ("prepare", ValueError("integrity/config failure")),
+    ("prepare", deployment.HTTPError("https://example.test", 403, "forbidden", {}, None)),
+    ("activate", TimeoutError("startup timeout")),
+])
+def test_integrity_and_activation_failures_require_manual_retry(tmp_path, monkeypatch, phase, error):
+    deployment.write_json(tmp_path / "config.json", {"enabled": True})
+    monkeypatch.setattr(deployment, "deploy_lock", lambda _: nullcontext(True))
+    monkeypatch.setattr(deployment, "recover", lambda *_: None)
+    monkeypatch.setattr(deployment, "latest_revision", lambda: NEW)
+    monkeypatch.setattr(deployment, "prepare", lambda *_: tmp_path)
+    calls = []
+
+    def fail(*_):
+        calls.append(phase)
+        raise error
+
+    monkeypatch.setattr(deployment, phase if phase == "prepare" else "activate", fail)
+    with pytest.raises(type(error)):
+        deployment.once(tmp_path)
+    assert "retry_at" not in deployment.read_json(tmp_path / "last-failure.json")
+    deployment.once(tmp_path)
+    assert calls == [phase]
+
+
 def test_smoke_environment_never_inherits_operator_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("SYSTEMROOT", "C:/Windows")
     monkeypatch.setenv("WINDIR", "C:/Windows")
@@ -207,6 +273,8 @@ def test_smoke_environment_never_inherits_operator_credentials(tmp_path, monkeyp
     assert env["WINDIR"] == "C:/Windows"
     assert env["TUANTUAN_DATA_DIR"] == str(tmp_path / "isolated")
     assert env["TUANTUAN_SECRET_BACKEND"] == "memory"
+    assert env["TUANTUAN_DEPLOYMENT_MODE"] == "hosted"
+    assert "TUANTUAN_SECRET_MASTER_KEY" not in env
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert "TUANTUAN_BENCHMARK_ENV_FILE" not in env
@@ -218,3 +286,68 @@ def test_release_uses_stable_service_config_outside_release(tmp_path, monkeypatc
     assert env["TUANTUAN_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
+    assert env["TUANTUAN_DEPLOYMENT_MODE"] == "hosted"
+    assert env["TUANTUAN_SECRET_BACKEND"] == "keyring"
+    assert env["TUANTUAN_MODEL_ALLOWED_HOSTS"] == ""
+
+
+@pytest.mark.parametrize("mode", [None, "local", "hosted"])
+def test_production_policy_cannot_be_weakened_by_operator_environment(tmp_path, monkeypatch, mode):
+    from app.model_connection import normalize_api_root
+    from app.presentations.service import production_enabled
+    from app.secret_store import secret_backend_name
+
+    if mode is not None:
+        monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", mode)
+    monkeypatch.setenv("TUANTUAN_MODEL_ALLOWED_HOSTS", "untrusted.test,127.0.0.1")
+    monkeypatch.setenv("TUANTUAN_SECRET_MASTER_KEY", "must-not-inherit")
+    env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "data")}, NEW)
+    assert "TUANTUAN_SECRET_MASTER_KEY" not in env
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert secret_backend_name() == "keyring"
+    assert not production_enabled()
+    assert normalize_api_root("https://api.openai.com/v1") == "https://api.openai.com/v1"
+    for base in ("http://127.0.0.1:11434", "https://untrusted.test/v1", "http://api.openai.com/v1"):
+        with pytest.raises(ValueError, match="托管模式"):
+            normalize_api_root(base)
+
+
+def test_explicit_production_hosts_and_master_key_do_not_leak_to_smoke(tmp_path, monkeypatch):
+    from cryptography.fernet import Fernet
+    from app.model_connection import normalize_api_root
+
+    key = Fernet.generate_key().decode("ascii")
+    (tmp_path / "secret-master-key").write_text(key + "\n", encoding="ascii")
+    config = {"data_dir": str(tmp_path / "data"), "model_allowed_hosts": ["Gateway.Example.test"]}
+    env = deployment.runtime_environment(tmp_path, config, NEW)
+    assert env["TUANTUAN_SECRET_MASTER_KEY"] == key
+    assert env["TUANTUAN_MODEL_ALLOWED_HOSTS"] == "gateway.example.test"
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert normalize_api_root("https://gateway.example.test/v1") == "https://gateway.example.test/v1"
+    with pytest.raises(ValueError, match="托管模式"):
+        normalize_api_root("http://gateway.example.test/v1")
+    smoke_env = deployment.runtime_environment(tmp_path, config, NEW, smoke_data=tmp_path / "smoke")
+    assert "TUANTUAN_SECRET_MASTER_KEY" not in smoke_env
+    assert "TUANTUAN_MODEL_ALLOWED_HOSTS" not in smoke_env
+
+
+@pytest.mark.parametrize("hosts", ["gateway.test", ["https://gateway.test"], ["*.test"], ["a.test,b.test"], [None]])
+def test_production_rejects_malformed_allowed_hosts(tmp_path, hosts):
+    with pytest.raises(ValueError, match="model_allowed_hosts"):
+        deployment.runtime_environment(tmp_path, {"data_dir": "data", "model_allowed_hosts": hosts}, NEW)
+
+
+def test_invalid_production_config_is_rejected_before_service_stop(tmp_path, monkeypatch):
+    monkeypatch.setattr(deployment, "service", lambda *_: pytest.fail("must not stop live service"))
+    with pytest.raises(ValueError, match="model_allowed_hosts"):
+        deployment.activate(tmp_path, {"data_dir": "data", "model_allowed_hosts": ["*.test"]}, NEW)
+    assert not (tmp_path / "transaction.json").exists()
+
+
+@pytest.mark.parametrize("key", ["not-base64", "YWJj"])
+def test_production_rejects_invalid_master_key(tmp_path, key):
+    (tmp_path / "secret-master-key").write_text(key, encoding="ascii")
+    with pytest.raises(ValueError, match="master key"):
+        deployment.runtime_environment(tmp_path, {"data_dir": "data"}, NEW)

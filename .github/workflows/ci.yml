@@ -7,16 +7,62 @@ on:
       - main
   workflow_dispatch:
   workflow_call:
+    inputs:
+      ref:
+        description: "Optional immutable commit SHA; overrides must match the event's release tag."
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate-ref:
+    name: validate-ref
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restrict explicit SHA overrides to their release context
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+          RELEASE_TAG: ${{ github.event.inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          requested = os.environ["REQUESTED_REF"]
+          if not requested:
+              raise SystemExit(0)
+          if not re.fullmatch(r"[0-9a-f]{40}", requested):
+              raise SystemExit("CI ref must be a full immutable commit SHA")
+          if requested == os.environ["EVENT_SHA"]:
+              raise SystemExit(0)
+          tag = os.environ["RELEASE_TAG"]
+          number = r"(?:0|[1-9][0-9]*)"
+          identifier = rf"(?:{number}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+          version = rf"v{number}\.{number}\.{number}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+          if os.environ["EVENT_NAME"] != "workflow_dispatch" or not re.fullmatch(version, tag):
+              raise SystemExit("A different CI SHA is only allowed for an existing manual release tag")
+          url = f"https://github.com/{os.environ['REPOSITORY']}.git"
+          refs = [f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"]
+          result = subprocess.run(["git", "ls-remote", "--exit-code", url, *refs], check=True, capture_output=True, text=True, timeout=60)
+          remote = dict(line.split()[::-1] for line in result.stdout.splitlines())
+          if remote.get(refs[1], remote.get(refs[0])) != requested:
+              raise SystemExit("CI SHA does not match the release tag")
+          PY
+
   docs-sync:
+    needs: validate-ref
     name: docs-sync
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -24,6 +70,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
           fetch-depth: 0
       - name: Ensure local docs are not tracked
         env:
@@ -32,11 +80,15 @@ jobs:
         run: scripts/check-docs-sync.sh "$BASE_SHA" "$HEAD_SHA"
 
   backend-tests:
+    needs: validate-ref
     name: backend-tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -88,11 +140,15 @@ jobs:
           if-no-files-found: ignore
 
   backend-windows-documents:
+    needs: validate-ref
     name: backend-windows-documents
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -124,11 +180,15 @@ jobs:
           if-no-files-found: ignore
 
   frontend-unit:
+    needs: validate-ref
     name: frontend-unit
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -161,6 +221,9 @@ jobs:
     needs: frontend-unit
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -225,6 +288,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - validate-ref
       - docs-sync
       - backend-tests
       - backend-windows-documents
@@ -234,6 +298,7 @@ jobs:
       - name: Require all CI jobs
         run: |
           set -euo pipefail
+          test "${{ needs.validate-ref.result }}" = success
           test "${{ needs.backend-tests.result }}" = success
           test "${{ needs.backend-windows-documents.result }}" = success
           test "${{ needs.frontend-unit.result }}" = success

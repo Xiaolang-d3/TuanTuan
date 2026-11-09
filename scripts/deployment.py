@@ -7,6 +7,8 @@ is a separate, explicit one-time operation; creating a skill does not install th
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from contextlib import contextmanager
 import hashlib
 import json
@@ -21,7 +23,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, build_opener, urlopen
 
 
@@ -149,6 +151,7 @@ def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: 
     env = clean_environment()
     env.update({
         "BIND_HOST": "127.0.0.1", "API_DOCS_ENABLED": "false", "TUANTUAN_DESKTOP": "false",
+        "TUANTUAN_DEPLOYMENT_MODE": "hosted",
         "TUANTUAN_DATA_DIR": str(smoke_data or config["data_dir"]),
         "TUANTUAN_INSTANCE_ID": revision, "OPENAI_API_KEY": "", "TAVILY_API_KEY": "",
         "AGENT_SEARCH_TOKEN": "", "MINIO_ACCESS_KEY": "", "MINIO_SECRET_KEY": "",
@@ -156,10 +159,30 @@ def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: 
         "EMBEDDING_BACKEND": "hash" if smoke_data else "auto",
         "PYTHON_DOTENV_DISABLED": "1", "PYTHONUNBUFFERED": "1",
     })
-    # User-provided credentials remain in their existing per-workspace keyring.
+    # Hosted policy and credential storage are separate: keep existing keyring
+    # references readable rather than silently switching them to encrypted files.
     # No operator .env or global model credential is imported into a release.
     env["TUANTUAN_SECRET_BACKEND"] = "memory" if smoke_data else "keyring"
     if not smoke_data:
+        hosts = config.get("model_allowed_hosts", [])
+        hostname = r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+        if not isinstance(hosts, list) or any(
+            not isinstance(host, str) or not re.fullmatch(hostname, host.lower()) for host in hosts
+        ):
+            raise ValueError("model_allowed_hosts must be a list of exact hostnames")
+        env["TUANTUAN_MODEL_ALLOWED_HOSTS"] = ",".join(host.lower() for host in hosts)
+        # Stable, explicitly provisioned secret, not inherited from the operator.
+        # Used by hosted channels; existing model credentials stay in keyring.
+        master_key = root / "secret-master-key"
+        if master_key.exists():
+            key = master_key.read_text(encoding="ascii").strip()
+            try:
+                decoded = base64.b64decode(key, altchars=b"-_", validate=True)
+            except (ValueError, binascii.Error) as error:
+                raise ValueError("Invalid hosted secret master key") from error
+            if len(decoded) != 32:
+                raise ValueError("Invalid hosted secret master key")
+            env["TUANTUAN_SECRET_MASTER_KEY"] = key
         env["TUANTUAN_MAINTENANCE_FILE"] = str(root / "maintenance")
         env["TUANTUAN_BENCHMARK_ENV_FILE"] = str(root / "service.env")
     return env
@@ -352,6 +375,8 @@ def recover(root: Path, config: dict) -> None:
 
 
 def activate(root: Path, config: dict, revision: str) -> None:
+    # Reject unsafe/malformed production settings before stopping the old service.
+    runtime_environment(root, config, revision)
     previous = read_json(root / "current.json")
     port = config["port"]
     if port_open(port) and (not previous or not healthy(port, previous["revision"])):
@@ -422,17 +447,33 @@ def once(root: Path, *, retry: bool = False) -> None:
             if not healthy(config["port"], revision) or (root / "maintenance").exists():
                 raise RuntimeError("Current release needs service recovery")
             return
-        if failed.get("revision") == revision and not retry:
-            return
+        same_failure = failed.get("revision") == revision
+        if same_failure and not retry:
+            retry_at = failed.get("retry_at")
+            if retry_at is None or time.time() < retry_at:
+                return
+        phase = "prepare"
         try:
             if prepare(root, config, revision) is None:
                 return
             # An older CI run must not overwrite a newer main deployment.
             if latest_revision() != revision:
                 return
+            phase = "activate"
             activate(root, config, revision)
         except Exception as error:
-            write_json(root / "last-failure.json", {"revision": revision, "error": type(error).__name__, "time": int(time.time())})
+            attempts = failed.get("attempts", 0) + 1 if same_failure and not retry else 1
+            failure = {"revision": revision, "error": type(error).__name__,
+                       "time": int(time.time()), "phase": phase, "attempts": attempts}
+            transient = isinstance(error, (TimeoutError, URLError, subprocess.TimeoutExpired, subprocess.CalledProcessError))
+            if isinstance(error, HTTPError):
+                transient = error.code in {408, 429} or 500 <= error.code < 600
+            # Only retry preparation: never automatically replay migrations or
+            # an activation that may already have touched live data. Integrity,
+            # configuration and smoke-check failures also require inspection.
+            if phase == "prepare" and transient and attempts < 3:
+                failure["retry_at"] = failure["time"] + 60 * 2 ** (attempts - 1)
+            write_json(root / "last-failure.json", failure)
             raise
         print(f"Deployed {revision} to https://xiaocheng.online")
 
