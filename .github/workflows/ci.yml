@@ -77,7 +77,8 @@ jobs:
           cache-dependency-path: backend/requirements-dev-lock.txt
       - name: Install locked backend dependencies
         working-directory: backend
-        run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev-lock.txt
+        run: |
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev-lock.txt
       - name: Scan for executable .pth files
         run: python -I -S backend/scripts/scan_pth.py --python python
       - name: Test native Windows locale and ACL
