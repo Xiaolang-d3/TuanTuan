@@ -149,7 +149,7 @@ describe("App identity placement", () => {
     fireEvent.change(draft, { target: { value: "尚未发送的计划" } });
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     expect(screen.queryByRole("navigation", { name: "AI 工作区模块" })).not.toBeInTheDocument();
-    expect(navigation.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
+    expect(navigation.getByRole("button", { name: "设置" })).toBeInTheDocument();
     fireEvent.click(navigation.getByRole("button", { name: "文件库" }));
     await screen.findByRole("heading", { name: "测试文件库" });
     expect(window.location.hash).toBe("#/chat/library");

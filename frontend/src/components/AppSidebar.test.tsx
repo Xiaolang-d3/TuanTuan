@@ -118,22 +118,25 @@ describe("AppSidebar", () => {
     expect(within(desktopNav).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
       "首页",
       "AI 工作区",
-      "文件库"
+      "文件库",
+      "设置"
     ]);
     expect(screen.queryByText("快速搜索…")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "机会中心" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "资料库" })).not.toBeInTheDocument();
   });
 
-  it("opens home, library, and the AI workspace from the sidebar", () => {
+  it("opens home, library, settings, and the AI workspace from the sidebar", () => {
     const props = renderSidebar();
     fireEvent.click(screen.getAllByRole("button", { name: "首页" })[0]);
     fireEvent.click(screen.getAllByRole("button", { name: "AI 工作区" })[0]);
     fireEvent.click(screen.getAllByRole("button", { name: "文件库" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "设置" })[0]);
     expect(props.onSelectNav).toHaveBeenCalledWith("dashboard");
     expect(props.onSelectNav).toHaveBeenCalledWith("chat");
     expect(props.onSelectNav).toHaveBeenCalledWith("library");
-    expect(props.onSelectNav).toHaveBeenCalledTimes(3);
+    expect(props.onSelectNav).toHaveBeenCalledWith("settings");
+    expect(props.onSelectNav).toHaveBeenCalledTimes(4);
   });
 
   it("prefetches a module when its navigation item is hovered", () => {
@@ -141,9 +144,11 @@ describe("AppSidebar", () => {
     fireEvent.mouseEnter(screen.getAllByRole("button", { name: "首页" })[0]);
     fireEvent.mouseEnter(screen.getAllByRole("button", { name: "AI 工作区" })[0]);
     fireEvent.mouseEnter(screen.getAllByRole("button", { name: "文件库" })[0]);
+    fireEvent.mouseEnter(screen.getAllByRole("button", { name: "设置" })[0]);
     expect(props.onPrefetchPage).toHaveBeenCalledWith("dashboard");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("chat");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("library");
+    expect(props.onPrefetchPage).toHaveBeenCalledWith("settings");
   });
 
   it("shows primary destinations in the mobile navigation", () => {
@@ -151,20 +156,25 @@ describe("AppSidebar", () => {
     const mobile = screen.getByRole("navigation", { name: "移动端主导航" });
     expect(within(mobile).getByRole("button", { name: "首页" })).toBeInTheDocument();
     expect(within(mobile).getByRole("button", { name: "文件库" })).toBeInTheDocument();
+    expect(within(mobile).getByRole("button", { name: "设置" })).toBeInTheDocument();
     expect(within(mobile).getByRole("button", { name: "AI 工作区" })).toHaveAttribute("aria-current", "page");
     expect(within(mobile).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "首页", "AI 工作区", "文件库"
+      "首页", "AI 工作区", "文件库", "设置"
     ]);
     fireEvent.click(within(mobile).getByRole("button", { name: "AI 工作区" }));
     expect(props.onSelectNav).toHaveBeenCalledWith("chat");
   });
 
-  it("keeps settings pages out of product navigation and highlights the current workspace destination", () => {
-    renderSidebar(undefined, false, "settings", { settingsPage: "library" });
-    const libraryNav = screen.getByRole("navigation", { name: "主导航" });
-    expect(within(libraryNav).queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
-    expect(within(libraryNav).queryByRole("button", { current: "page" })).not.toBeInTheDocument();
-    expect(within(libraryNav).getByRole("button", { name: "文件库" })).not.toHaveAttribute("aria-current");
+  it("highlights the current destination, including settings", () => {
+    renderSidebar(undefined, false, "settings", { settingsPage: "overview" });
+    const settingsNav = screen.getByRole("navigation", { name: "主导航" });
+    expect(within(settingsNav).getByRole("button", { name: "设置" })).toHaveAttribute("aria-current", "page");
+    expect(within(settingsNav).getByRole("button", { name: "AI 工作区" })).not.toHaveAttribute("aria-current");
+    cleanup();
+
+    renderSidebar(undefined, false, "settings", { settingsPage: "model" });
+    const modelNav = screen.getByRole("navigation", { name: "主导航" });
+    expect(within(modelNav).getByRole("button", { name: "设置" })).toHaveAttribute("aria-current", "page");
     cleanup();
 
     renderSidebar(undefined, false, "chat");
@@ -176,11 +186,6 @@ describe("AppSidebar", () => {
     const filesNav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(filesNav).getByRole("button", { name: "文件库" })).toHaveAttribute("aria-current", "page");
     expect(within(filesNav).getByRole("button", { name: "AI 工作区" })).not.toHaveAttribute("aria-current");
-    cleanup();
-
-    renderSidebar(undefined, false, "settings", { settingsPage: "overview" });
-    const settingsNav = screen.getByRole("navigation", { name: "主导航" });
-    expect(within(settingsNav).queryByRole("button", { current: "page" })).not.toBeInTheDocument();
   });
 
   it("does not expose retired opportunity or analysis product entries", () => {

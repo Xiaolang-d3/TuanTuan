@@ -30,6 +30,14 @@ export function readStorageItem(key: string, storageName: StorageName = "localSt
   } catch { return null; }
 }
 
+/** Persist a value in the same namespace readStorageItem reads; storage may be disabled. */
+export function writeStorageItem(key: string, value: string, storageName: StorageName = "localStorage"): boolean {
+  try {
+    window[storageName].setItem(key, value);
+    return true;
+  } catch { return false; }
+}
+
 /** Clear both namespaces so signing out cannot restore a legacy token. */
 export function removeStorageItem(key: string, storageName: StorageName = "localStorage"): void {
   for (const candidate of [key, ...legacyKeys(key)]) {
