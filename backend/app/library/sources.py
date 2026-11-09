@@ -11,9 +11,13 @@ from typing import Any
 
 from ..db import connect, json_dump, row_to_dict
 from ..knowledge import delete_document, index_document
+from ..knowledge.service import index_chunks
 from ..privacy import scan_and_redact
 from ..workspace import resolve_document_dir
 from ..documents.service import parse_document_upload
+from ..documents.blocks import DocumentBlock, text_document
+from ..documents.parser import DocumentParseResult
+from .source_versions import save_source_version, source_state
 
 
 SOURCE_TYPE = "library_source"
@@ -70,14 +74,24 @@ def _model_content(source: dict[str, Any]) -> str:
     )
 
 
-def _index_source(source: dict[str, Any], db_path: str | Path | None = None) -> None:
+def _index_source(source: dict[str, Any], db_path: str | Path | None = None, *, connection=None) -> None:
     source_id = int(source["id"])
     if not source.get("enabled") or source.get("parse_status") != "ready" or source.get("trashed_at"):
-        delete_document(SOURCE_TYPE, source_id, db_path=db_path)
+        delete_document(SOURCE_TYPE, source_id, db_path=db_path, connection=connection)
         return
     content = _model_content(source).strip()
     if not content:
-        delete_document(SOURCE_TYPE, source_id, db_path=db_path)
+        delete_document(SOURCE_TYPE, source_id, db_path=db_path, connection=connection)
+        return
+    if source.get("source_revision"):
+        from .source_versions import get_source_version
+        version = get_source_version(source_id, source["source_revision"], db_path)
+        index_chunks(SOURCE_TYPE, source_id, [
+            {"title": source.get("title") or "资料", "content": block["text"] if source["privacy_mode"] == "original" else block["model_text"],
+             "metadata": {"source_id": source_id, "source_revision": version["revision"], "block_id": block["block_id"],
+                          "locator": block["locator"], "privacy_mode": source["privacy_mode"]}}
+            for block in version["blocks"]
+        ], db_path, connection=connection)
         return
     index_document(
         SOURCE_TYPE,
@@ -125,13 +139,22 @@ def _summary(source: dict[str, Any]) -> dict[str, Any]:
         "size_bytes": (source.get("metadata") or {}).get("size_bytes", 0),
         "file_status": (source.get("metadata") or {}).get("file_status", "ready" if source.get("stored_path") else "unavailable"),
         "text_parse_status": (source.get("metadata") or {}).get("text_parse_status", source.get("parse_status") or "ready"),
+        "source_revision": source.get("source_revision"),
+        "backfill_status": source.get("backfill_status") or "pending",
+        "backfill_job_id": source.get("backfill_job_id"),
     }
 
 
 def list_sources(db_path: str | Path | None = None, *, query: str = "") -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
-            "SELECT * FROM library_sources ORDER BY updated_at DESC, id DESC"
+            """SELECT s.*, v.current_revision AS source_revision, v.job_id AS backfill_job_id,
+            CASE WHEN v.backfill_status IN ('pending','running') AND j.status IN ('failed','cancelled','interrupted')
+                 THEN 'failed' ELSE v.backfill_status END AS backfill_status
+            FROM library_sources s LEFT JOIN document_source_state v
+            ON v.source_kind='library' AND v.source_key=CAST(s.id AS TEXT)
+            LEFT JOIN background_jobs j ON j.id=v.job_id
+            ORDER BY s.updated_at DESC, s.id DESC"""
         ).fetchall()
     needle = query.strip().casefold()
     # Search the same workspace snapshot once, without a separate detail read
@@ -158,6 +181,7 @@ def get_source(
         "content": str(source.get("content") or ""),
         "redacted_content": str(source.get("redacted_content") or ""),
         "metadata": source.get("metadata") if isinstance(source.get("metadata"), dict) else {},
+        **source_state("library", source_id, db_path),
     }
 
 
@@ -198,6 +222,8 @@ def create_text_source(
         )
         source_id = int(cursor.lastrowid)
     source = get_source(source_id, db_path=db_path)
+    save_source_version(source_id, text_document(clean_content), db_path)
+    source = get_source(source_id, db_path=db_path)
     _index_source(source, db_path)
     return source
 
@@ -219,6 +245,9 @@ def import_file_source(
     try:
         parsed = parse_document_upload(safe_name, content_bytes, mode)
         extracted = str(parsed.get("text") or "").strip()
+    except ValueError as exc:
+        parsed = {"warnings": [f"{exc}；原文件已保存，可预览或下载。"]}
+        extracted = ""
     except Exception:
         # The original is the file library's durable record; extraction is optional.
         parsed = {"warnings": ["文字提取失败，原文件已保存，可预览或下载。"]}
@@ -276,6 +305,16 @@ def import_file_source(
             pass
         raise
     source = get_source(source_id, db_path=db_path)
+    if extracted:
+        result = DocumentParseResult(extracted, str(parsed.get("parser") or "saved_text"),
+            blocks=[DocumentBlock(**block) for block in parsed.get("blocks", [])],
+            extracted_characters=parsed.get("extracted_characters", len(extracted)),
+            complete=parsed.get("complete", True), unprocessed_ranges=parsed.get("unprocessed_ranges", []),
+            units=parsed.get("units", []))
+        if not result.blocks:
+            result = text_document(extracted, parser=result.parser)
+        save_source_version(source_id, result, db_path)
+        source = get_source(source_id, db_path=db_path)
     _index_source(source, db_path)
     return source
 
@@ -300,8 +339,9 @@ def update_source(
         raise ValueError("该文件没有可检索文字，请先补充正文")
     if content is not None and not next_content:
         raise ValueError("资料内容不能为空")
-    if len(next_content) > 200_000:
-        raise ValueError("资料内容不能超过 20 万字")
+    from ..documents.parser import MAX_DOCUMENT_CHARACTERS
+    if content is not None and len(next_content) > MAX_DOCUMENT_CHARACTERS:
+        raise ValueError(f"资料内容不能超过 {MAX_DOCUMENT_CHARACTERS} 字符")
     next_redacted = current["redacted_content"] if content is None else scan_and_redact(next_content)[1]
     next_hash = (
         sha256(next_content.encode("utf-8")).hexdigest()
@@ -313,6 +353,8 @@ def update_source(
     if content is not None and current["source_kind"] == "upload":
         metadata["content_edited"] = True
     with connect(db_path) as conn:
+        if content is not None:
+            conn.execute("UPDATE document_source_state SET current_revision=NULL,backfill_status='pending' WHERE source_kind='library' AND source_key=?", (str(source_id),))
         conn.execute(
             """
             UPDATE library_sources
@@ -330,6 +372,9 @@ def update_source(
             ),
         )
     source = get_source(source_id, db_path=db_path)
+    if content is not None:
+        save_source_version(source_id, text_document(next_content, parser="corrected_text"), db_path)
+        source = get_source(source_id, db_path=db_path)
     _index_source(source, db_path)
     return source
 
@@ -420,6 +465,8 @@ def delete_source(source_id: int, db_path: str | Path | None = None) -> bool:
                         (item["id"],),
                     )
             conn.execute("DELETE FROM library_sources WHERE id = ?", (source_id,))
+            conn.execute("DELETE FROM document_source_versions WHERE source_kind='library' AND source_key=?", (str(source_id),))
+            conn.execute("DELETE FROM document_source_state WHERE source_kind='library' AND source_key=?", (str(source_id),))
             delete_document(SOURCE_TYPE, source_id, db_path=db_path, connection=conn)
             for path, _ in asset_backups:
                 path.unlink(missing_ok=True)
@@ -455,9 +502,14 @@ def enabled_source_details(db_path: str | Path | None = None) -> list[dict[str, 
     with connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT * FROM library_sources
-            WHERE enabled = 1 AND parse_status = 'ready'
-            ORDER BY updated_at DESC, id DESC
+            SELECT s.*, v.current_revision AS source_revision, v.job_id AS backfill_job_id,
+            CASE WHEN v.backfill_status IN ('pending','running') AND j.status IN ('failed','cancelled','interrupted')
+                 THEN 'failed' ELSE v.backfill_status END AS backfill_status
+            FROM library_sources s LEFT JOIN document_source_state v
+            ON v.source_kind='library' AND v.source_key=CAST(s.id AS TEXT)
+            LEFT JOIN background_jobs j ON j.id=v.job_id
+            WHERE s.enabled = 1 AND s.parse_status = 'ready'
+            ORDER BY s.updated_at DESC, s.id DESC
             """
         ).fetchall()
     return [source for row in rows if not (source := _source_from_row(row)).get("trashed_at")]

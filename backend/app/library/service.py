@@ -38,6 +38,8 @@ def model_context(db_path: str | Path | None = None) -> dict[str, Any]:
     facts = [{**fact, "statement": scan_and_redact(fact["statement"])[1]} for fact in facts]
     sources = enabled_source_details(db_path)
     excerpts: list[str] = []
+    evidence: list[dict] = []
+    legacy_excerpts: list[str] = []
     remaining = 12_000
     for source in sources:
         if remaining <= 0:
@@ -52,6 +54,13 @@ def model_context(db_path: str | Path | None = None) -> dict[str, Any]:
             continue
         excerpt = content[: min(4_000, remaining)]
         excerpts.append(f"## {source.get('title') or '资料'}\n{excerpt}")
+        if source.get("source_revision"):
+            from ..documents.blocks import DocumentTarget
+            from .evidence import target_evidence
+            evidence.extend(target_evidence(DocumentTarget(source_kind="library", source_id=source["id"], source_revision=source["source_revision"]), db_path,
+                                            max_characters=min(4000, remaining)))
+        else:
+            legacy_excerpts.extend(excerpt[start:start + 900] for start in range(0, len(excerpt), 900))
         remaining -= len(excerpt)
     return {
         "document": "\n\n".join(excerpts),
@@ -59,11 +68,14 @@ def model_context(db_path: str | Path | None = None) -> dict[str, Any]:
             len(str(source.get("content") or "")) > 4_000 for source in sources
         ) or remaining <= 0,
         "confirmed_facts": facts[:100],
+        "evidence": evidence,
+        "legacy_excerpts": legacy_excerpts,
         "sources": [
             {
                 "id": source["id"],
                 "title": source["title"],
                 "privacy_mode": source["privacy_mode"],
+                "source_revision": source.get("source_revision"),
             }
             for source in sources
         ],

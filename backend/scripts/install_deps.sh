@@ -13,7 +13,7 @@
 # already installed at the pinned version *without* checking their hashes, and
 # a venv used in another mode would keep packages the new mode must not have.
 # The .pth scan runs on every call, because anything may have written into the
-# venv since the last install. CAREERLOOP_BASE_PYTHON picks the interpreter the
+# venv since the last install. TUANTUAN_BASE_PYTHON picks the interpreter the
 # venv is created from (default python3).
 set -eu
 BACKEND_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -30,7 +30,7 @@ STAMP="$VENV/.requirements-lock.sha256"
 SUM=$(cd "$BACKEND_DIR" && { echo "$MODE"; cat $LOCKS; } | { shasum -a 256 2>/dev/null || sha256sum; } | cut -d ' ' -f 1)
 if [ ! -x "$VENV/bin/python" ] || [ "$(cat "$STAMP" 2>/dev/null || true)" != "$SUM" ]; then
   rm -f "$STAMP"
-  "${CAREERLOOP_BASE_PYTHON:-python3}" -m venv --clear "$VENV"
+  "${TUANTUAN_BASE_PYTHON-${CAREERLOOP_BASE_PYTHON:-python3}}" -m venv --clear "$VENV"
   for LOCK in $LOCKS; do
     env -u PYTHONPATH -u VIRTUAL_ENV -u PYTHONHOME "$VENV/bin/python" -m pip install -q --disable-pip-version-check \
       --require-hashes --no-deps --only-binary :all: --force-reinstall -r "$BACKEND_DIR/$LOCK"

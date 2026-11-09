@@ -1,43 +1,71 @@
-"""Output classification and per-purpose defaults, stored with the routing policy."""
+"""Workspace purpose policy and versioned binding; pure choices live in models."""
 from __future__ import annotations
 
 import json
-import re
 
-from ..model_protocol import is_image_generation_model, model_protocol_for_profile, resolve_model_protocol
+from ..models.selection import model_output_types, supported_purposes, purpose_exclusion, select_model_for_purpose
 from . import settings
 
 
-def model_output_types(profile, connection):
-    name = profile["model_name"].strip().lower().rsplit("/", 1)[-1]
-    caps = profile.get("capabilities") or {}
-    explicit = [kind for kind, key in (("chat", "chat"), ("image", "image_generation"), ("video", "video_generation")) if caps.get(key) == "supported"]
-    if re.search(r"(?:^|[-_.])(?:sora|veo|kling|seedance|cogvideo|ltx-video|hunyuan-video|grok-imagine-video)(?:$|[-_.\d])|^wan[-_.]?\d", name):
-        inferred = ["video"]
-    elif re.search(r"^(?:gpt-image-|chatgpt-image-|dall-e-|imagen[-_.]|flux[-_.]|stable-diffusion|sdxl|sd3[-_.]|qwen-image|z-image|nano-banana|seedream|ideogram|recraft|grok-imagine-image)|^gemini.*[-_.]image(?:$|[-_.])", name) or connection.get("protocol", connection.get("model_protocol")) == "images":
-        inferred = ["image"]
-    elif re.match(r"^grok-4[.-]7(?:[-.]|$)", name):
-        inferred = ["chat", "image"]
-    elif re.match(r"^(?:gpt-|chatgpt-|o[134](?:[-_.]|$)|claude|gemini|qwen|deepseek|grok|llama|mistral|mixtral|gemma|glm|kimi|minimax|doubao|yi-|command-r|phi[-.]|ernie)", name):
-        inferred = ["chat"]
-    else:
-        inferred = []
-    keys = {"chat": "chat", "image": "image_generation", "video": "video_generation"}
-    types = [kind for kind in dict.fromkeys([*inferred, *explicit]) if caps.get(keys[kind]) != "unsupported"]
-    source = "configured" if any(caps.get(key) in {"supported", "unsupported"} for key in keys.values()) else "inferred" if inferred else "unknown"
-    return types, source
+def selection_catalog(db_path=None):
+    """Read saved identities and credential references, never plaintext secrets.
+
+    Avoid catalog initialization: migrating an old credential or authenticating
+    to a keychain requires an actual settings/runtime action.
+    """
+    from .model_catalog import _decode_connection, _decode_profile
+    from ..secret_store import SecretStoreUnavailable, secret_reference_backend
+
+    with settings.connect(db_path) as conn:
+        sources = [_decode_connection(row) for row in conn.execute("SELECT * FROM model_connections WHERE deleted_at IS NULL ORDER BY created_at, id")]
+        profiles = [_decode_profile(row) for row in conn.execute("SELECT p.* FROM model_profiles p JOIN model_connections c ON c.id=p.connection_id WHERE c.deleted_at IS NULL ORDER BY p.created_at, p.id")]
+        row = conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()
+        policy = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
+        payload = json.loads(policy[0]) if policy else {}
+        for source in sources:
+            reference = source.pop("secret_ref", "none")
+            alias = conn.execute("SELECT secret_ref FROM model_credential_aliases WHERE reference=?", (reference,)).fetchone()
+            reference = alias[0] if alias else reference
+            configured = bool(reference and reference != "none")
+            status = "saved_unverified" if configured else "missing"
+            if configured and not reference.startswith(("environment:", "legacy:")):
+                try:
+                    secret_reference_backend(reference, db_path)
+                except SecretStoreUnavailable:
+                    configured, status = False, "unavailable"
+            source.update(api_key_configured=configured, credential_status=status)
+    default = row[0] if row else None
+    defaults = dict(payload.get("purpose_defaults", {}))
+    legacy = next((item for item in profiles if item["id"] == default), None)
+    if legacy:
+        source = next((item for item in sources if item["id"] == legacy["connection_id"]), {})
+        for purpose in supported_purposes(legacy, source):
+            defaults.setdefault(purpose, default)
+    return {"connections": sources, "profiles": profiles, "purpose_defaults": defaults, "default_profile_id": default,
+            "effective_execution_profile_id": payload.get("roles", {}).get("execute") or default,
+            "strict_capabilities": bool(payload.get("strict_capabilities", False))}
 
 
-def supported_purposes(profile, connection):
-    types, _ = model_output_types(profile, connection)
-    protocol = model_protocol_for_profile(profile["model_name"], connection.get("protocol", connection.get("model_protocol", "auto")))
-    base = connection.get("effective_base_url", connection.get("model_base_url", ""))
-    result = []
-    if "chat" in types and resolve_model_protocol(profile["model_name"], protocol, base) != "images":
-        result.append("chat")
-    if "image" in types and is_image_generation_model(profile["model_name"], protocol, base):
-        result.append("image")
-    return result
+def preview_model_selection(purpose, profile_id=None, db_path=None):
+    with settings._settings_lock(db_path):
+        catalog = selection_catalog(db_path)
+        return select_model_for_purpose(catalog, purpose, profile_id, strict_capabilities=catalog["strict_capabilities"])
+
+
+def resolve_purpose_connection(purpose, profile_id=None, *, action=None, preferred_profile_id=None):
+    """Bind a new purpose choice and then validate its live credentials."""
+    from .model_catalog import get_profile_connection
+    with settings._settings_lock(None):
+        catalog = selection_catalog()
+        result = select_model_for_purpose(catalog, purpose, profile_id, action=action, strict_capabilities=catalog["strict_capabilities"], preferred_profile_id=preferred_profile_id)
+        if not result["eligible"]:
+            raise ValueError(result["error"])
+        connection = get_profile_connection(result["profile_id"])
+        source = {"protocol": connection["model_protocol"], "model_base_url": connection["model_base_url"], "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
+        rejection = purpose_exclusion(connection, source, purpose, action=action, strict_capabilities=catalog["strict_capabilities"])
+        if rejection:
+            raise ValueError(rejection)
+        return {**connection, "selection_reason": result["reason"]}
 
 
 def purpose_defaults(conn):

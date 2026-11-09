@@ -24,7 +24,7 @@
 
 ## 反馈与处理
 
-发现违反准则的行为，可在相关讨论中提醒维护者 [@Xiaolang-d3](https://github.com/Xiaolang-d3)，或[创建 Issue](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)。只提供处理问题所需的信息，不公开当事人的隐私或敏感证据。需要私密处理时，可先提交不含身份和事件细节的联系请求，请维护者提供私密沟通渠道；若投诉涉及该维护者，可联系其他未涉事的仓库维护者。安全漏洞请按 [SECURITY.md](SECURITY.md) 单独报告。
+发现违反准则的行为，可在相关讨论中提醒维护者 [@Xiaolang-d3](https://github.com/Xiaolang-d3)，或[创建 Issue](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)。只提供处理问题所需的信息，不公开当事人的隐私或敏感证据。需要私密处理时，可先提交不含身份和事件细节的联系请求，请维护者提供私密沟通渠道；若投诉涉及该维护者，可联系其他未涉事的仓库维护者。安全漏洞请按 [SECURITY.md](SECURITY.md) 单独报告。
 
 维护者会结合上下文与影响处理反馈，尽量保护举报人和当事人的隐私。根据行为的严重性和是否反复发生，可采取提醒、要求修改或移除内容、限制讨论、临时或永久限制参与等措施；涉及严重威胁或隐私泄露时可立即限制参与。
 

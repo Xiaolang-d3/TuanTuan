@@ -299,6 +299,23 @@ async def stream_chat_response(
     if persisted_run is None and resume_snapshot is None and not payload.attachment_ids and not payload.vision_attachment_ids:
         effective_content = resolve_image_followup(payload.content, conversation_id)
     runtime = None
+    skill_binding = None
+    if cached_execution is not None:
+        skill_binding = (cached_execution["user_message"].get("payload") or {}).get("skill_binding")
+    elif recovered_user_message is not None:
+        skill_binding = (recovered_user_message.get("payload") or {}).get("skill_binding")
+    elif resume_snapshot is not None and ("skill_id" not in payload.model_fields_set or (resume_snapshot.skill_binding is not None and payload.skill_id == resume_snapshot.skill_binding.get("id"))):
+        skill_binding = resume_snapshot.skill_binding
+    elif payload.skill_id:
+        from ..extensions.contracts import ExtensionContext
+        from ..extensions.skills import SkillService
+        from ..extensions.repository import ExtensionNotFound, ExtensionUnavailable
+        try:
+            skill_binding = SkillService().binding(payload.skill_id, ExtensionContext.current())
+        except (ExtensionNotFound, ExtensionUnavailable) as exc:
+            raise HTTPException(409, str(exc)) from None
+    if resume_snapshot is not None and "skill_id" in payload.model_fields_set and skill_binding != resume_snapshot.skill_binding:
+        resume_snapshot = None
     model_selection: dict[str, Any] = {}
     if recovering_terminal_result:
         model_selection = internal_model_selection(persisted_run.get("model_selection"))
@@ -349,6 +366,8 @@ async def stream_chat_response(
             conversation_id, payload.attachment_ids, payload.vision_attachment_ids
         )
         user_payload: dict[str, Any] = {}
+        if skill_binding is not None:
+            user_payload["skill_binding"] = skill_binding
         if attachment_summaries:
             user_payload["attachments"] = attachment_summaries
         user_payload["web_search_options"] = search_options.model_dump()
@@ -438,6 +457,12 @@ async def stream_chat_response(
                 resume=resume_snapshot,
                 run_id=ag_ui_input.run_id,
                 model_selection=model_selection,
+                **({"skill_binding": skill_binding} if skill_binding is not None else {}),
+                **({"local_evidence": [card for item in user_message.get("payload", {}).get("attachments", []) for card in item.get("evidence", [])]}
+                   if any(item.get("evidence") for item in user_message.get("payload", {}).get("attachments", [])) else {}),
+                **({"document_targets": [{"source_kind": "attachment", "attachment_id": item["id"], "source_revision": item["source_revision"]}
+                                          for item in user_message.get("payload", {}).get("attachments", []) if item.get("source_revision")]}
+                   if any(item.get("source_revision") for item in user_message.get("payload", {}).get("attachments", [])) else {}),
             ):
                 if stream_event.type == "text_delta":
                     partial_content += stream_event.delta

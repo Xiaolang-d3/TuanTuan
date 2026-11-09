@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, u
 import { searchMetadataFromAgent, type SearchMetadata } from "./searchMetadata";
 import { webSearchTopicLabels } from "./webSearchOptions";
 import { AttachmentPreviewContext } from "./AttachmentPreviewDialog";
-import { ResultActionsContext } from "./result-types";
+import { ResultActionsContext, DocumentActionsContext } from "./result-types";
 import { HistoryAttachment } from "./HistoryAttachment";
 import { GeneratedImage } from "./GeneratedImage";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
@@ -573,6 +573,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
   const deleteTurn = useContext(DeleteTurnContext);
   const openAttachment = useContext(AttachmentPreviewContext);
   const openResult = useContext(ResultActionsContext);
+  const openDocument = useContext(DocumentActionsContext);
   const source = state.metadata.custom.source as ChatMessage | undefined;
   const [quoted, setQuoted] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -585,7 +586,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
   const thoughtEvent = source.payload?.agent?.events.find(
     (event) => event.tool_name === "agent_thinking"
   );
-  const isActiveAssistant = chatBusy && source.id < 0;
+  const isActiveAssistant = (chatBusy && source.id < 0) || !!source.payload?.image_edit_pending;
   const resultContent = resultOnlyContent(source.content, Boolean(thoughtEvent?.message));
   const failed = source.payload?.agent?.status === "failed";
   const assets = source.payload?.agent?.assets ?? [];
@@ -599,6 +600,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
     return <GeneratedImage key={id} asset={asset} messageId={source.id} prompt={source.payload?.agent?.image_generation_prompt} />;
   };
   const webSources = webSourcesFromAgent(source.payload?.agent);
+  const localEvidence = source.payload?.agent?.evidence ?? [];
   const openResearch = (selectedSource?: number) => {
     researchPanel?.openDetails(source.payload?.agent, webSources, selectedSource);
   };
@@ -627,8 +629,8 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
         {source.role === "assistant" ? (
           <>
             <RunProcess agent={source.payload?.agent} streaming={isActiveAssistant} stopping={stopping && isActiveAssistant} content={resultContent} />
-            {imagePending ? <section className="message-image-output" aria-label="输出结果"><ImageGenerationProgress /></section> : assets.length ? <section className="message-image-output" aria-label="输出结果">{blocks.length ? blocks.map((block, index) => block.type === "image" ? imageBlock(block.asset_id) : <MarkdownContent key={`text-${index}`} sources={webSources} streaming={isActiveAssistant} onOpenSource={openResearch}>{block.text}</MarkdownContent>) : resultContent ? <MarkdownContent sources={webSources} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent> : null}{assets.filter(asset => !seenAssets.has(asset.id)).map(asset => imageBlock(asset.id))}</section> : <>
-              {resultContent ? <section className="message-result message-dialog" aria-label="输出结果"><MarkdownContent sources={webSources} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent></section> : null}
+            {imagePending ? <section className="message-image-output" aria-label="输出结果"><ImageGenerationProgress /></section> : assets.length ? <section className="message-image-output" aria-label="输出结果">{blocks.length ? blocks.map((block, index) => block.type === "image" ? imageBlock(block.asset_id) : <MarkdownContent key={`text-${index}`} sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{block.text}</MarkdownContent>) : resultContent ? <MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent> : null}{assets.filter(asset => !seenAssets.has(asset.id)).map(asset => imageBlock(asset.id))}</section> : <>
+              {resultContent ? <section className="message-result message-dialog" aria-label="输出结果"><MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent></section> : null}
             </>}
             {quoted ? <button type="button" className="message-quote-action" onMouseDown={(event) => event.preventDefault()} onClick={() => { quoteSelection?.(quoted); setQuoted(""); }}>针对这段提问</button> : null}
             {!isActiveAssistant ? <div className="message-footer">
@@ -636,6 +638,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
                 <WebSourcesPanel sources={webSources} onOpen={() => openResearch()} />
                 <ActionBarPrimitive.Root className="message-actions" hideWhenRunning>
                   <MessageCopyButton content={resultContent} label="复制回答" />
+                  {openDocument && source.id > 0 && (resultContent.trim() || assets.length) ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
                   <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
                     <RefreshCw size={14} aria-hidden="true" />
                   </ActionBarPrimitive.Reload>

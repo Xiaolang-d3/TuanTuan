@@ -6,6 +6,7 @@ from ..search_options import WebSearchProvider, WebSearchSourcePreference, WebSe
 
 
 class ChatMessageIn(BaseModel):
+    skill_id: str | None = Field(default=None, min_length=1, max_length=100)
     content: str = Field(min_length=1)
     conversation_id: int | None = None
     model_profile_id: str | None = Field(default=None, min_length=1, max_length=120)

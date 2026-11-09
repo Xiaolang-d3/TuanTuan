@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         感谢帮助改进团团。请先搜索是否已有相同问题。
-        安全漏洞请按 [安全政策](https://github.com/Xiaolang-d3/CareerLoop/blob/main/SECURITY.md) 私密报告。不要提交密钥、Cookie、个人资料或数据库。
+        安全漏洞请按 [安全政策](https://github.com/Xiaolang-d3/TuanTuan/blob/main/SECURITY.md) 私密报告。不要提交密钥、Cookie、个人资料或数据库。
   - type: input
     id: version
     attributes:

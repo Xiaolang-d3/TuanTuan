@@ -1,3 +1,6 @@
+mod data_directory;
+mod environment;
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -69,9 +72,20 @@ struct RuntimeConfig {
     startup_error: Option<String>,
 }
 
+fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("确认窗口不能访问桌面接口".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-fn desktop_runtime_config(state: tauri::State<'_, RuntimeConfig>) -> RuntimeConfig {
-    state.inner().clone()
+fn desktop_runtime_config(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, RuntimeConfig>,
+) -> Result<RuntimeConfig, String> {
+    require_main_window(&window)?;
+    Ok(state.inner().clone())
 }
 
 fn reserve_loopback_port() -> Result<u16, String> {
@@ -100,7 +114,7 @@ fn health_response_matches(response: &str, instance_id: &str) -> bool {
         return false;
     };
     value["status"] == "ok"
-        && value["service"] == "careerloop"
+        && value["service"] == "tuantuan"
         && value["version"] == env!("CARGO_PKG_VERSION")
         && value["instance_id"] == instance_id
 }
@@ -145,11 +159,25 @@ fn start_api(
     instance_id: &str,
 ) -> Result<SidecarChild, Box<dyn std::error::Error>> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let python = root.join("backend/.venv/bin/python");
+    let python = environment::value("PYTHON")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            let relative = "backend/.venv/Scripts/python.exe";
+            #[cfg(not(windows))]
+            let relative = "backend/.venv/bin/python";
+            root.join(relative)
+        });
     let entrypoint = root.join("backend/app/desktop_server.py");
-    let data_dir = app.path().app_data_dir()?;
+    let data_dir = data_directory::discover(app.path().app_data_dir()?)?;
     std::fs::create_dir_all(&data_dir)?;
-    let child = Command::new(python)
+    let mut command = Command::new(python);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let child = command
         .arg(entrypoint)
         .args(["--data-dir", data_dir.to_string_lossy().as_ref()])
         .args(["--port", &port.to_string()])
@@ -164,11 +192,11 @@ fn start_api(
     port: u16,
     instance_id: &str,
 ) -> Result<SidecarChild, Box<dyn std::error::Error>> {
-    let data_dir = app.path().app_data_dir()?;
+    let data_dir = data_directory::discover(app.path().app_data_dir()?)?;
     std::fs::create_dir_all(&data_dir)?;
     let (events, child) = app
         .shell()
-        .sidecar("careerloop-server")?
+        .sidecar("tuantuan-server")?
         .args([
             "--data-dir",
             data_dir.to_string_lossy().as_ref(),
@@ -237,7 +265,7 @@ fn encode_multipart(fields: Vec<DesktopFormField>) -> Result<(String, Vec<u8>), 
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let boundary = format!("careerloop-{}-{nonce}", std::process::id());
+    let boundary = format!("tuantuan-{}-{nonce}", std::process::id());
     let mut body = Vec::new();
     for field in fields {
         let name = multipart_header_value(&field.name);
@@ -312,8 +340,14 @@ impl ApiTasks {
 }
 
 #[tauri::command]
-fn desktop_cancel_api_request(state: tauri::State<'_, ApiTasks>, request_id: String) {
+fn desktop_cancel_api_request(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, ApiTasks>,
+    request_id: String,
+) -> Result<(), String> {
+    require_main_window(&window)?;
     state.cancel(request_id);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -326,15 +360,19 @@ struct DesktopApiRequest {
     authorization: Option<String>,
     request_id: Option<String>,
     timeout_ms: Option<u64>,
+    #[serde(default)]
+    persistent_stream: bool,
 }
 
 #[tauri::command]
 async fn desktop_api_request(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, RuntimeConfig>,
     tasks: tauri::State<'_, ApiTasks>,
     request: DesktopApiRequest,
 ) -> Result<DesktopApiResponse, String> {
+    require_main_window(&window)?;
     let base = match &state.api_base {
         Some(base) => base.clone(),
         None => {
@@ -355,6 +393,149 @@ async fn desktop_api_request(
     result?
 }
 
+fn confirmation_navigation_allowed(base: &reqwest::Url, path: &str, url: &reqwest::Url) -> bool {
+    url.origin() == base.origin()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && (url.path() == path.trim_end_matches('/')
+            || url
+                .path()
+                .starts_with(&format!("{}/", path.trim_end_matches('/'))))
+}
+
+fn confirmation_cookie(
+    raw: &str,
+    host: &str,
+    path: &str,
+    secure: bool,
+) -> Result<tauri::webview::Cookie<'static>, String> {
+    let mut cookie = tauri::webview::Cookie::parse(raw.to_string())
+        .map_err(|_| "确认会话 Cookie 无效")?
+        .into_owned();
+    if cookie.name() != "tuantuan_ppt_confirmation"
+        || cookie.path() != Some(path)
+        || cookie.http_only() != Some(true)
+        || !raw
+            .split(';')
+            .any(|part| part.trim().eq_ignore_ascii_case("samesite=strict"))
+        || cookie.domain().is_some()
+        || cookie.secure().unwrap_or(false) != secure
+        || cookie.value().is_empty()
+    {
+        return Err("确认会话 Cookie 超出任务范围".into());
+    }
+    cookie.set_domain(host.to_string());
+    Ok(cookie)
+}
+
+#[tauri::command]
+async fn desktop_open_presentation_confirmation(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, RuntimeConfig>,
+    job_id: String,
+    authorization: String,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    if job_id.len() != 32
+        || !job_id
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    {
+        return Err("无效的演示文稿任务标识".into());
+    }
+    let base = state.api_base.as_deref().ok_or("本地服务地址不可用")?;
+    let base = shared_api_base(Some(base), false)?.ok_or("本地服务地址不可用")?;
+    let base_url = reqwest::Url::parse(&base).map_err(|_| "本地服务地址无效")?;
+    let path = format!("/presentations/{job_id}/confirmation");
+    // Native requests have no browser Origin. Bind this trusted main-window
+    // gateway to the standard local frontend origin, also supported when the
+    // desktop connects to a shared web backend without desktop-only origins.
+    let origin = "http://localhost:5173";
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "无法创建确认请求")?;
+    let issue = client
+        .post(format!(
+            "{base}/presentations/{job_id}/confirmation-session"
+        ))
+        .header("Origin", origin)
+        .header("Authorization", authorization)
+        .send()
+        .await
+        .map_err(|_| "确认会话创建失败")?;
+    if !issue.status().is_success() {
+        return Err("确认会话已失效，请刷新任务后重新打开".into());
+    }
+    let ticket = issue
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|_| "确认票据无效")?;
+    let ticket = ticket["ticket"].as_str().ok_or("确认票据无效")?;
+    let bootstrap = client
+        .post(format!(
+            "{base}/presentations/{job_id}/confirmation-bootstrap"
+        ))
+        .header("Origin", origin)
+        .json(&serde_json::json!({"ticket": ticket}))
+        .send()
+        .await
+        .map_err(|_| "确认页面初始化失败")?;
+    if !bootstrap.status().is_success() {
+        return Err("确认页面已过期，请重新打开".into());
+    }
+    let raw_cookie = bootstrap
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or("缺少确认会话")?;
+    let cookie = confirmation_cookie(
+        raw_cookie,
+        base_url.host_str().ok_or("本地服务地址无效")?,
+        &path,
+        base_url.scheme() == "https",
+    )?;
+    let target = base_url
+        .join(&format!("{path}/"))
+        .map_err(|_| "确认地址无效")?;
+    let allowed_path = format!("{path}/");
+    let label = format!("ppt-confirmation-{job_id}");
+    if let Some(existing) = app.get_webview_window(&label) {
+        existing.close().map_err(|_| "请先关闭已有确认窗口")?;
+    }
+    // The initial read cannot perform confirmation and receives no main login.
+    // This remote window has no capability entry; all custom desktop commands
+    // additionally enforce the main label above, including the API bridge.
+    let initial = target.join("session").map_err(|_| "确认地址无效")?;
+    let confirmation =
+        tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(initial))
+            .title("团团 · 演示文稿确认")
+            .inner_size(1100.0, 780.0)
+            .visible(false)
+            .on_navigation(move |url| {
+                confirmation_navigation_allowed(&base_url, &allowed_path, url)
+            })
+            .build()
+            .map_err(|_| "无法创建确认窗口")?;
+    if let Err(error) = (|| -> tauri::Result<()> {
+        confirmation.set_cookie(cookie)?;
+        confirmation.navigate(target)?;
+        confirmation.show()?;
+        confirmation.set_focus()?;
+        Ok(())
+    })() {
+        let _ = confirmation.close();
+        let _ = error;
+        return Err("无法打开确认窗口，请重试".into());
+    }
+    Ok(())
+}
+
 async fn perform_api_request(
     app: tauri::AppHandle,
     base: String,
@@ -372,12 +553,15 @@ async fn perform_api_request(
     // Sidecar is always on loopback. macOS system HTTP proxies (Clash etc.)
     // often return 502 for 127.0.0.1 even when ExceptionsList claims otherwise;
     // never route local API traffic through a proxy.
-    let client = reqwest::Client::builder()
+    let mut client_builder = reqwest::Client::builder()
         .no_proxy()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_millis(
+        .connect_timeout(Duration::from_secs(5));
+    if !request.persistent_stream {
+        client_builder = client_builder.timeout(Duration::from_millis(
             request.timeout_ms.unwrap_or(30_000).clamp(1, 300_000),
-        ))
+        ));
+    }
+    let client = client_builder
         .build()
         .map_err(|error| format!("创建本地请求客户端失败：{error}"))?;
     let mut builder = match method.as_str() {
@@ -438,7 +622,9 @@ async fn perform_api_request(
         loop {
             match response.chunk().await {
                 Ok(Some(chunk)) if !chunk.is_empty() => {
-                    collected.extend_from_slice(&chunk);
+                    if !request.persistent_stream {
+                        collected.extend_from_slice(&chunk);
+                    }
                     emit_stream(
                         &app,
                         DesktopStreamEvent {
@@ -513,6 +699,75 @@ async fn perform_api_request(
     })
 }
 
+fn shared_api_base(value: Option<&str>, development: bool) -> Result<Option<String>, String> {
+    let value = value
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .or(if development {
+            Some("http://127.0.0.1:8000")
+        } else {
+            None
+        });
+    let Some(value) = value else { return Ok(None) };
+    let url = reqwest::Url::parse(value).map_err(|_| "共享服务地址无效".to_string())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        || url.path() != "/"
+    {
+        return Err(
+            "共享服务须使用 localhost 或 127.0.0.1 的 HTTP(S) 根地址，不含凭据或查询参数".into(),
+        );
+    }
+    Ok(Some(url.as_str().trim_end_matches('/').to_string()))
+}
+
+fn shared_health_matches(health: &serde_json::Value) -> bool {
+    health["status"] == "ok"
+        && health["service"] == "tuantuan"
+        && health["version"] == env!("CARGO_PKG_VERSION")
+}
+
+fn connect_shared_api(base: String) -> RuntimeConfig {
+    let result = tauri::async_runtime::block_on(async {
+        let health = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(|e| e.to_string())?
+            .get(format!("{base}/health"))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !shared_health_matches(&health) {
+            return Err("服务身份或版本与当前桌面端不匹配".to_string());
+        }
+        Ok(())
+    });
+    match result {
+        Ok(()) => {
+            eprintln!("[tuantuan-desktop] connected to shared backend: {base}");
+            RuntimeConfig {
+                api_base: Some(base),
+                startup_error: None,
+            }
+        }
+        Err(error) => RuntimeConfig {
+            api_base: None,
+            startup_error: Some(format!("无法连接共享服务，请确认网页端后端已启动：{error}")),
+        },
+    }
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -526,28 +781,56 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             desktop_runtime_config,
             desktop_api_request,
-            desktop_cancel_api_request
+            desktop_cancel_api_request,
+            desktop_open_presentation_confirmation
         ])
         .setup(|app| {
-            let port = reserve_loopback_port()?;
-            let instance_id = new_instance_id();
-            let api_base = format!("http://127.0.0.1:{port}");
+            let configured_base = environment::value("API_BASE")
+                .map(|value| {
+                    value
+                        .into_string()
+                        .map_err(|_| "TUANTUAN_API_BASE 必须是有效的 Unicode 地址")
+                })
+                .transpose()?;
+            let (runtime, child) =
+                match shared_api_base(configured_base.as_deref(), cfg!(debug_assertions)) {
+                    Ok(Some(base)) => (connect_shared_api(base), None),
+                    Err(error) => (
+                        RuntimeConfig {
+                            api_base: None,
+                            startup_error: Some(error),
+                        },
+                        None,
+                    ),
+                    Ok(None) => {
+                        let port = reserve_loopback_port()?;
+                        let instance_id = new_instance_id();
+                        let api_base = format!("http://127.0.0.1:{port}");
 
-            let (child, startup_error) = match start_api(&app.handle(), port, &instance_id) {
-                Ok(child) => match wait_for_sidecar(port, &instance_id) {
-                    Ok(()) => (Some(child), None),
-                    Err(error) => {
-                        child.terminate();
-                        (None, Some(error))
+                        let (child, startup_error) =
+                            match start_api(&app.handle(), port, &instance_id) {
+                                Ok(child) => match wait_for_sidecar(port, &instance_id) {
+                                    Ok(()) => (Some(child), None),
+                                    Err(error) => {
+                                        child.terminate();
+                                        (None, Some(error))
+                                    }
+                                },
+                                Err(error) => {
+                                    (None, Some(format!("团团本地服务启动失败：{error}")))
+                                }
+                            };
+
+                        (
+                            RuntimeConfig {
+                                api_base: child.as_ref().map(|_| api_base),
+                                startup_error,
+                            },
+                            child,
+                        )
                     }
-                },
-                Err(error) => (None, Some(format!("团团本地服务启动失败：{error}"))),
-            };
-
-            app.manage(RuntimeConfig {
-                api_base: child.as_ref().map(|_| api_base),
-                startup_error,
-            });
+                };
+            app.manage(runtime);
             app.manage(SidecarState(Mutex::new(child)));
             app.manage(ApiTasks::default());
             app.get_webview_window("main")
@@ -577,6 +860,97 @@ mod tests {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
+
+    #[test]
+    fn confirmation_navigation_stays_on_exact_backend_and_job() {
+        let base = reqwest::Url::parse("http://127.0.0.1:8000").unwrap();
+        let path = format!("/presentations/{}/confirmation/", "a".repeat(32));
+        assert!(super::confirmation_navigation_allowed(
+            &base,
+            &path,
+            &base.join(&path).unwrap()
+        ));
+        for candidate in [
+            format!("http://127.0.0.1:8001{path}"),
+            format!("https://127.0.0.1:8000{path}"),
+            format!("http://localhost:8000{path}"),
+            format!("http://127.0.0.1:8000{path}?ticket=secret"),
+            "http://127.0.0.1:8000/auth/me".into(),
+            format!(
+                "http://127.0.0.1:8000/presentations/{}/confirmation/",
+                "b".repeat(32)
+            ),
+        ] {
+            assert!(
+                !super::confirmation_navigation_allowed(
+                    &base,
+                    &path,
+                    &reqwest::Url::parse(&candidate).unwrap()
+                ),
+                "{candidate}"
+            );
+        }
+    }
+
+    #[test]
+    fn confirmation_cookie_rejects_wider_or_foreign_credentials() {
+        let path = format!("/presentations/{}/confirmation", "a".repeat(32));
+        let valid = format!("tuantuan_ppt_confirmation=scoped-only; HttpOnly; Max-Age=900; Path={path}; SameSite=strict");
+        let cookie = super::confirmation_cookie(&valid, "127.0.0.1", &path, false).unwrap();
+        assert_eq!(cookie.domain(), Some("127.0.0.1"));
+        assert_eq!(cookie.path(), Some(path.as_str()));
+        assert_eq!(cookie.http_only(), Some(true));
+        for invalid in [
+            valid.replace(&path, "/"),
+            valid.replace("HttpOnly; ", ""),
+            valid.replace("SameSite=strict", "SameSite=lax"),
+            valid.replace("tuantuan_ppt_confirmation", "login"),
+            format!("{valid}; Domain=attacker.test"),
+        ] {
+            assert!(super::confirmation_cookie(&invalid, "127.0.0.1", &path, false).is_err());
+        }
+    }
+
+    #[test]
+    fn development_uses_the_web_backend_by_default() {
+        assert_eq!(
+            super::shared_api_base(None, true).unwrap(),
+            Some("http://127.0.0.1:8000".into())
+        );
+        assert_eq!(super::shared_api_base(None, false).unwrap(), None);
+    }
+    #[test]
+    fn shared_backend_url_is_normalized_and_validated() {
+        assert_eq!(
+            super::shared_api_base(Some(" http://127.0.0.1:8001/ "), true).unwrap(),
+            Some("http://127.0.0.1:8001".into())
+        );
+        for url in [
+            "file:///tmp/server",
+            "http://user:pass@localhost:8000",
+            "http://localhost:8000/?token=x",
+            "invalid",
+            "https://example.com",
+            "http://127.0.0.1:5173/api",
+            "http://192.168.1.1:8000",
+        ] {
+            assert!(super::shared_api_base(Some(url), true).is_err(), "{url}");
+        }
+    }
+    #[test]
+    fn shared_health_accepts_web_identity_without_desktop_instance() {
+        let health = serde_json::json!({"status": "ok", "service": "tuantuan", "version": env!("CARGO_PKG_VERSION")});
+        assert!(super::shared_health_matches(&health));
+        let mut legacy = health.clone();
+        legacy["service"] = serde_json::json!("careerloop");
+        assert!(!super::shared_health_matches(&legacy));
+        assert!(!super::shared_health_matches(
+            &serde_json::json!({"status":"ok","service":"other","version":env!("CARGO_PKG_VERSION")})
+        ));
+        assert!(!super::shared_health_matches(
+            &serde_json::json!({"status":"ok","service":"tuantuan","version":"0.0.0"})
+        ));
+    }
 
     #[test]
     fn request_cancellation_aborts_running_and_early_requests() {
@@ -609,16 +983,20 @@ mod tests {
     fn health_requires_matching_service_version_and_instance() {
         let response = format!(
             "HTTP/1.1 200 OK\r\n\r\n{}",
-            serde_json::json!({ "status": "ok", "service": "careerloop", "version": env!("CARGO_PKG_VERSION"), "instance_id": "test-instance" })
+            serde_json::json!({ "status": "ok", "service": "tuantuan", "version": env!("CARGO_PKG_VERSION"), "instance_id": "test-instance" })
         );
         assert!(health_response_matches(&response, "test-instance"));
         assert!(!health_response_matches(&response, "other-instance"));
+        assert!(!health_response_matches(
+            &response.replace("tuantuan", "careerloop"),
+            "test-instance"
+        ));
         assert!(!health_response_matches(
             &response.replace(env!("CARGO_PKG_VERSION"), "99.0.0"),
             "test-instance"
         ));
         assert!(!health_response_matches(
-            &response.replace("careerloop", "other-service"),
+            &response.replace("tuantuan", "other-service"),
             "test-instance"
         ));
         assert!(!health_response_matches(

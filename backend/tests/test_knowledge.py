@@ -61,7 +61,8 @@ class ResumeKnowledgeWiringTest(unittest.TestCase):
             results = search_knowledge("FastAPI", ["library_source"], 3, db_path)
             self.assertTrue(results)
             metadata = results[0].get("metadata") or {}
-            self.assertNotIn("block_id", metadata)
+            self.assertTrue(metadata["block_id"])
+            self.assertTrue(metadata["source_revision"])
             self.assertNotIn("kind", metadata)
 
     def test_indexed_resume_text_is_redacted(self) -> None:

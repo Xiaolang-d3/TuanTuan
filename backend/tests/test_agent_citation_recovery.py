@@ -291,7 +291,7 @@ def test_failed_citation_answer_does_not_poison_retry_history_or_summary(tmp_pat
     from app import db
     from app.chat.conversations import create_conversation
     from app.chat.service import agent_history, refresh_conversation_summary, save_chat_message
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     monkeypatch.setattr(db, "DB_PATH", path)
     db.init_db(path)
     conversation = create_conversation("社招讨论")

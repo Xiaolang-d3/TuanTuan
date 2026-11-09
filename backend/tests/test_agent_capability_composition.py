@@ -36,7 +36,7 @@ def test_search_phrase_without_consent_keeps_tools_empty() -> None:
 def test_local_search_phrase_is_not_a_public_request() -> None:
     route = route_task("搜索我的笔记", set(WITHOUT_WEB))
     assert route.kind == "library_search"
-    assert route.allowed_tools == ("get_library_context", "search_library")
+    assert route.allowed_tools == ("get_library_context", "search_library", "read_library_source")
 
 
 def test_mixed_task_composes_library_and_web() -> None:
@@ -45,6 +45,7 @@ def test_mixed_task_composes_library_and_web() -> None:
     assert route.allowed_tools == (
         "get_library_context",
         "search_library",
+        "read_library_source",
         "search_public_web",
     )
     assert route.needs_plan
@@ -54,14 +55,14 @@ def test_mixed_task_composes_library_and_web() -> None:
 def test_mixed_task_without_consent_keeps_library_only() -> None:
     route = route_task("根据我的笔记并搜索最新技术写报告", set(WITHOUT_WEB))
     assert route.kind == "library_search"
-    assert route.allowed_tools == ("get_library_context", "search_library")
+    assert route.allowed_tools == ("get_library_context", "search_library", "read_library_source")
     assert not is_mixed_run(route, WITHOUT_WEB)
 
 
 def test_library_update_requires_proposal_not_read() -> None:
     route = route_task("记住：每周整理一次读书笔记", set(SURFACE))
     assert route.kind == "library_update"
-    assert route.allowed_tools == ("get_library_context", "propose_library_knowledge")
+    assert route.allowed_tools == ("get_library_context", "read_library_source", "propose_library_knowledge")
     assert route.required_tools == ("propose_library_knowledge",)
 
 

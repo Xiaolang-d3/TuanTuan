@@ -1,5 +1,20 @@
 """Fresh workspaces contain only current business tables."""
 from .library_schema import LIBRARY_CORE_SCHEMA
+from ..extensions.schema import EXTENSION_SCHEMA
+from ..jobs.schema import JOB_SCHEMA
+from ..presentations.schema import PRESENTATION_SCHEMA
+from .document_schema import VERSION_SCHEMA, AUTHORED_DOCUMENT_SCHEMA
+
+MODEL_CATALOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS model_catalog_entries (
+    connection_id TEXT NOT NULL REFERENCES model_connections(id) ON DELETE CASCADE,
+    connection_revision INTEGER NOT NULL,
+    model_id TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (connection_id, connection_revision, model_id)
+);
+"""
 
 CURRENT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS chat_image_operations (
@@ -154,6 +169,7 @@ CREATE TABLE IF NOT EXISTS model_connections (
     secret_ref TEXT NOT NULL DEFAULT 'none',
     data_boundary TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
+    deleted_at TEXT,
     revision INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -380,7 +396,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge_chunks(source_type,
 CREATE INDEX IF NOT EXISTS idx_attachments_conversation ON attachments(conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_service_events_created_at ON model_service_events(created_at DESC);
 
-""" + LIBRARY_CORE_SCHEMA
+""" + LIBRARY_CORE_SCHEMA + EXTENSION_SCHEMA + JOB_SCHEMA + PRESENTATION_SCHEMA + MODEL_CATALOG_SCHEMA + VERSION_SCHEMA + AUTHORED_DOCUMENT_SCHEMA
 
 AUTH_SCHEMA = """
 
@@ -406,5 +422,6 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     revoked_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+
 
 """

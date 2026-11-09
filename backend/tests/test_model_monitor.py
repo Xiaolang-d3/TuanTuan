@@ -17,7 +17,7 @@ from app.observability.model_monitor import (
 
 class ModelMonitorTest(unittest.TestCase):
     def setUp(self) -> None:
-        secret_environment = patch.dict(os.environ, {"CAREERLOOP_SECRET_BACKEND": "memory"})
+        secret_environment = patch.dict(os.environ, {"TUANTUAN_SECRET_BACKEND": "memory"})
         secret_environment.start()
         self.addCleanup(secret_environment.stop)
         config_patch = patch("app.agent.settings.get_settings", return_value=Settings(openai_api_key=None))

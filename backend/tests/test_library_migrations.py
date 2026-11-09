@@ -1,4 +1,5 @@
 import sqlite3
+import os
 
 import pytest
 
@@ -11,12 +12,12 @@ from app.library.sources import delete_source, get_source, list_sources, update_
 
 
 def legacy_workspace(tmp_path):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     init_v22(path)
     document_path(path).write_text(render(ProfileDocument(
         name="读者", skills="- 记录笔记", goals="- 历史求职目标",
         resume_text="历史阅读资料：每周整理笔记，联系 reader@example.com。",
-    )))
+    )), encoding="utf-8")
     with connect(path) as conn:
         for status, statement in [("proposed", "待确认"), ("confirmed", "已确认"), ("rejected", "已否决"), ("retracted", "已撤回")]:
             conn.execute("INSERT INTO candidate_memory_items (profile_id, category, statement, status) VALUES (1, 'knowledge', ?, ?)", (statement, status))
@@ -55,7 +56,8 @@ def test_upgrade_preserves_states_ids_history_and_original_document(tmp_path):
     with sqlite3.connect(backup) as conn:
         assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 22
         assert conn.execute("SELECT COUNT(*) FROM candidate_memory_items").fetchone()[0] == 4
-    assert backup.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert backup.stat().st_mode & 0o777 == 0o600
 
 
 def test_disabled_or_deleted_migrated_source_never_reappears(tmp_path):

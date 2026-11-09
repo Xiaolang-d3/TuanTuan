@@ -11,7 +11,7 @@
       "identifier": "shell:allow-spawn",
       "allow": [
         {
-          "name": "binaries/careerloop-server",
+          "name": "binaries/tuantuan-server",
           "sidecar": true,
           "args": true
         }

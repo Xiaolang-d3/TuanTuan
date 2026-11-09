@@ -102,7 +102,7 @@ class OpenAIResponsesProvider(OpenAICompatibleProvider):
     def _unsupported_options(self) -> set[str]:
         return _UNSUPPORTED_OPTIONS.setdefault((self._base_url or "", self._model), set())
 
-    async def _create(self, arguments: dict[str, Any], *, image_generation: bool = False) -> Any:
+    async def _create(self, arguments: dict[str, Any], *, image_generation: bool = False, allow_option_fallback: bool = True) -> Any:
         """Create a response, retrying once per optional feature the upstream rejects."""
         if image_generation:
             # A failed transport may already have generated a paid image.
@@ -115,7 +115,7 @@ class OpenAIResponsesProvider(OpenAICompatibleProvider):
                 return await self._client.responses.create(**arguments)
             except APIStatusError as exc:
                 option = _rejected_option(arguments, exc)
-                if option is None:
+                if option is None or not allow_option_fallback:
                     raise
                 arguments.pop(option, None)
                 self._unsupported_options.add(option)
@@ -124,7 +124,7 @@ class OpenAIResponsesProvider(OpenAICompatibleProvider):
         started_at = perf_counter()
         result = None
         try:
-            response = await self._create(self._request_arguments(request), image_generation=request.image_generation)
+            response = await self._create(self._request_arguments(request), image_generation=request.image_generation, allow_option_fallback=request.allow_option_fallback)
             result = self._response_from_response(response)
             self._validate_image_response(request, result)
         except _OPENAI_ERRORS as exc:
@@ -158,7 +158,7 @@ class OpenAIResponsesProvider(OpenAICompatibleProvider):
         completed_response = None
         finished_images: dict[str, Any] = {}
         try:
-            stream = await self._create(arguments, image_generation=request.image_generation)
+            stream = await self._create(arguments, image_generation=request.image_generation, allow_option_fallback=request.allow_option_fallback)
             async for event in stream:
                 event_type = getattr(event, "type", "")
                 if event_type == "response.output_text.delta":
@@ -297,6 +297,12 @@ class OpenAIResponsesProvider(OpenAICompatibleProvider):
             "store": False,
         }
         arguments.update(request_parameters(request.parameters, "max_output_tokens"))
+        if request.response_format:
+            schema = request.response_format.get("json_schema")
+            if schema:
+                arguments["text"] = {"format": {"type": "json_schema", **schema}}
+            elif request.response_format.get("type") == "json_object":
+                arguments["text"] = {"format": {"type": "json_object"}}
         if request.tools:
             arguments["tools"] = [
                 {

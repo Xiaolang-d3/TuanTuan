@@ -64,6 +64,41 @@ jobs:
           path: backend/pytest-report.xml
           if-no-files-found: ignore
 
+  backend-windows-documents:
+    name: backend-windows-documents
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev-lock.txt
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev-lock.txt
+      - name: Scan for executable .pth files
+        run: python -I -S backend/scripts/scan_pth.py --python python
+      - name: Test native Windows locale and ACL
+        working-directory: backend
+        env:
+          EMBEDDING_BACKEND: hash
+          PYTHONUTF8: "0"
+        run: python -m pytest tests/test_library_sources.py tests/test_chat_artifacts.py tests/test_file_permissions_windows.py tests/test_document_blocks.py tests/test_source_versions.py tests/test_source_backfill.py tests/test_library_citations.py -q --junitxml=platform-default.xml
+      - name: Compare UTF-8 mode
+        working-directory: backend
+        env:
+          EMBEDDING_BACKEND: hash
+        run: python -X utf8 -m pytest tests/test_library_sources.py tests/test_chat_artifacts.py tests/test_file_permissions_windows.py -q --junitxml=platform-utf8.xml
+      - name: Upload Windows document reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-windows-document-reports
+          path: backend/platform-*.xml
+          if-no-files-found: ignore
+
   frontend-unit:
     name: frontend-unit
     runs-on: ubuntu-latest
@@ -166,6 +201,7 @@ jobs:
     needs:
       - docs-sync
       - backend-tests
+      - backend-windows-documents
       - frontend-unit
       - frontend-e2e
     steps:
@@ -173,6 +209,7 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ needs.backend-tests.result }}" = success
+          test "${{ needs.backend-windows-documents.result }}" = success
           test "${{ needs.frontend-unit.result }}" = success
           test "${{ needs.frontend-e2e.result }}" = success
           case "${{ needs.docs-sync.result }}" in

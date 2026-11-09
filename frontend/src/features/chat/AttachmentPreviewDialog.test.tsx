@@ -125,7 +125,7 @@ describe("attachment preview", () => {
     const scale = screen.getByRole("button", { name: "查看原始尺寸" });
     const fit = screen.getByRole("button", { name: "适应窗口" });
     expect(scale).toHaveTextContent("50%");
-    expect(screen.getByText(/2000 × 1000/)).toBeInTheDocument();
+    expect(screen.queryByText(/2000 × 1000/)).not.toBeInTheDocument();
     expect(image).toHaveStyle({ width: "1000px" });
     fireEvent.click(screen.getByRole("button", { name: "放大图片" }));
     expect(scale).toHaveTextContent("75%");
@@ -202,4 +202,15 @@ it("switches between images in one preview without losing the original focus tar
   expect(screen.getByText("2 / 2")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "下一张图片" })).toBeDisabled();
   view.unmount(); expect(trigger).toHaveFocus(); trigger.remove();
+});
+
+
+it("opens generated images directly with tools and no file heading or edit-entry step", async () => {
+  render(<AttachmentPreviewDialog attachment={attachment("generated.png", { kind: "image", origin: "generated", width: 1024, height: 768 })} loadOriginal={async () => ({ file: file("image", "image/png") })} onEditGeneratedImage={vi.fn()} onNavigate={vi.fn()} onClose={vi.fn()} />);
+  await screen.findByRole("img", { name: "正在编辑的图片" });
+  expect(screen.getByRole("toolbar", { name: "图片设计工具" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "继续编辑" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("修改要求")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "关闭附件预览" })).toBeInTheDocument();
 });

@@ -9,9 +9,12 @@ import unicodedata
 
 from docx import Document
 from pypdf import PdfReader
+from .blocks import DocumentBlock, build_blocks
 
 
 MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENT_CHARACTERS = 1_000_000
+MAX_DOCUMENT_PAGES = 2000
 SUPPORTED_DOCUMENT_SUFFIXES = {".pdf", ".docx", ".txt", ".md"}
 _SECTION_HEADING = re.compile(
     r"^(个人优势|核心优势|个人亮点|能力特长|核心竞争力|个人简介|教育经历|工作经历|项目经历|实习经历|校园经历|"
@@ -29,6 +32,11 @@ class DocumentParseResult:
     text: str
     parser: str
     warnings: list[str] = field(default_factory=list)
+    blocks: list[DocumentBlock] = field(default_factory=list)
+    extracted_characters: int = 0
+    complete: bool = True
+    unprocessed_ranges: list[dict] = field(default_factory=list)
+    units: list[dict] = field(default_factory=list)
 
 
 def parse_document(filename: str, content: bytes) -> str:
@@ -36,6 +44,18 @@ def parse_document(filename: str, content: bytes) -> str:
 
 
 def parse_document_result(filename: str, content: bytes, mode: str = "fast") -> DocumentParseResult:
+    if not content or len(content) > MAX_DOCUMENT_BYTES:
+        raise ValueError("资料文件为空或超过 8MB")
+    if Path(filename).suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
+        raise ValueError("仅支持 PDF、Word（.docx）和文本资料")
+    if mode not in {"fast", "enhanced"}:
+        raise ValueError("解析模式必须是 fast 或 enhanced")
+    from .limits import run_document_parser
+    return run_document_parser(filename, content, mode, max_characters=MAX_DOCUMENT_CHARACTERS)
+
+
+def _parse_document_result(filename: str, content: bytes, mode: str = "fast", *, max_characters=None) -> DocumentParseResult:
+    max_characters = MAX_DOCUMENT_CHARACTERS if max_characters is None else max_characters
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
         raise ValueError("仅支持 PDF、Word（.docx）和文本资料")
@@ -47,23 +67,75 @@ def parse_document_result(filename: str, content: bytes, mode: str = "fast") -> 
     if mode not in {"fast", "enhanced"}:
         raise ValueError("解析模式必须是 fast 或 enhanced")
 
+    if suffix == ".docx":
+        from zipfile import ZipFile
+        with ZipFile(BytesIO(content)) as archive:
+            files = archive.infolist()
+            if len(files) > 10000 or sum(item.file_size for item in files) > 32 * 1024 * 1024 or any(item.file_size > 16 * 1024 * 1024 for item in files):
+                raise ValueError("Word 文件展开超过安全处理范围；请拆分资料，原文件保留")
+
+    cumulative = 0
+    def segment(value, locator):
+        nonlocal cumulative
+        if len(value) > max_characters * 2 + 8192:
+            raise ValueError(f"资料展开超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
+        normalized = normalize_document_text(value)
+        cumulative += len(normalized) + (1 if cumulative and normalized else 0)
+        if cumulative > max_characters:
+            raise ValueError(f"资料超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
+        return normalized, locator
+
     warnings: list[str] = []
+    segments = None
+    units: list[dict] = []
     if mode == "enhanced" and suffix in {".pdf", ".docx"}:
         try:
             text = _parse_with_docling(filename, content)
             parser = "docling"
+            segments = [segment(text, {"kind": "text_range", "precise": False})]
+            warnings.append("增强提取文字暂不含原文位置；引用仅定位到提取文字。")
         except Exception:
-            text = _parse_lightweight(suffix, content)
+            text = ""  # Structured extraction below is the fast fallback.
+            cumulative = 0
             parser = "lightweight"
             warnings.append("增强解析暂不可用，已自动使用快速解析")
     else:
-        text = _parse_lightweight(suffix, content)
+        text = "" if suffix in {".pdf", ".docx"} else _parse_lightweight(suffix, content)
         parser = "lightweight"
 
-    normalized = normalize_document_text(text)
+    if segments is None:
+        if suffix == ".pdf":
+            segments = []
+            reader = PdfReader(BytesIO(content))
+            if len(reader.pages) > MAX_DOCUMENT_PAGES:
+                raise ValueError("PDF 页数超过处理范围；请拆分资料，原文件保留")
+            for page_number, page in enumerate(reader.pages, 1):
+                item = segment(page.extract_text() or "", {"kind": "pdf_page", "page": page_number, "precise": True})
+                normalized_page = item[0]
+                segments.append(item)
+                units.append({"kind": "pdf_page", "page": page_number, "status": "ready" if normalized_page else "no_text"})
+        elif suffix == ".docx":
+            from docx.table import Table
+            document = Document(BytesIO(content))
+            segments = []
+            paragraph_number, table_number = 0, 0
+            for item in document.iter_inner_content():
+                if isinstance(item, Table):
+                    table_number += 1
+                    value = "\n".join("\t".join(cell.text for cell in row.cells) for row in item.rows)
+                    locator = {"kind": "docx_table", "table": table_number, "precise": True}
+                else:
+                    paragraph_number += 1
+                    value = item.text
+                    locator = {"kind": "docx_paragraph", "paragraph": paragraph_number, "precise": True}
+                segments.append(segment(value, locator))
+        else:
+            segments = [segment(text, {"kind": "text_range", "precise": True})]
+    normalized, blocks, count, unprocessed = build_blocks(segments)
     if not normalized:
         raise ValueError("未能从资料中提取文字；扫描版 PDF 请使用增强解析")
-    return DocumentParseResult(normalized[:100_000], parser, warnings)
+    unprocessed += [{**unit, "reason": "no_extractable_text"} for unit in units if unit["status"] == "no_text"]
+    return DocumentParseResult(normalized, parser, warnings, blocks, count, not unprocessed, unprocessed, units)
 
 
 def normalize_document_text(text: str) -> str:
@@ -216,7 +288,7 @@ def _parse_with_docling(filename: str, content: bytes) -> str:
     # is large and may need to initialize local OCR models on first use.
     from docling.document_converter import DocumentConverter
 
-    with TemporaryDirectory(prefix="careerloop-document-") as directory:
+    with TemporaryDirectory(prefix="tuantuan-document-") as directory:
         path = Path(directory) / Path(filename).name
         path.write_bytes(content)
         result = DocumentConverter().convert(path)

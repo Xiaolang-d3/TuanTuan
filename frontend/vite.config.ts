@@ -18,7 +18,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"]
+    include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.mjs"]
   },
   build: {
     rollupOptions: {
@@ -57,6 +57,14 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
+        configure(proxy) {
+          proxy.on("proxyRes", (response) => {
+            // Preserve the job-specific cookie scope after the /api rewrite.
+            const cookies = response.headers["set-cookie"];
+            if (cookies) response.headers["set-cookie"] = cookies.map(cookie => cookie.replace(
+              /(;\s*Path=)(\/presentations\/[a-f0-9]{32}\/confirmation)(?=;|$)/i, "$1/api$2"));
+          });
+        },
         rewrite: (path) => path.replace(/^\/api/, "")
       }
     }

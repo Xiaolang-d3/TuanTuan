@@ -55,11 +55,11 @@
   color: var(--color-text-muted);
   opacity: 1;
 }
-:root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.model-pill:not(.model-pill--warning):not(.model-pill--setup), .web-search-toggle:not(.active), .composer-attachment-tool) {
+:root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.model-pill:not(.model-pill--warning):not(.model-pill--setup), .web-search-toggle:not(.active), .composer-attachment-tool, .composer-voice-tool) {
   color: var(--color-text-secondary);
   background: transparent;
 }
-:root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.model-pill:not(.model-pill--warning):not(.model-pill--setup), .web-search-toggle:not(.active), .composer-attachment-tool):is(:hover:not(:disabled), :focus-visible, .is-open) {
+:root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.web-search-toggle:not(.active), .composer-attachment-tool, .composer-voice-tool):is(:hover:not(:disabled), :focus-visible, .is-open) {
   color: var(--color-brand-strong);
   background: var(--color-brand-soft);
 }

@@ -1,0 +1,42 @@
+.image-editor { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 1; min-height: 0; gap: 12px; padding: 20px 24px 16px; }
+.image-editor-stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; flex: 0 1 auto; min-width: 0; min-height: 0; }
+.image-editor-canvas { position: relative; width: 100%; flex-shrink: 1; }
+.image-editor-canvas img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
+.image-editor-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.image-editor-load { display: grid; place-items: center; min-height: 160px; color: white; }
+.image-editor-tools { display: flex; align-items: center; justify-content: center; gap: 2px; width: fit-content; max-width: 100%; margin: 0 auto; padding: 5px; border-radius: 12px; background: var(--color-surface); box-shadow: 0 6px 24px #0003; }
+.image-editor-tools button { flex: none; border-color: transparent; background: transparent; white-space: nowrap; }
+.image-editor-tools button[aria-pressed=true], .image-editor-versions button[aria-current=true] { background: var(--color-surface-subtle); color: var(--color-brand-strong); }
+.image-editor-options { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: min(760px, 100%); max-height: min(38dvh, 300px); box-sizing: border-box; margin: 0 auto; flex: none; padding: 16px 36px 16px 16px; overflow: auto; border-radius: 12px; background: var(--color-surface); }
+.image-editor-options .image-editor-collapse { position: absolute; right: 4px; top: 4px; width: 28px; min-height: 28px; padding: 4px; border-color: transparent; }
+.image-editor-options label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.image-editor-options input:not([type=checkbox]), .image-editor-options textarea { width: 100%; box-sizing: border-box; min-width: 0; padding: 8px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); font: inherit; }
+.image-editor-options textarea { display: block; min-height: 58px; resize: vertical; }
+.image-editor-options .image-editor-prompt { flex: 1 1 240px; }
+.image-editor-options .image-editor-brush { flex: 0 0 104px; }
+.image-editor-options input[type=range] { accent-color: var(--color-brand-strong); padding: 0; }
+.image-editor-options .image-editor-check { flex-direction: row; align-items: center; }
+.image-editor-options.is-resize > label:not(.image-editor-check) { width: 108px; }
+.image-editor-row, .image-editor-versions { display: flex; gap: 6px; flex-wrap: wrap; }
+.image-editor-versions { position: absolute; top: 0; left: 50%; transform: translateX(-50%); max-width: 100%; padding: 3px; border-radius: 8px; background: var(--color-surface); }
+.image-editor-versions button { border-color: transparent; }
+.image-editor-comment { flex: 1 1 240px; }
+.image-editor-comment textarea { min-height: 54px; }
+.image-editor-comment > button { margin-top: 4px; }
+.image-editor p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); }
+.image-editor-options > p { flex: 1 1 100%; }
+.image-editor-options .image-editor-submit { margin-left: auto; background: var(--color-brand-strong); color: white; min-height: 36px; }
+.image-editor [role=alert] { color: var(--color-danger, #b42318); }
+.image-editor-spin { animation: image-editor-spin 1s linear infinite; }
+@keyframes image-editor-spin { to { transform: rotate(360deg); } }
+@media (max-width: 600px) {
+  .image-editor { padding: 52px 10px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
+  .image-editor-tools { gap: 0; padding: 4px; overflow-x: auto; justify-content: flex-start; }
+  .chat-attachment-dialog .image-editor-tools button { padding: 7px 5px; gap: 4px; font-size: 11px; min-height: 36px; }
+  .image-editor-tools button svg { width: 14px; height: 14px; }
+  .image-editor-tools .image-editor-download-label { display: none; }
+  .image-editor-options { padding: 14px 30px 14px 12px; max-height: 38dvh; gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .image-editor-spin { animation: none; } }
+
+.image-editor-prompt > .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

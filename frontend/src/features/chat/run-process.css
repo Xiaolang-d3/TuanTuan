@@ -1,8 +1,8 @@
 .chat-workspace .run-process .run-process-toggle { width: 100%; flex-wrap: nowrap; }
 .chat-workspace .run-process-toggle.is-static { cursor: default; }
 .chat-workspace .run-process-toggle.is-static:hover { color: var(--color-text-muted); }
-.chat-workspace .image-generation-progress { display: grid; place-items: center; width: 80px; max-width: 100%; height: 80px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.chat-workspace .image-generation-dots { display: block; width: 80px; height: 80px; color: var(--color-brand); }
+.chat-workspace .image-generation-progress { display: grid; place-items: center; width: 120px; max-width: 100%; height: 120px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.chat-workspace .image-generation-dots { display: block; width: 120px; height: 120px; color: var(--color-brand); }
 .chat-workspace .image-generation-dots circle { fill: currentColor; opacity: .25; transform-box: fill-box; transform-origin: center; animation: image-generation-wave 1.8s ease-in-out infinite; }
 @keyframes image-generation-wave {
   0%, 65%, 100% { opacity: .2; transform: scale(.75); }

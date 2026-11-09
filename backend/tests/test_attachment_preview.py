@@ -34,7 +34,12 @@ def test_attachment_file_cannot_escape_storage_root(tmp_path, use_symlink):
     outside.write_text("outside")
     object_key = "../outside.txt"
     if use_symlink:
-        (store.local_root / "alias.txt").symlink_to(outside)
+        try:
+            (store.local_root / "alias.txt").symlink_to(outside)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                pytest.skip("Windows account lacks symlink privilege; lexical escape and ACL checks still run")
+            raise
         object_key = "alias.txt"
     with connect(db) as conn:
         conn.execute("UPDATE attachments SET object_key = ? WHERE id = ?", (object_key, attachment["id"]))

@@ -3,6 +3,23 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatWorkspace } from "./ChatWorkspace";
 import type { AgentRunResult, ChatMessage, ChatRetryDraft, ChatAttachment, ChatComposerDraft, ChatWorkspaceProps } from "../features/chat/types";
+import type { DocumentReviewService } from "../features/chat/document-review-service";
+import type { DocumentService, SavedDocument } from "../features/chat/document-service";
+
+it("edits a mixed text/image answer as one document while retaining the composer draft", async () => {
+  const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "图.png", parse_status: "parsed" };
+  const mixed: ChatMessage = { ...assistantMessage("整体回答"), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [asset], output_blocks: [{ type: "text", text: "开头" }, { type: "image", asset_id: asset.id }, { type: "text", text: "结尾" }] } } };
+  const doc: SavedDocument = { document_id: "d".repeat(32), version: 1, latest_version: 1, parent_document_version: null, conversation_id: 1, message_id: 12, title: "图文", markdown: "开头\n\n![图](resources/image.png)\n\n结尾", evidence: [], resources: [], citations: [], incomplete: false, created_at: "2026-11-09" };
+  const documents = { create: vi.fn().mockResolvedValue(doc), latest: vi.fn().mockResolvedValue(doc), versions: vi.fn().mockResolvedValue({ versions: [{ version: 1, parent_document_version: null, created_at: doc.created_at }] }) } as unknown as DocumentService;
+  const p = renderChat([message, mixed], { documentService: documents, onLoadResults: vi.fn().mockResolvedValue({ message_id: 12, snapshot: "a".repeat(64), incomplete: false, artifacts: [{ selector: "answer", kind: "answer", filename: "回答.md", mime_type: "text/markdown", content: "开头和结尾", can_index: true }] }) });
+  const input = screen.getByRole("textbox", { name: "输入消息" });
+  fireEvent.change(input, { target: { value: "不能丢失的聊天草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "编辑文档" }));
+  expect(await screen.findByRole("textbox", { name: "文档正文" })).toHaveValue(doc.markdown);
+  expect(p.onSend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭成果" }));
+  expect(input).toHaveValue("不能丢失的聊天草稿");
+});
 
 const voiceCaptureMocks = vi.hoisted(() => ({
   supported: false,
@@ -73,6 +90,8 @@ function fencedMermaid(source: string): string {
 }
 
 function renderChat(messages: ChatMessage[] = [message], extras: {
+  documentService?: DocumentService;
+  documentReviewService?: DocumentReviewService;
   voiceInput?: ChatWorkspaceProps["voiceInput"];
   onLoadResults?: ChatWorkspaceProps["onLoadResults"];
   onSaveResult?: ChatWorkspaceProps["onSaveResult"];
@@ -100,6 +119,8 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
   onUndoReplacement?: () => Promise<void>;
 } = {}) {
   const props = {
+    documentService: extras.documentService,
+    documentReviewService: extras.documentReviewService,
     voiceInput: extras.voiceInput,
     onLoadResults: extras.onLoadResults,
     onSaveResult: extras.onSaveResult,
@@ -160,6 +181,53 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
 }
 
 describe("ChatWorkspace", () => {
+  it("starts explicit whole-document review of a history attachment without sending a chat message", async () => {
+    const target = { source_kind: "attachment" as const, attachment_id: "document-one", source_revision: "a".repeat(64) };
+    const service = { list: vi.fn().mockResolvedValue({ jobs: [] }), prepareAttachment: vi.fn().mockResolvedValue(target),
+      create: vi.fn().mockResolvedValue({ id: "review", kind: "document.review", status: "queued", revision: 1, request: { target, conversation_id: 1 }, checkpoint: {}, cancel_requested: false }) } as unknown as DocumentReviewService;
+    const p = renderChat([{ ...message, payload: { attachments: [{ id: "document-one", kind: "document", original_filename: "资料.txt", parse_status: "parsed" }] } }], { documentReviewService: service });
+    fireEvent.click(await screen.findByText("全文审阅"));
+    fireEvent.click(screen.getByRole("button", { name: "开始全文审阅" }));
+    await waitFor(() => expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ target, conversation_id: 1 })));
+    expect(p.onSend).not.toHaveBeenCalled();
+  });
+  it.each(["", "   \n  "])("explains a disabled empty send with a hover hint (%j)", async (draft) => {
+    const props = renderChat();
+    const input = screen.getByRole("textbox", { name: "输入消息" });
+    if (draft) fireEvent.change(input, { target: { value: draft } });
+    const send = screen.getByRole("button", { name: "发送" });
+    expect(send).toBeDisabled();
+    expect(send).toHaveAttribute("title", "找不到发送的内容");
+    expect(send.parentElement).toHaveAttribute("title", "找不到发送的内容");
+    fireEvent.click(send);
+    expect(screen.queryByText("找不到发送的内容")).not.toBeInTheDocument();
+    expect(props.onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue(draft);
+    fireEvent.change(input, { target: { value: "你好" } });
+    expect(send).toBeEnabled();
+    expect(send).toHaveAttribute("title", "发送消息");
+    expect(send.parentElement).toHaveAttribute("title", "发送消息");
+    fireEvent.click(send);
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("你好", [], []));
+    expect(props.onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ state: "empty", messages: [] }, { state: "history", messages: [message] }])("keeps extension tools below the editor without submitting or clearing its draft ($state)", ({ messages }) => {
+    const props = renderChat(messages);
+    const input = screen.getByRole("textbox", { name: "输入消息" });
+    fireEvent.change(input, { target: { value: "整理这周的资料" } });
+    const tools = screen.getByRole("group", { name: "技能与外部工具" });
+    expect(input.closest("form")).not.toContainElement(tools);
+    expect(within(tools).getByRole("link", { name: "外部连接" })).toHaveAttribute("href", "#/settings/extensions");
+    const skill = within(tools).getByRole("button", { name: "技能" });
+    fireEvent.click(skill);
+    expect(screen.getByRole("region", { name: "可用技能" })).toBeInTheDocument();
+    fireEvent.keyDown(skill, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "可用技能" })).not.toBeInTheDocument();
+    expect(input).toHaveValue("整理这周的资料");
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
+
   it("shows dismissible model selection feedback in the composer", () => {
     const dismiss = vi.fn();
     const { view, ...props } = renderChat([message], { modelSelectionFeedback: { kind: "success", text: "已切换至图片模型" }, onDismissModelSelectionFeedback: dismiss });

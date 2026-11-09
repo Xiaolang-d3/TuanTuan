@@ -19,36 +19,27 @@ def index_document(
     db_path: str | Path | None = None,
 ) -> int:
     """Index redacted/local text with the current on-device embedder."""
-    chunks = _chunk_text(content)
-    embedder = get_embedder()
-    with connect(db_path) as conn:
-        vectors_available = _ensure_vectors(conn)
-        existing = conn.execute(
-            "SELECT id FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
-            (source_type, str(source_id)),
-        ).fetchall()
-        if vectors_available:
-            for row in existing:
-                conn.execute("DELETE FROM vec_knowledge WHERE rowid = ?", (row["id"],))
-        conn.execute(
-            "DELETE FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
-            (source_type, str(source_id)),
-        )
-        vectors = embedder.embed_many(chunks) if vectors_available else []
-        for chunk, vector in zip(chunks, vectors or [None] * len(chunks)):
-            cursor = conn.execute(
-                """
-                INSERT INTO knowledge_chunks (source_type, source_id, title, content, metadata_json)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (source_type, str(source_id), title, chunk, json_dump(metadata or {})),
-            )
-            if vectors_available and vector is not None:
-                conn.execute(
-                    "INSERT INTO vec_knowledge(rowid, embedding) VALUES (?, ?)",
-                    (cursor.lastrowid, _serialize(vector)),
-                )
-    return len(chunks)
+    return index_chunks(source_type, source_id, [
+        {"title": title, "content": chunk, "metadata": metadata or {}} for chunk in _chunk_text(content)
+    ], db_path)
+
+
+def _embedding_items(items, embedder):
+    split = getattr(embedder, "split_for_embedding", None)
+    if not callable(split):
+        return items
+    expanded = []
+    for item in items:
+        metadata = item.get("metadata") or {}
+        start, end = metadata.get("embedding_start", 0), metadata.get("embedding_end", len(item["content"]))
+        for left, right in split(item["content"][start:end]):
+            expanded.append({**item, "metadata": {**metadata, "embedding_start": start + left, "embedding_end": start + right}})
+    return expanded
+
+
+def _embedding_text(item):
+    metadata = item.get("metadata") or {}
+    return item["content"][metadata.get("embedding_start", 0):metadata.get("embedding_end", len(item["content"]))]
 
 
 def index_chunks(
@@ -56,6 +47,8 @@ def index_chunks(
     source_id: str | int,
     chunks: list[dict[str, Any]],
     db_path: str | Path | None = None,
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Index pre-cut text blocks, preserving caller metadata such as block_id."""
     items = [
@@ -63,11 +56,13 @@ def index_chunks(
         if str(item.get("content") or "").strip()
     ]
     if not items:
-        delete_document(source_type, source_id, db_path)
+        delete_document(source_type, source_id, db_path, connection=connection)
         return 0
     embedder = get_embedder()
-    with connect(db_path) as conn:
+    with (nullcontext(connection) if connection is not None else connect(db_path)) as conn:
         vectors_available = _ensure_vectors(conn)
+        if vectors_available:
+            items = _embedding_items(items, embedder)
         existing = conn.execute(
             "SELECT id FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
             (source_type, str(source_id)),
@@ -79,8 +74,10 @@ def index_chunks(
             "DELETE FROM knowledge_chunks WHERE source_type = ? AND source_id = ?",
             (source_type, str(source_id)),
         )
-        contents = [str(item["content"]) for item in items]
+        contents = [_embedding_text(item) for item in items]
         vectors = embedder.embed_many(contents) if vectors_available else []
+        if vectors_available and len(vectors) != len(items):
+            raise ValueError("embedding 返回数量不完整，索引未激活")
         for item, vector in zip(items, vectors or [None] * len(items)):
             cursor = conn.execute(
                 """
@@ -110,47 +107,72 @@ def search_knowledge(
     db_path: str | Path | None = None,
     *,
     relevant_only: bool = False,
+    source_filters: list[tuple[str, str, str | None]] | None = None,
+    allow_unversioned: bool = False,
 ) -> list[dict[str, Any]]:
     if not query.strip():
         return []
-    vector_search = True
+    clauses, parameters = [], []
+    if source_types:
+        clauses.append("source_type IN (" + ",".join("?" for _ in source_types) + ")")
+        parameters.extend(source_types)
+    if source_filters is not None:
+        clauses.append("""EXISTS (SELECT 1 FROM authorized_knowledge a
+            WHERE a.source_type=knowledge_chunks.source_type AND a.source_id=knowledge_chunks.source_id
+            AND (a.revision IS NULL OR a.revision=json_extract(knowledge_chunks.metadata_json,'$.source_revision')"""
+            + (" OR json_extract(knowledge_chunks.metadata_json,'$.source_revision') IS NULL" if allow_unversioned else "") + "))")
+    scope = " AND ".join(clauses) or "1"
+    candidate_limit = max(limit * 4, 12)
+    terms = sorted(_query_terms(query)) or [query.strip().casefold()]
+    vectors = []
     with connect(db_path) as conn:
+        if source_filters is not None:
+            conn.execute("CREATE TEMP TABLE authorized_knowledge(source_type TEXT,source_id TEXT,revision TEXT)")
+            conn.executemany("INSERT INTO authorized_knowledge VALUES(?,?,?)", source_filters)
+            conn.execute("CREATE INDEX authorized_knowledge_identity ON authorized_knowledge(source_type,source_id)")
         try:
             if not _ensure_vectors(conn):
                 raise RuntimeError("vector extension unavailable")
-            candidates = conn.execute(
-                """
+            vectors = conn.execute(
+                f"""
                 SELECT chunks.*, v.distance
                 FROM vec_knowledge v JOIN knowledge_chunks chunks ON chunks.id = v.rowid
                 WHERE v.embedding MATCH ? AND k = ?
+                AND v.rowid IN (SELECT id FROM knowledge_chunks WHERE {scope})
                 ORDER BY v.distance
                 """,
-                (_serialize(get_embedder().embed(query)), max(limit * 4, 12)),
+                (_serialize(get_embedder().embed(query)), candidate_limit, *parameters),
             ).fetchall()
         except Exception:
-            vector_search = False
-            # Safe fallback for environments where native extension loading is disabled.
-            candidates = conn.execute(
-                "SELECT *, 1.0 AS distance FROM knowledge_chunks WHERE content LIKE ? LIMIT ?",
-                (f"%{query.strip()}%", max(limit * 4, 12)),
-            ).fetchall()
-    allowed = set(source_types or [])
-    rows = [row_to_dict(row) for row in candidates if not allowed or row["source_type"] in allowed]
-    if relevant_only and vector_search:
+            pass
+        # Always supplement vectors with deterministic lexical candidates. A
+        # model's token truncation or poor vector cannot hide a stored tail fact.
+        escaped = [term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") for term in terms]
+        lexical = conn.execute(
+            f"SELECT *,0.0 AS distance FROM knowledge_chunks WHERE ({scope}) AND ("
+            + " OR ".join("content LIKE ? ESCAPE '\\'" for _ in escaped)
+            + ") GROUP BY source_type,source_id,COALESCE(json_extract(metadata_json,'$.block_id'),content)"
+            + " ORDER BY (instr(lower(content),lower(?))>0) DESC,id LIMIT ?",
+            (*parameters, *(f"%{term}%" for term in escaped), query.strip(), candidate_limit),
+        ).fetchall()
+    rows = [row_to_dict(row) for row in vectors]
+    if relevant_only:
         if get_embedder().spec.backend == "hash":
             # Hash vectors rank lexical features; collisions are not evidence.
-            terms = _query_terms(query)
             rows = [row for row in rows if any(term in row["content"].casefold() for term in terms)]
         else:
             # Embedders produce unit vectors; sqlite-vec reports L2 distance.
             # A conservative cosine floor removes clearly unrelated neighbours.
             rows = [row for row in rows if 1.0 - float(row["distance"]) ** 2 / 2 >= 0.3]
+    merged = {row["id"]: row_to_dict(row) for row in lexical}
+    for row in rows:
+        merged.setdefault(row["id"], row)
     return [
         {
             **row,
             "similarity": round(max(0.0, 1.0 - float(row.pop("distance", 1.0))), 4),
         }
-        for row in rows[:limit]
+        for row in list(merged.values())[:limit]
     ]
 
 
@@ -271,6 +293,7 @@ def _ensure_vectors(conn) -> bool:
         or stored["backend"] != spec.backend
         or stored["model"] != spec.model
         or int(stored["dimensions"]) != spec.dimensions
+        or int(stored["processing_version"]) != spec.processing_version
     )
     if needs_rebuild:
         if existing_dim is not None:
@@ -284,19 +307,30 @@ def _ensure_vectors(conn) -> bool:
 
 
 def _reembed_all(conn, spec: EmbeddingSpec) -> None:
-    rows = conn.execute("SELECT id, content FROM knowledge_chunks").fetchall()
-    if not rows:
-        return
-    vectors = get_embedder().embed_many([row["content"] for row in rows])
-    if len(vectors) != len(rows):
-        raise RuntimeError("embedding count does not match knowledge chunks")
-    if any(len(vector) != spec.dimensions for vector in vectors):
-        raise RuntimeError("embedding dimension does not match the current index")
-    for row, vector in zip(rows, vectors):
-        conn.execute(
-            "INSERT INTO vec_knowledge(rowid, embedding) VALUES (?, ?)",
-            (row["id"], _serialize(vector)),
-        )
+    # Bound rebuild batches and exclude newly created child rows from this scan.
+    highest = conn.execute("SELECT COALESCE(MAX(id),0) FROM knowledge_chunks").fetchone()[0]
+    last, embedder = 0, get_embedder()
+    while last < highest:
+        rows = conn.execute("SELECT * FROM knowledge_chunks WHERE id>? AND id<=? ORDER BY id LIMIT 64", (last, highest)).fetchall()
+        if not rows:
+            break
+        expanded = []
+        for row in rows:
+            parts = _embedding_items([row_to_dict(row)], embedder)
+            for index, part in enumerate(parts):
+                if index == 0:
+                    conn.execute("UPDATE knowledge_chunks SET metadata_json=? WHERE id=?", (json_dump(part.get("metadata") or {}), row["id"]))
+                else:
+                    cursor = conn.execute("INSERT INTO knowledge_chunks(source_type,source_id,title,content,metadata_json) VALUES(?,?,?,?,?)",
+                        (part["source_type"], part["source_id"], part["title"], part["content"], json_dump(part.get("metadata") or {})))
+                    part = {**part, "id": cursor.lastrowid}
+                expanded.append(part)
+        vectors = embedder.embed_many([_embedding_text(part) for part in expanded])
+        if len(vectors) != len(expanded) or any(len(vector) != spec.dimensions for vector in vectors):
+            raise RuntimeError("embedding result does not match the current index")
+        for part, vector in zip(expanded, vectors):
+            conn.execute("INSERT INTO vec_knowledge(rowid, embedding) VALUES (?, ?)", (part["id"], _serialize(vector)))
+        last = rows[-1]["id"]
 
 
 def _load_sqlite_vec(conn) -> None:
@@ -315,16 +349,19 @@ def _ensure_meta_table(conn) -> None:
             backend TEXT NOT NULL,
             model TEXT NOT NULL,
             dimensions INTEGER NOT NULL,
+            processing_version INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
+    if "processing_version" not in {row["name"] for row in conn.execute("PRAGMA table_info(knowledge_index_meta)")}:
+        conn.execute("ALTER TABLE knowledge_index_meta ADD COLUMN processing_version INTEGER NOT NULL DEFAULT 0")
 
 
 def _read_meta(conn) -> dict[str, Any] | None:
     try:
         row = conn.execute(
-            "SELECT backend, model, dimensions FROM knowledge_index_meta WHERE id = 1"
+            "SELECT backend, model, dimensions, processing_version FROM knowledge_index_meta WHERE id = 1"
         ).fetchone()
     except Exception:
         return None
@@ -335,15 +372,16 @@ def _write_meta(conn, spec: EmbeddingSpec) -> None:
     _ensure_meta_table(conn)
     conn.execute(
         """
-        INSERT INTO knowledge_index_meta (id, backend, model, dimensions, updated_at)
-        VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO knowledge_index_meta (id, backend, model, dimensions, processing_version, updated_at)
+        VALUES (1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             backend = excluded.backend,
             model = excluded.model,
             dimensions = excluded.dimensions,
+            processing_version = excluded.processing_version,
             updated_at = CURRENT_TIMESTAMP
         """,
-        (spec.backend, spec.model, spec.dimensions),
+        (spec.backend, spec.model, spec.dimensions, spec.processing_version),
     )
 
 
@@ -368,6 +406,7 @@ def _spec_payload(spec: EmbeddingSpec) -> dict[str, Any]:
         "backend": spec.backend,
         "model": spec.model,
         "dimensions": spec.dimensions,
+        "processing_version": spec.processing_version,
     }
 
 
@@ -387,4 +426,4 @@ def _chunk_text(text: str, max_chars: int = 900) -> list[str]:
         current = f"{current}\n{paragraph}".strip()
     if current:
         chunks.append(current)
-    return chunks[:200]
+    return chunks

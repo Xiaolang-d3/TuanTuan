@@ -4,7 +4,7 @@ import "./features/home/styles-base.css";
 import "./features/library/styles-base.css";
 import "./features/chat/styles-base.css";
 import "./styles/primitives.css";
-import "./styles/careerloop.css";
+import "./styles/tuantuan.css";
 import "./features/home/styles-theme.css";
 import "./features/library/styles-theme.css";
 import "./features/chat/styles-theme.css";

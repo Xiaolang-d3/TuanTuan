@@ -2,7 +2,7 @@ import "./run-process.css";
 
 export function ImageGenerationProgress() {
   return <div className="image-generation-progress" role="status" aria-label="正在生成图片" aria-live="polite">
-    <svg className="image-generation-dots" viewBox="0 0 80 80" width="80" height="80" aria-hidden="true" focusable="false">
+    <svg className="image-generation-dots" viewBox="0 0 80 80" width="120" height="120" aria-hidden="true" focusable="false">
       {Array.from({ length: 49 }, (_, index) => {
         const row = Math.floor(index / 7);
         const column = index % 7;

@@ -5,8 +5,8 @@ import type { ModelCatalog } from "../../types";
 type Client = ReturnType<typeof createApiClient>;
 function publicCatalog(catalog: ModelCatalog): ModelCatalog {
   return {
-    connections: catalog.connections.map(({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, enabled, revision }) => ({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, enabled, revision })),
-    profiles: catalog.profiles.map(({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes }) => ({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes })),
+    connections: catalog.connections.map(({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, credential_status, enabled, revision }) => ({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, credential_status, enabled, revision })),
+    profiles: catalog.profiles.map(({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes, discovery }) => ({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes, discovery })),
     default_profile_id: catalog.default_profile_id,
     effective_execution_profile_id: catalog.effective_execution_profile_id,
     purpose_defaults: catalog.purpose_defaults,

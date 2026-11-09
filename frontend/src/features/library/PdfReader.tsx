@@ -35,7 +35,7 @@ class LocalBinaryDataFactory {
   }
 }
 
-export default function PdfReader({ bytes, title }: { bytes: Uint8Array; title: string }) {
+export default function PdfReader({ bytes, title, initialPage = 1 }: { bytes: Uint8Array; title: string; initialPage?: number }) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(1),
     [zoom, setZoom] = useState(1),
@@ -44,6 +44,8 @@ export default function PdfReader({ bytes, title }: { bytes: Uint8Array; title: 
     [rendering, setRendering] = useState(true);
   const canvas = useRef<HTMLCanvasElement>(null),
     frame = useRef<HTMLDivElement>(null);
+  const targetPage = useRef(initialPage);
+  targetPage.current = initialPage;
   useEffect(() => {
     let active = true;
     setDocument(null);
@@ -53,7 +55,7 @@ export default function PdfReader({ bytes, title }: { bytes: Uint8Array; title: 
     const task = getDocument({ data: bytes.slice(), useWorkerFetch: false, BinaryDataFactory: LocalBinaryDataFactory });
     void task.promise
       .then((pdf) => {
-        if (active) setDocument(pdf);
+        if (active) { setDocument(pdf); setPage(Math.max(1, Math.min(pdf.numPages, Math.trunc(targetPage.current) || 1))); }
       })
       .catch(() => {
         if (active) setError("PDF 无法显示，请下载原文件检查，或查看 AI 读取内容。");
@@ -63,6 +65,9 @@ export default function PdfReader({ bytes, title }: { bytes: Uint8Array; title: 
       void task.destroy();
     };
   }, [bytes]);
+  useEffect(() => {
+    if (document) setPage(Math.max(1, Math.min(document.numPages, Math.trunc(initialPage) || 1)));
+  }, [document, initialPage]);
   useEffect(() => {
     const element = frame.current;
     if (!element) return;

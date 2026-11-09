@@ -36,7 +36,7 @@ def test_tools_require_exact_structured_call_without_execution(mode):
         token = request.messages[0].content.split("token ")[1].split(".")[0]
         if mode == "text":
             return ModelResponse(content="I can call tools")
-        return ModelResponse(tool_calls=[ToolCall(id="test", name="wrong" if mode == "wrong_name" else "careerloop_capability_echo", arguments={"token": "wrong" if mode == "wrong_arguments" else token})])
+        return ModelResponse(tool_calls=[ToolCall(id="test", name="wrong" if mode == "wrong_name" else "tuantuan_capability_echo", arguments={"token": "wrong" if mode == "wrong_arguments" else token})])
     result = asyncio.run(probe_tools(SimpleNamespace(generate=generate)))
     assert result["status"] == ("supported" if mode == "valid" else "unknown")
 

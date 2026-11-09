@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test-fixtures";
 
 for (const theme of ["light", "dark"] as const) {
   test(`image messages keep their lower-left actions reachable in ${theme}`, async ({ page }) => {
@@ -27,13 +27,15 @@ for (const theme of ["light", "dark"] as const) {
         { id: 4, role: "user", content: "这是一条普通文字消息。", created_at: "2026-10-27T00:00:03Z" }
       ],
       "/agent/runs/current": { run: null },
+      "/presentations": { jobs: [], next_cursor: null },
+      "/document-reviews": { jobs: [] },
       "/agent/capabilities": { configured: true, active_model_name: "mock-model", tools: [], web_research: { enabled: false, provider: "none" } },
       "/attachments/config": { storage: "local", vision_enabled: true, checks: [] }
     };
     const writes: string[] = [];
     await page.addInitScript(value => {
-      localStorage.setItem("careerloop-auth-token", "image-message-test-token");
-      localStorage.setItem("careerloop-theme", value);
+      localStorage.setItem("tuantuan-auth-token", "image-message-test-token");
+      localStorage.setItem("tuantuan-theme", value);
     }, theme);
     await page.route("http://127.0.0.1:4173/**", route => {
       const path = new URL(route.request().url()).pathname;
@@ -75,6 +77,12 @@ for (const theme of ["light", "dark"] as const) {
         // Walk the actual cursor down from the message into the toolbar, across the old hover gap.
         const edit = message.getByRole("button", { name: "编辑消息", exact: true });
         const editBox = (await edit.boundingBox())!;
+        const jump = page.getByRole("button", { name: /回到最新/ });
+        if (await jump.isVisible()) {
+          const [jumpBox, viewportBox] = await Promise.all([jump.boundingBox(), page.getByRole("log").boundingBox()]);
+          // The jump control gets its own row, clear of every message's actions.
+          expect(jumpBox!.y).toBeGreaterThanOrEqual(viewportBox!.y + viewportBox!.height);
+        }
         await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
         await page.mouse.move(editBox.x + editBox.width / 2, editBox.y + editBox.height / 2, { steps: 24 });
         await expect(actions).toHaveCSS("opacity", "1");

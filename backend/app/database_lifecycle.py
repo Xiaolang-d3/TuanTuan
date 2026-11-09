@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import db as db_module
+from .branding import display_name
 
 
 REBUILD_CONFIRMATION = "确认重建团团数据库"
@@ -73,15 +74,15 @@ def initialize_or_report(db_path: str | Path | None = None) -> dict[str, Any]:
         return status
 
     db_module.adopt_legacy_database()
-    from .workspace import auth_db_path, existing_workspace_roots, migrate_legacy_workspaces
+    from .workspace import auth_db_path, existing_workspace_roots, migrate_legacy_workspaces, workspace_db_path
 
     migrate_legacy_workspaces()
     roots = existing_workspace_roots()
     if roots:
         last = None
         for root in roots:
-            last = initialize_or_report(root / "careerloop.db")
-        return last or database_status(roots[0] / "careerloop.db")
+            last = initialize_or_report(workspace_db_path(root))
+        return last or database_status(workspace_db_path(roots[0]))
     if db_module.DB_PATH.exists() and db_module.DB_PATH.resolve() != auth_db_path().resolve():
         return initialize_or_report(db_module.DB_PATH)
     return {
@@ -96,7 +97,7 @@ def rebuild_database_v2(
     confirmation: str,
     db_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    if confirmation not in {REBUILD_CONFIRMATION, "确认重建灯灯数据库"}:
+    if confirmation != REBUILD_CONFIRMATION and display_name(confirmation.removeprefix("确认重建").removesuffix("数据库")) != "团团":
         raise ValueError("需要明确确认后才能备份并重建数据库")
     path = _resolved_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

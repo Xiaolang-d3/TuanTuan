@@ -5,11 +5,12 @@ import json
 import shutil
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 from ..db import DB_SCHEMA_VERSION, connect
 from ..workspace import resolve_db_path, resolve_document_dir
-from .schema import CURRENT_SCHEMA
+from .schema import CURRENT_SCHEMA, MODEL_CATALOG_SCHEMA
 
 
 _upgrade_lock = threading.RLock()
@@ -17,6 +18,16 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    41: "versioned_document_exports",
+    40: "authored_document_versions",
+    39: "generic_job_model_budgets",
+    38: "versioned_document_blocks",
+    37: "model_service_removal",
+    36: "model_catalog_discovery",
+    35: "presentation_model_budgets",
+    34: "execution_attempt_fencing",
+    33: "background_jobs_and_file_artifacts",
+    32: "extension_catalog_and_skills",
     28: "model_protocol_and_reasoning",
     29: "litellm_model_layer",
     30: "unified_models_and_chat_assets",
@@ -35,7 +46,7 @@ def _backup(path: Path, label: str = "before-library-v23") -> None:
     target = directory / path.name
     if not target.exists():
         temporary = target.with_suffix(".tmp")
-        with sqlite3.connect(path) as source, sqlite3.connect(temporary) as backup:
+        with closing(sqlite3.connect(path)) as source, closing(sqlite3.connect(temporary)) as backup:
             source.backup(backup)
         temporary.chmod(0o600)
         temporary.replace(target)
@@ -55,6 +66,13 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             version = conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").fetchone()[0] if "schema_migrations" in tables else 0
         if version == DB_SCHEMA_VERSION:
+            # An early v36 build recorded completion while the rebuildable
+            # catalog cache was accidentally included in AUTH_SCHEMA. Repair
+            # only that cache; never recreate missing business data tables.
+            if "model_catalog_entries" not in tables:
+                _backup(path, f"before-schema-v{DB_SCHEMA_VERSION}-catalog-repair")
+                with connect(path) as conn:
+                    conn.executescript(MODEL_CATALOG_SCHEMA)
             return
         if version > DB_SCHEMA_VERSION:
             raise ValueError("数据库来自更新版本，请升级应用后打开")
@@ -72,6 +90,9 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                 upgrade_to_v22(path)
         with connect(path) as conn:
             conn.executescript(CURRENT_SCHEMA)
+            job_columns = {row[1] for row in conn.execute("PRAGMA table_info(background_jobs)")}
+            if "execution_json" not in job_columns:
+                conn.execute("ALTER TABLE background_jobs ADD COLUMN execution_json TEXT NOT NULL DEFAULT '{}'")
             columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_settings)")}
             if "profile_memory_enabled" in columns:
                 conn.execute("ALTER TABLE agent_settings RENAME COLUMN profile_memory_enabled TO library_memory_enabled")
@@ -89,6 +110,8 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             connection_columns = {row[1] for row in conn.execute("PRAGMA table_info(model_connections)")}
             if "detected_protocol" not in connection_columns:
                 conn.execute("ALTER TABLE model_connections ADD COLUMN detected_protocol TEXT")
+            if "deleted_at" not in connection_columns:
+                conn.execute("ALTER TABLE model_connections ADD COLUMN deleted_at TEXT")
             profile_columns = {row[1] for row in conn.execute("PRAGMA table_info(model_profiles)")}
             if "reasoning_effort" not in profile_columns:
                 conn.execute("ALTER TABLE model_profiles ADD COLUMN reasoning_effort TEXT")
@@ -138,6 +161,11 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             for source in enabled_source_details(path):
                 _index_source(source, path)
         with connect(path) as conn:
+            if version < 38:
+                conn.execute("""INSERT OR IGNORE INTO document_source_state(source_kind,source_key,backfill_status)
+                    SELECT 'library',CAST(id AS TEXT),'pending' FROM library_sources""")
+                conn.execute("""INSERT OR IGNORE INTO document_source_state(source_kind,source_key,backfill_status)
+                    SELECT 'attachment',id,'pending' FROM attachments WHERE kind='document'""")
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)",
                 (DB_SCHEMA_VERSION, migration_name(DB_SCHEMA_VERSION)),

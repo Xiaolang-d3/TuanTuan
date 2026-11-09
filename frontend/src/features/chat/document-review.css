@@ -1,0 +1,30 @@
+.document-review-card { padding: 18px; border: 1px solid var(--color-border); border-radius: 10px; color: var(--color-text); background: var(--color-surface); font-size: 13px; line-height: 1.65; }
+.document-review-card > header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; }
+.document-review-card h3 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.document-review-card header > span, .document-review-muted { color: var(--color-text-secondary); }
+.document-review-card p { margin: 8px 0; overflow-wrap: anywhere; }
+.document-review-progress { margin-block: 14px; font-variant-numeric: tabular-nums; }
+.document-review-progress progress { display: block; width: 100%; height: 5px; accent-color: var(--color-brand); }
+.document-review-result { padding-top: 10px; margin-top: 14px; border-top: 1px solid var(--color-border); max-width: 75ch; }
+.document-review-budget { margin-top: 18px; }
+.document-review-budget fieldset { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 10px 0; padding: 0; border: 0; }
+.document-review-budget legend { color: var(--color-text-secondary); }
+.document-review-budget label { display: grid; gap: 4px; flex: 1 1 160px; }
+.document-review-budget input { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 5px; color: var(--color-text); background: var(--color-surface); font: inherit; font-variant-numeric: tabular-nums; }
+.document-review-budget summary { width: fit-content; margin-block: 10px; cursor: pointer; }
+.document-review-card :is(button, input, summary):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.document-review-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.document-review-card [role=alert] { margin-top: 12px; color: var(--color-danger); }
+.document-review-panel { display: grid; gap: 14px; margin-block: 16px; min-width: 0; color: var(--color-text); font-size: 13px; line-height: 1.6; }
+.document-review-create > summary { width: fit-content; cursor: pointer; font-weight: 600; padding-block: 8px; }
+.document-review-create form { display: grid; gap: 10px; padding-block: 8px 16px; }
+.document-review-create p { margin: 0; }
+.document-review-create label { display: grid; gap: 5px; min-width: 0; }
+.document-review-create :is(input, select) { width: 100%; min-width: 0; border: 1px solid var(--color-border); border-radius: 5px; padding: 8px 10px; color: var(--color-text); background: var(--color-surface); font: inherit; }
+.document-review-create fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 12px; margin-block: 10px; padding: 0; border: 0; }
+.document-review-create legend { color: var(--color-text-secondary); }
+.document-review-panel .extension-button { justify-self: start; }
+.document-review-panel :is(button, summary, input, select):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+.document-review-panel > [role=alert] { color: var(--color-danger); }
+@media (pointer: coarse) { .document-review-card :is(button, summary, input) { min-height: 44px; } }
+@media (pointer: coarse) { .document-review-create :is(button, summary, input, select) { min-height: 44px; } }

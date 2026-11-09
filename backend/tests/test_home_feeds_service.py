@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
@@ -119,7 +120,8 @@ def test_user_preferences_cache_and_states_are_isolated(home_workspace, immediat
         assert second["preferences"]["repositories"] == []
     assert first["preferences"] == {"topics": ["Agent"], "repositories": ["example/agent-sdk"], "digest_profile_id": ""}
     assert first["item_states"][ARTICLE["id"]] == {"bookmarked": True, "hidden": False}
-    assert (home_workspace / "home-feed.json").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert (home_workspace / "home-feed.json").stat().st_mode & 0o777 == 0o600
     assert not list(home_workspace.glob(".home-feed-*.tmp"))
 
 

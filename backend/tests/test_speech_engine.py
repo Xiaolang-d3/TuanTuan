@@ -85,13 +85,13 @@ def test_long_speech_is_bounded_and_continues_without_a_new_vad_start():
 
 def test_contextual_hotwords_reach_the_model_and_punctuation_failure_preserves_words():
     model = SpeechEngine.__new__(SpeechEngine)
-    model.offline = Mock(return_value=[{"preds": ("你好灯灯", [])}])
-    model.punctuation = Mock(return_value=["你好，灯灯。"])
+    model.offline = Mock(return_value=[{"preds": ("你好团团", [])}])
+    model.punctuation = Mock(return_value=["你好，团团。"])
     audio = np.zeros(16000, dtype=np.float32)
-    assert model.transcribe(audio, ("灯灯", "工作区")) == "你好，灯灯。"
-    assert model.offline.call_args.kwargs == {"hotwords": "灯灯 工作区"}
+    assert model.transcribe(audio, ("团团", "工作区")) == "你好，团团。"
+    assert model.offline.call_args.kwargs == {"hotwords": "团团 工作区"}
     model.punctuation.side_effect = RuntimeError("punc failed")
-    assert model.transcribe(audio) == "你好灯灯"
+    assert model.transcribe(audio) == "你好团团"
 
 
 def test_session_caches_are_independent_when_audio_is_interleaved():

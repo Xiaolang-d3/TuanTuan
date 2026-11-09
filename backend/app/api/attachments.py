@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, JSONResponse
 from ..attachments.service import (
     create_attachment,
     delete_attachment,
@@ -13,10 +14,24 @@ from ..attachments.service import (
     attachment_thumbnail,
 )
 from ..config import get_settings
+from ..attachments.service import MAX_BYTES
 from .dependencies import require_conversation
 
 
 router = APIRouter()
+
+
+@router.get("/attachments/{attachment_id}/versions/{revision}/blocks/{block_id}")
+def attachment_block(attachment_id: str, revision: str, block_id: str, conversation_id: int) -> JSONResponse:
+    from ..documents.blocks import DocumentTarget
+    from ..library.evidence import preview_block
+    require_conversation(conversation_id)
+    try:
+        return JSONResponse(preview_block(DocumentTarget(source_kind="attachment", attachment_id=attachment_id, source_revision=revision), block_id,
+                                         conversation_id=conversation_id),
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/attachments/{attachment_id}/thumbnail")
@@ -55,11 +70,11 @@ async def attachments_upload(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     try:
-        attachment = create_attachment(
+        attachment = await asyncio.to_thread(create_attachment,
             conversation_id,
             kind,
             (file.filename or "attachment").strip(),
-            await file.read(),
+            await file.read(MAX_BYTES[kind] + 1),
         )
     except ValueError as exc:
         status_code = 404 if str(exc) == "对话不存在" else 422
@@ -77,7 +92,8 @@ def attachments_parse(
     mode: str = Form(default="fast"),
 ) -> dict[str, Any]:
     try:
-        return parse_attachment(attachment_id, mode=mode)
+        parse_attachment(attachment_id, mode=mode)
+        return get_attachment_metadata(attachment_id)
     except ValueError as exc:
         status_code = 404 if str(exc) == "附件不存在" else 422
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc

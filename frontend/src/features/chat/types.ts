@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { AgentCapabilities, Conversation, ModelProtocol } from "../../types";
+import type { AgentCapabilities, Conversation, ModelCatalogEntry, ModelProtocol } from "../../types";
 import type { ResultServices } from "./result-types";
 import type { ComposerModelSettings } from "./ComposerModelParameters";
 
@@ -32,6 +32,8 @@ export type ModelSelection = {
 };
 
 export type AgentRunResult = {
+  evidence?: import("./local-evidence").LocalEvidence[];
+  citations?: Array<{ citation_id: string; status: "verified" | "unverified" }>;
   image_generation_prompt?: string | null;
   assets?: ChatAttachment[];
   output_blocks?: Array<{ type: "text"; text: string } | { type: "image"; asset_id: string }>;
@@ -76,6 +78,7 @@ export type ChatMessage = {
   content: string;
   created_at: string;
   payload?: {
+    image_edit_pending?: boolean;
     agent?: AgentRunResult;
     model_selection?: ModelSelection;
     attachments?: ChatAttachment[];
@@ -157,9 +160,12 @@ export type ChatComposerDraft = {
   content: string;
 };
 
-export type ServiceModelCatalog = { connection_id: string; connection_name: string; revision: number; model_protocol?: ModelProtocol; models: string[]; busy: boolean; error: string };
+export type ServiceModelCatalog = { connection_id: string; connection_name: string; revision: number; model_protocol?: ModelProtocol; models: string[]; entries?: ModelCatalogEntry[]; busy: boolean; error: string };
 
 export type ChatWorkspaceProps = ResultServices & {
+  documentReviewService?: import("./document-review-service").DocumentReviewService;
+  selectedSkillId?: string | null;
+  onSelectSkill?: (id: string | null) => void;
   voiceInput?: import("./voiceInput").VoiceInputService;
   conversationTitle?: string;
   currentModelName?: string;
@@ -202,12 +208,14 @@ export type ChatWorkspaceProps = ResultServices & {
   onLoadMore: () => void;
   onSelectConversation: (conversationId: number) => void;
   onCreateConversation: () => void;
+  onEnsurePresentationConversation?: () => Promise<number>;
   onRenameConversation: (conversation: Conversation) => void;
   onArchiveConversation: (conversation: Conversation) => void;
   onRemoveConversation: (conversation: Conversation) => void;
   attachmentBusy: boolean;
   attachmentConfig: AttachmentConfig | null;
   onUploadAttachment: (file: File) => Promise<ChatAttachment>;
+  onEditGeneratedImage?: import("./ImageEditor").EditGeneratedImage;
   onLoadAttachment?: (attachment: ChatAttachment, signal?: AbortSignal) => Promise<{ file: Blob; parsedText?: string }>;
   onLoadAttachmentThumbnail?: (attachment: ChatAttachment, signal?: AbortSignal) => Promise<Blob>;
   onRemoveAttachment: (attachmentId: string) => Promise<void>;

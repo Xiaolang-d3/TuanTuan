@@ -22,7 +22,7 @@ def saved_keychain(tmp_path, monkeypatch):
     config = Settings(model_name="test-model", model_base_url="https://model.example.test/v1")
     monkeypatch.setattr(settings, "get_settings", lambda: config)
     monkeypatch.setattr(bootstrap, "get_settings", lambda: config)
-    monkeypatch.setenv("CAREERLOOP_SECRET_BACKEND", "keyring")
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "keyring")
     credentials = {}
     reader = Mock(side_effect=lambda service, account: credentials.get((service, account)))
     monkeypatch.setitem(sys.modules, "keyring", SimpleNamespace(
@@ -62,7 +62,7 @@ def test_execution_still_reads_key_and_detects_revocation(saved_keychain):
     credentials.clear()
     with pytest.raises(secret_store.SecretStoreUnavailable, match="暂不可读取"):
         get_profile_connection(saved["profile_id"], path)
-    assert reader.call_count == 2
+    assert reader.call_count == 3  # Current slot, then legacy service fallback.
 
 
 def test_preview_cannot_restore_run_or_bypass_workspace_boundary(saved_keychain, tmp_path):

@@ -232,9 +232,11 @@ def test_irrelevant_resume_is_not_reported_as_recruitment_evidence(tmp_path):
 def test_search_message_counts_distinct_sources_and_marks_empty_evidence(tmp_path, monkeypatch):
     path = tmp_path / "library.db"
     init_db(path)
+    from app.library.sources import create_text_source
+    source = create_text_source(title="讨论资料", content="第一段\n第二段", enabled=True, db_path=path)
     monkeypatch.setattr("app.tools.library.search_knowledge", lambda *args, **kwargs: [
-        {"id": 1, "source_id": "7", "content": "第一段"},
-        {"id": 2, "source_id": "7", "content": "第二段"},
+        {"id": 1, "source_id": str(source["id"]), "content": "第一段"},
+        {"id": 2, "source_id": str(source["id"]), "content": "第二段"},
     ])
     context = ToolContext(platform_name="test")
     tool = SearchLibraryTool(path)

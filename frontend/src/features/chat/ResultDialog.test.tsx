@@ -5,6 +5,7 @@ import { MarkdownContent } from "./ChatMarkdown";
 import { markdownToText } from "./result-files";
 import type { ArtifactManifest, ResultServices } from "./result-types";
 import type { LibrarySourceDetail } from "../../types";
+import type { DocumentService, SavedDocument } from "./document-service";
 
 const downloads = vi.hoisted(() => ({ downloadText: vi.fn() }));
 vi.mock("./result-files", async importOriginal => ({ ...await importOriginal<typeof import("./result-files")>(), downloadText: downloads.downloadText }));
@@ -14,6 +15,16 @@ const manifest: ArtifactManifest = { message_id: 12, snapshot: "a".repeat(64), i
   { selector: "attachment:image", kind: "attachment", filename: "示意图.png", mime_type: "image/png", attachment_id: "image", can_index: false }
 ] };
 const saved = { source: { id: 30 } as LibrarySourceDetail, reused: false };
+
+it("opens a stable editable document from the selected answer snapshot", async () => {
+  const doc = { document_id: "d".repeat(32), version: 1, latest_version: 1, parent_document_version: null,
+    conversation_id: 7, message_id: 12, title: "报告", markdown: "# 可编辑报告", evidence: [], citations: [], resources: [], incomplete: false, created_at: "2026-11-09" } satisfies SavedDocument;
+  const documents = { create: vi.fn().mockResolvedValue(doc), latest: vi.fn().mockResolvedValue(doc), versions: vi.fn().mockResolvedValue({ versions: [{ version: 1, parent_document_version: null, created_at: doc.created_at }] }) } as unknown as DocumentService;
+  render(<ResultDialog conversationId={7} messageId={12} services={services({ documentService: documents })} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑文档" }));
+  expect(await screen.findByRole("textbox", { name: "文档正文" })).toHaveValue("# 可编辑报告");
+  expect(documents.create).toHaveBeenCalledWith({ conversation_id: 7, message_id: 12, snapshot: manifest.snapshot, idempotency_key: `document:7:12:${manifest.snapshot}` }, expect.any(AbortSignal));
+});
 function services(overrides: ResultServices = {}): ResultServices {
   return { onLoadResults: vi.fn().mockResolvedValue(manifest), onSaveResult: vi.fn().mockResolvedValue(saved), resultFolders: [{ id: 2, name: "成果归档" }], ...overrides };
 }

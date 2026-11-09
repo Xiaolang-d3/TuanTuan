@@ -63,6 +63,8 @@ class ModelRequest(BaseModel):
     # Mark the static system prompt cacheable where the protocol needs an
     # explicit marker (Anthropic); other providers cache automatically.
     prompt_cache: bool = True
+    # Budgeted workflows reserve each network attempt before dispatch.
+    allow_option_fallback: bool = True
 
 
 class ModelImageOutput(BaseModel):
@@ -152,6 +154,8 @@ class ExecutionBudgetState(BaseModel):
 
 
 class AgentRunSnapshot(BaseModel):
+    skill_catalog: list[dict[str, Any]] = Field(default_factory=list)
+    skill_binding: dict[str, Any] | None = None
     # Internal immutable identity only. Credentials are resolved from versioned storage.
     model_selection: dict[str, Any] = Field(default_factory=dict)
     web_search_options: WebSearchOptions | None = None
@@ -159,6 +163,7 @@ class AgentRunSnapshot(BaseModel):
     route_kind: str
     needs_plan: bool
     allowed_tools: list[str] = Field(default_factory=list)
+    library_read_allowed: bool | None = None
     required_tools: list[str] = Field(default_factory=list)
     plan: AgentPlan | None = None
     messages: list[AgentMessage] = Field(default_factory=list)
@@ -189,6 +194,8 @@ class AgentRunResult(BaseModel):
     platform: str
     rounds: int
     model_selection: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     assets: list[dict[str, Any]] = Field(default_factory=list)
     output_blocks: list[dict[str, Any]] = Field(default_factory=list)
     image_generation_prompt: str | None = None

@@ -44,7 +44,7 @@ def test_malicious_pth_is_reported_and_never_executed(tmp_path):
 
 
 def test_allowlist_is_by_content_not_name(tmp_path):
-    (tmp_path / "distutils-precedence.pth").write_text(SHIM)
+    (tmp_path / "distutils-precedence.pth").write_bytes(SHIM.encode("utf-8"))
     record(tmp_path, "setuptools-84.0.0", "distutils-precedence.pth", SHIM.encode())
     assert run(str(tmp_path)).returncode == 0
     (tmp_path / "distutils-precedence.pth").write_text("import os; os.system('true')\n")
@@ -55,7 +55,7 @@ def test_allowlist_is_by_content_not_name(tmp_path):
 
 
 def test_paths_only_pth_and_record_mismatch(tmp_path):
-    (tmp_path / "extra.pth").write_text("/opt/somewhere\n")
+    (tmp_path / "extra.pth").write_bytes(b"/opt/somewhere\n")
     record(tmp_path, "extra-1.0", "extra.pth", b"/opt/somewhere\n")
     assert run(str(tmp_path)).returncode == 0
     record(tmp_path, "extra-1.0", "extra.pth", b"/opt/elsewhere\n")
@@ -135,7 +135,7 @@ def test_bypass_b_utf8_bom_before_import_line(tmp_path, monkeypatch):
 def test_bypass_c_allowlisted_bytes_need_verified_setuptools(tmp_path):
     """Byte-identical copy of the setuptools .pth shipping its own _distutils_hack."""
     hack = b"import os; os.system('touch /tmp/pwned')\n"
-    (tmp_path / "distutils-precedence.pth").write_text(SHIM)
+    (tmp_path / "distutils-precedence.pth").write_bytes(SHIM.encode("utf-8"))
     (tmp_path / "_distutils_hack").mkdir()
     (tmp_path / "_distutils_hack" / "__init__.py").write_bytes(hack)
     # 1. not owned by any RECORD

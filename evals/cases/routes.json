@@ -233,7 +233,8 @@
         "kind": "library_search",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }
@@ -273,7 +274,8 @@
         "kind": "library_search",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }
@@ -401,7 +403,8 @@
         "kind": "library_search",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }
@@ -415,7 +418,8 @@
         "kind": "library_search",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }
@@ -429,6 +433,7 @@
         "kind": "library_update",
         "allowed_tools": [
           "get_library_context",
+          "read_library_source",
           "propose_library_knowledge"
         ]
       }
@@ -443,7 +448,8 @@
         "kind": "content_creation",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }
@@ -457,7 +463,8 @@
         "kind": "content_creation",
         "allowed_tools": [
           "get_library_context",
-          "search_library"
+          "search_library",
+          "read_library_source"
         ]
       }
     }

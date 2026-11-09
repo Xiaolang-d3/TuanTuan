@@ -1,0 +1,18 @@
+.md-local-citation { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; margin: 0 3px; padding: 1px 6px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface-subtle); color: var(--color-text-secondary); font: inherit; font-size: 11px; line-height: 1.5; vertical-align: baseline; cursor: pointer; }
+.md-local-citation:hover { color: var(--color-brand); border-color: currentColor; }
+.md-local-citation:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.md-local-citation-unverified { margin-inline: 4px; color: var(--color-text-muted); font-size: 12px; }
+.local-source-backdrop { z-index: 175; backdrop-filter: none; }
+.local-source-dialog > header { gap: 16px; }
+.local-source-dialog h2 { overflow-wrap: anywhere; }
+.local-source-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 20px; }
+.local-source-body > :not(.fl-pdf-reader) { flex: none; }
+.local-source-body .fl-pdf-reader { flex: 1; height: auto; min-height: 240px; --fl-panel: var(--color-surface); --fl-line: var(--color-border); --fl-soft: var(--color-surface-subtle); --fl-muted: var(--color-text-secondary); }
+.local-source-body .fl-pdf-controls { color: var(--color-text); }
+.local-source-body blockquote { max-width: 75ch; margin: 8px 0 24px; padding: 0; border: 0; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.local-source-caption, .local-source-notice { margin: 8px 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.local-source-text { margin: 8px 0 20px; max-width: 75ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.local-source-text mark { color: var(--color-text); background: color-mix(in srgb, var(--color-brand) 12%, var(--color-surface)); }
+.local-source-body > [role=alert] { color: var(--color-danger); }
+.local-source-body > [role=alert] button { margin-inline-start: 8px; }
+@media (pointer: coarse) { .md-local-citation { min-height: 44px; min-width: 44px; } }

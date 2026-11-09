@@ -68,7 +68,7 @@ def test_markdown_sources_code_and_private_metadata(archive):
     assert source["metadata"]["chat_archive"]["model_name"] == "test-model"
     assert "api_key" not in str(source["metadata"])
     stored, filename, mime = get_source_file(source["id"], path)
-    assert filename == "回答.md" and mime == "text/markdown" and stored.read_text() == answer
+    assert filename == "回答.md" and mime == "text/markdown" and stored.read_text(encoding="utf-8") == answer
     with connect(path) as conn:
         assert not conn.execute("SELECT 1 FROM knowledge_chunks WHERE source_type='library_source'").fetchone()
 

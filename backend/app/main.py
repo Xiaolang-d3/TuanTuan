@@ -1,5 +1,8 @@
 from __future__ import annotations
-from contextlib import asynccontextmanager
+
+from .branding import env
+from contextlib import asynccontextmanager, suppress
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -28,7 +31,38 @@ _settings = get_settings()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     startup()
-    yield
+    from .channels.weixin.manager import manager
+    manager.restore()
+    from .jobs.worker import JobWorkerManager
+    from .jobs.service import job_service
+    from .presentations.worker import register_preparation_handler
+    register_preparation_handler(job_service)
+    from .library.source_backfill import enqueue_pending_backfills, register_backfill_handler
+    from .extensions.contracts import ExtensionContext
+    from .workspace import list_user_ids
+    register_backfill_handler(job_service)
+    from .library.document_review import register_document_review_handler
+    register_document_review_handler(job_service)
+    from .artifacts.document_export import register_export_handler
+    register_export_handler(job_service)
+    for user_id in list_user_ids():
+        with use_workspace(user_id, ensure_workspace(user_id)):
+            enqueue_pending_backfills(ExtensionContext.current(), job_service)
+    job_manager = JobWorkerManager(job_service)
+    job_manager.start()
+    from .api.presentations import maintain_confirmation_servers
+    confirmation_maintenance = asyncio.create_task(maintain_confirmation_servers())
+    try:
+        yield
+    finally:
+        from .api.presentations import confirmation_sessions, confirmation_servers
+        confirmation_maintenance.cancel()
+        with suppress(asyncio.CancelledError):
+            await confirmation_maintenance
+        confirmation_sessions.close_all()
+        await confirmation_servers.close_all()
+        await job_manager.close()
+        await manager.close()
 
 app = FastAPI(
     title="团团 API",
@@ -54,12 +88,12 @@ _REQUIRE_LOGIN_WHITELIST = _OPEN_AUTH_PATHS | (_DOC_PATHS if _settings.api_docs_
 _PUBLIC_FRONTEND_FILES = {
     "/favicon.ico",
     "/vite.svg",
-    "/careerloop-mark-v2.png",
+    "/tuantuan-legacy-mark-v2.png",
     "/tuantuan-logo.png",
     "/tuantuan-favicon.png",
-    "/dengdeng-icon-v1.png",
-    "/dengdeng-mark-v1.png",
-    "/dengdeng-favicon-v1.png",
+    "/tuantuan-legacy-icon-v1.png",
+    "/tuantuan-legacy-mark-v1.png",
+    "/tuantuan-legacy-favicon-v1.png",
     "/intro-surface-v1.webp",
 }
 
@@ -72,7 +106,7 @@ def static_asset_cache_control(path: str) -> str | None:
 @app.middleware("http")
 async def require_login(request: Request, call_next: Any) -> Any:
     path = request.url.path
-    maintenance_file = os.getenv("CAREERLOOP_MAINTENANCE_FILE", "")
+    maintenance_file = env("TUANTUAN_MAINTENANCE_FILE", "")
     if maintenance_file and Path(maintenance_file).is_file() and path != "/health":
         return JSONResponse(
             status_code=503,
@@ -88,6 +122,33 @@ async def require_login(request: Request, call_next: Any) -> Any:
         if cache_control and response.status_code == 200:
             response.headers["Cache-Control"] = cache_control
         return response
+    from .api.presentations import (
+        confirmation_request_scope, is_confirmation_bootstrap, is_confirmation_landing, is_confirmation_request,
+    )
+    if is_confirmation_landing(request):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+    if is_confirmation_bootstrap(request):
+        # The endpoint consumes a body-only, one-use ticket and establishes its
+        # own workspace. It cannot authenticate any other endpoint.
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    if is_confirmation_request(request):
+        try:
+            scope = confirmation_request_scope(request)
+        except PermissionError as exc:
+            return JSONResponse(status_code=403, content={"detail": str(exc)},
+                                headers={"Cache-Control": "no-store"})
+        with use_workspace(scope.user_id, ensure_workspace(scope.user_id)):
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
     try:
         user = current_user(request.headers.get("Authorization"))
     except HTTPException as exc:

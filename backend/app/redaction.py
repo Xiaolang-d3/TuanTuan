@@ -15,6 +15,7 @@ from collections.abc import Iterable
 
 MASK = "***"
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r'''(?i)\b(qrcode|verify_code|context_token|bot_token)(["']?\s*[:=]\s*["']?)[^\s"'&,;}\]]+'''), r"\1\2" + MASK),
     (re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=\-]{4,}"), r"\1 " + MASK),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"), "sk-" + MASK),
     (re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}"), "AIza" + MASK),

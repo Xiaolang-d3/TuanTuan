@@ -74,19 +74,10 @@ def _history_message(row: Any, conversation_id: int) -> AgentMessage:
     except (ValueError, TypeError):
         payload = {}
     attachments = payload.get("attachments", []) if isinstance(payload, dict) else []
-    blocks, ids = [], []
-    for item in attachments if isinstance(attachments, list) else []:
-        attachment_id = item.get("id") if isinstance(item, dict) else None
-        if not isinstance(attachment_id, str) or attachment_id in ids:
-            continue
-        attachment = get_attachment(attachment_id)
-        if (not attachment or attachment["conversation_id"] != conversation_id or attachment["kind"] != "document"
-                or attachment["parse_status"] != "parsed" or not attachment["redacted_text"]):
-            continue
-        ids.append(attachment_id)
-        blocks.append(f"[脱敏资料：{attachment['original_filename']}]\n{attachment['redacted_text']}")
-    return AgentMessage(role="user", content=with_attachment_context(content, "\n\n".join(blocks)),
-                        payload={"document_attachment_ids": ids} if ids else {})
+    from ..library.document_context import attachment_document_context
+    text, evidence, targets, ids = attachment_document_context(conversation_id, attachments if isinstance(attachments, list) else [])
+    return AgentMessage(role="user", content=with_attachment_context(content, text),
+                        payload={"document_attachment_ids": ids, "document_targets": targets, "evidence": evidence} if ids else {})
 
 
 def restore_snapshot_attachment_text(conversation_id: int, snapshot: AgentRunSnapshot) -> AgentRunSnapshot:
@@ -194,6 +185,7 @@ def attachment_context(
     summaries: list[dict[str, Any]] = []
     image_urls: list[str] = []
     requested_vision_ids = set(vision_attachment_ids)
+    document_budget = 12000
     seen_ids: set[str] = set()
     for attachment_id in dict.fromkeys(attachment_ids):
         attachment = get_attachment(attachment_id)
@@ -223,7 +215,12 @@ def attachment_context(
                     status_code=422,
                     detail=f"附件“{attachment['original_filename']}”没有可用文本",
                 )
-            blocks.append(f"[脱敏资料：{attachment['original_filename']}]\n{text}")
+            from ..library.document_context import attachment_document_context
+            preview, cards, targets, _ = attachment_document_context(conversation_id, [{"id": attachment_id}], max_characters=document_budget)
+            document_budget -= sum(len(card["excerpt"]) for card in cards)
+            blocks.append(preview)
+            if cards and len(text) <= 4000:
+                blocks.append(_evidence_context(cards))
         else:
             blocks.append(f"[图片材料：{attachment['original_filename']}，由模型直接查看]")
         summaries.append(
@@ -238,11 +235,29 @@ def attachment_context(
                     else attachment.get("vision_status", "not_requested")
                 ),
                 "metadata": attachment.get("metadata", {}),
+                "evidence": cards if attachment["kind"] == "document" else [],
+                "source_revision": targets[0]["source_revision"] if attachment["kind"] == "document" and targets else None,
             }
         )
     if requested_vision_ids.difference(seen_ids):
         raise HTTPException(status_code=422, detail="图片直传附件必须同时随消息发送")
     return "\n\n".join(blocks), summaries, image_urls
+
+
+def _attachment_evidence(attachment, conversation_id, revision=None):
+    from ..documents.blocks import DocumentTarget
+    from ..library.evidence import target_evidence
+    from ..library.source_versions import source_state
+    revision = revision or source_state("attachment", attachment["id"])["source_revision"]
+    if not revision:
+        return []
+    return target_evidence(DocumentTarget(source_kind="attachment", attachment_id=attachment["id"], source_revision=revision),
+                           conversation_id=conversation_id)
+
+
+def _evidence_context(cards):
+    return "可核对的本地引用片段（回答中引用时原样使用对应标记）：\n" + "\n".join(
+        f"{card['excerpt']} [[cite:{card['citation_id']}]]" for card in cards)
 
 
 

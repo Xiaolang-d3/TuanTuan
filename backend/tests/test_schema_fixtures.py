@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def load(version: int | str, tmp_path: Path) -> Path:
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     with sqlite3.connect(path) as conn:
         conn.executescript((FIXTURES / f"workspace_v{version}.sql").read_text(encoding="utf-8"))
     return path
@@ -46,7 +46,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         migrations = dict(conn.execute("SELECT version, name FROM schema_migrations"))
         assert migrations[old_version] == ("litellm_model_layer" if version == "29_litellm" else "independent_library")
-        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "library_topic_collections"
+        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "versioned_document_exports"
         # No existing row is lost (schema_migrations gains one row).
         for table, count in before_counts.items():
             expected = count + 1 if table == "schema_migrations" else count
@@ -54,7 +54,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("SELECT title FROM conversations WHERE title = 'fixture-conversation'").fetchone()
         event = conn.execute("SELECT model_name, cost_usd, backend, fallback_from_profile_id FROM model_service_events").fetchone()
         assert event == ("gpt-4o", None, "", "")
-        assert {"detected_protocol"} <= columns(conn, "model_connections")
+        assert {"detected_protocol", "deleted_at"} <= columns(conn, "model_connections")
         assert {"reasoning_effort"} <= columns(conn, "model_profiles")
         assert {"cost_usd", "backend", "fallback_from_profile_id"} <= columns(conn, "model_service_events")
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -62,7 +62,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert {"library_collections", "library_collection_sources"} <= tables
         assert {"model_selection_json"} <= columns(conn, "agent_execution_runs")
 
-    backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "careerloop.db"
+    backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "tuantuan.db"
     with sqlite3.connect(backup) as conn:
         assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == old_version
 
@@ -72,9 +72,25 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
 
 
 def test_fresh_workspace_records_named_current_migration(tmp_path):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [
-            (DB_SCHEMA_VERSION, "library_topic_collections"),
+            (DB_SCHEMA_VERSION, "versioned_document_exports"),
         ]
+
+
+def test_v36_services_remain_visible_after_removal_migration(tmp_path):
+    path = tmp_path / "tuantuan.db"
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute("INSERT INTO model_connections(id,name,effective_base_url,data_boundary) VALUES('saved','Saved','https://example.test/v1','saved')")
+        conn.execute("ALTER TABLE model_connections DROP COLUMN deleted_at")
+        conn.execute("UPDATE schema_migrations SET version=36, name='model_catalog_discovery'")
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT id, enabled, deleted_at FROM model_connections").fetchall() == [("saved", 1, None)]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / path.name
+    with sqlite3.connect(backup) as conn:
+        assert "deleted_at" not in columns(conn, "model_connections")

@@ -199,7 +199,9 @@ def test_storage_replay_manifest_and_independent_archives(images):
     asset = result['assets'][0]
     file, _, mime = asset_file(asset['id'], path)
     assert file.read_bytes() == png() and mime == 'image/png'
-    assert file.stat().st_mode & 0o777 == 0o600
+    import os
+    if os.name != "nt":
+        assert file.stat().st_mode & 0o777 == 0o600
     assert Image.open(BytesIO(asset_thumbnail(asset['id'], path))).size == (32, 16)
     with connect(path) as conn:
         mid = conn.execute("INSERT INTO chat_messages(conversation_id,role,content,payload_json) VALUES (?,'assistant',?,?)",
@@ -400,7 +402,13 @@ def test_symlink_and_foreign_message_refs_are_rejected(images, tmp_path):
     aid = saved['assets'][0]['id']
     file = asset_file(aid, path)[0]
     outside = tmp_path / 'outside.png'; outside.write_bytes(png())
-    file.unlink(); file.symlink_to(outside)
+    file.unlink()
+    try:
+        file.symlink_to(outside)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows account lacks symlink privilege; other ownership and ACL tests still run")
+        raise
     with pytest.raises(ValueError, match='路径'): asset_file(aid, path)
     with connect(path) as conn:
         mid = conn.execute("INSERT INTO chat_messages(conversation_id,role,content,payload_json) VALUES (?,'assistant','',?)", (cid, json_dump({'agent': {'status': 'done', **saved}}))).lastrowid

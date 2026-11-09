@@ -48,8 +48,8 @@ assert 'AccessLogRedactionFilter' in names, names  # LiteLLM's filters attached 
 
 
 def _environment(data_dir: Path) -> dict[str, str]:
-    return {**os.environ, "CAREERLOOP_DATA_DIR": str(data_dir), "CAREERLOOP_SECRET_BACKEND": "memory",
-            "EMBEDDING_BACKEND": "hash", "DENGDENG_MODEL_BACKEND": "litellm", "PYTHONPATH": str(BACKEND),
+    return {**os.environ, "TUANTUAN_DATA_DIR": str(data_dir), "TUANTUAN_SECRET_BACKEND": "memory",
+            "EMBEDDING_BACKEND": "hash", "TUANTUAN_MODEL_BACKEND": "litellm", "PYTHONPATH": str(BACKEND),
             "NO_PROXY": "*", "no_proxy": "*"}
 
 

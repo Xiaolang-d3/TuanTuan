@@ -1,9 +1,13 @@
 import { useConversationScroll } from "../features/chat/useConversationScroll";
 import { ComposerModelPicker } from "../features/chat/ComposerModelPicker";
+import { SkillPicker } from "../features/extensions/SkillPicker";
+import { PresentationChat } from "../features/extensions/PresentationChat";
+import { DocumentReviewPanel } from "../features/chat/DocumentReviewPanel";
+import { useExtensionPreview } from "../features/extensions/ExtensionPreviewContext";
 import { AttachmentPreviewDialog, AttachmentPreviewContext } from "../features/chat/AttachmentPreviewDialog";
-import { AssetOriginalContext } from "../features/chat/GeneratedImage";
+import { AssetOriginalContext, LatestGeneratedImageContext } from "../features/chat/GeneratedImage";
 import { ResultDialog } from "../features/chat/ResultDialog";
-import { ResultActionsContext } from "../features/chat/result-types";
+import { ResultActionsContext, DocumentActionsContext } from "../features/chat/result-types";
 import { AttachmentThumbnailContext } from "../features/chat/HistoryAttachment";
 import { quoteForComposer } from "../features/chat/conversationActions";
 import { textFromAppendMessage, WebSource, webSourcesFromAgent, ResearchPanelActionsContext, QuoteSelectionContext, DeleteTurnContext, EditMessageComposer, RunProcess, ComposerClarification, ChatContextChips, ResearchPanel, ChatTurn } from "../features/chat/MessagePresentation";
@@ -26,7 +30,7 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, ArrowUpRight, CheckCircle2, Download, FileSliders, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
 
@@ -69,10 +73,45 @@ type ChatWorkspaceContentProps = ChatWorkspaceProps & {
 };
 
 function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
+  const { presentationService } = useExtensionPreview();
+  const [presentationRequest, setPresentationRequest] = useState<{ conversationId: number; revision: number } | null>(null);
+  const [presentationOpenError, setPresentationOpenError] = useState("");
+  const [presentationContent, setPresentationContent] = useState<{ conversationId: number; hasContent: boolean } | null>(null);
+  const [reviewContent, setReviewContent] = useState<{ conversationId: number | null; hasContent: boolean } | null>(null);
+  const handleReviewContentChange = useCallback((hasContent: boolean) => {
+    setReviewContent(previous => previous?.conversationId === props.currentConversationId && previous.hasContent === hasContent ? previous : { conversationId: props.currentConversationId, hasContent });
+  }, [props.currentConversationId]);
+  const handlePresentationContentChange = useCallback((conversationId: number, hasContent: boolean) => {
+    setPresentationContent(previous => previous?.conversationId === conversationId && previous.hasContent === hasContent ? previous : { conversationId, hasContent });
+  }, []);
+  const hasConversationContent = props.messages.length > 0 || Boolean(presentationOpenError) || (presentationContent?.conversationId === props.currentConversationId && presentationContent?.hasContent) || (reviewContent?.conversationId === props.currentConversationId && reviewContent?.hasContent);
+  const presentationOpening = useRef(false);
+  const presentationMounted = useRef(true);
+  const presentationConversation = useRef(props.currentConversationId);
+  presentationConversation.current = props.currentConversationId;
+  useEffect(() => { presentationMounted.current = true; return () => { presentationMounted.current = false; }; }, []);
+  useEffect(() => { setPresentationOpenError(""); }, [props.currentConversationId]);
+  async function openPresentation() {
+    if (presentationOpening.current) return;
+    presentationOpening.current = true; setPresentationOpenError("");
+    const originalId = props.currentConversationId;
+    try {
+      const id = originalId ?? await props.onEnsurePresentationConversation?.();
+      if (!id) throw new Error("请先新建对话，再开始 PPT 制作。");
+      if (presentationMounted.current && (presentationConversation.current === originalId || presentationConversation.current === id)) {
+        setPresentationRequest(previous => ({ conversationId: id, revision: (previous?.revision ?? 0) + 1 }));
+      }
+    } catch (caught) { if (presentationMounted.current && presentationConversation.current === originalId) setPresentationOpenError(caught instanceof Error ? caught.message : "无法打开 PPT 制作"); }
+    finally { presentationOpening.current = false; }
+  }
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const aui = useAui();
   const composerText = useAuiState((state) => state.composer.text);
   const [composerFocused, setComposerFocused] = useState(false);
+  const sendTitle = props.attachmentBusy ? "资料处理完成后即可发送"
+    : props.modelSelectionBusy ? "模型选择保存后即可发送"
+    : props.modelProfileUnavailable ? "当前模型已停用，请切换模型"
+    : composerText.trim() ? "发送消息" : "找不到发送的内容";
   const showComposerHint = (!props.chatBusy && (composerFocused || (props.messages.length === 0 && props.density !== "dock"))) || composerText.length >= 180_000;
   const localDrafts = useRef(new Map<number, string>());
   const drafts = props.composerDrafts ?? localDrafts.current;
@@ -172,7 +211,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const clarification = clarificationFromAgent(props.latestAgent);
   const [isDraggingAttachment, setIsDraggingAttachment] = useState(false);
   const [expandedPreview, setExpandedPreview] = useState<ChatAttachment | null>(null);
-  const [resultSelection, setResultSelection] = useState<{ messageId: number; selector?: string; saving?: boolean } | null>(null);
+  const [resultSelection, setResultSelection] = useState<{ messageId: number; selector?: string; saving?: boolean; editing?: boolean } | null>(null);
   const generatedGallery = expandedPreview?.origin === "generated" ? props.messages.find(message => message.payload?.agent?.assets?.some(asset => asset.id === expandedPreview.id))?.payload?.agent?.assets ?? [] : null;
   const gallery = expandedPreview?.kind === "image" ? (generatedGallery ?? props.messages.find(message => message.payload?.attachments?.some(attachment => attachment.id === expandedPreview.id))?.payload?.attachments ?? props.pendingAttachments).filter(item => item.kind === "image") : [];
   const [conversationListOpen, setConversationListOpen] = useState(false);
@@ -348,14 +387,16 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   }
 
   return (
-    <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.focused ? "is-focused" : ""} ${props.messages.length ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
+    <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.focused ? "is-focused" : ""} ${hasConversationContent ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
       <ResearchPanelActionsContext.Provider value={{ openDetails: openResearchDetails }}>
       <QuoteSelectionContext.Provider value={applyQuote}>
       <DeleteTurnContext.Provider value={props.onDeleteTurn ?? null}>
       <AttachmentPreviewContext.Provider value={setExpandedPreview}>
+      <LatestGeneratedImageContext.Provider value={props.messages.flatMap(message => message.payload?.agent?.assets ?? []).at(-1)?.id}>
       <AssetOriginalContext.Provider value={props.onLoadAttachment}>
       <AttachmentThumbnailContext.Provider value={props.onLoadAttachmentThumbnail}>
       <ResultActionsContext.Provider value={props.onLoadResults ? (messageId, selector, saving) => setResultSelection({ messageId, selector, saving }) : null}>
+      <DocumentActionsContext.Provider value={props.onEditDocument ?? (props.documentService && props.currentConversationId && props.onLoadResults ? messageId => setResultSelection({ messageId, selector: "answer", editing: true }) : null)}>
       <ThreadPrimitive.Root className="chat-main">
         <header className="chat-session-header" aria-label="对话操作栏">
           <div className="chat-session-tools" role="toolbar" aria-label="对话操作">
@@ -422,6 +463,9 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <span>{props.modelSelectionFeedback.text}</span>
             <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
           </div>}
+          {presentationOpenError ? <p role="alert">{presentationOpenError}</p> : null}
+          {presentationService && props.currentConversationId ? <PresentationChat service={presentationService} conversationId={props.currentConversationId} request={presentationRequest?.conversationId === props.currentConversationId ? presentationRequest.revision : 0} modelScope={`${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`} disabled={Boolean(props.modelSelectionBusy)} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
+            {props.documentReviewService && props.currentConversationId ? <DocumentReviewPanel service={props.documentReviewService} conversationId={props.currentConversationId} attachments={[...props.messages.flatMap(message => message.payload?.attachments ?? []), ...props.pendingAttachments]} onContentChange={handleReviewContentChange} /> : null}
           <div ref={props.chatEndRef} />
           </div>
         </ThreadPrimitive.Viewport>
@@ -429,7 +473,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
         </div>
 
         <div className="chat-composer">
-          {props.messages.length === 0 && props.density !== "dock" ? (
+          {!hasConversationContent && props.density !== "dock" ? (
             <div className="chat-welcome">
               <h2>今天，想完成什么？</h2>
               <p>提问、查资料，或描述你想生成的图片。</p>
@@ -566,13 +610,13 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               <div className="composer-bottom-row">
                 <div className="composer-shortcuts" role="group" aria-label="输入选项">
                   <button className="composer-tool composer-attachment-tool" type="button" aria-label={props.attachmentBusy ? "附件处理中" : "添加附件"} onClick={() => attachmentInputRef.current?.click()} disabled={props.attachmentBusy} title={props.attachmentBusy ? "正在处理附件" : "添加图片或文档，也可粘贴图片或拖入文件"}>
-                    {props.attachmentBusy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Paperclip size={20} aria-hidden="true" />}
+                    {props.attachmentBusy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Paperclip size={16} aria-hidden="true" />}
                     <span>添加资料</span>
                   </button>
                   <button className={`composer-tool composer-voice-tool${voice.listening ? " is-recording" : ""}`} type="button" aria-pressed={voice.listening} aria-label={voice.listening ? "停止语音输入" : "语音输入"} aria-description={voice.error || undefined} disabled={props.chatBusy} onClick={() => { if (voice.listening) voice.stopListening(); else { voiceDraftRef.current = new VoiceDraftEditor(); void voice.startListening(); } }}>
                     <span className="composer-voice-icon" ref={voiceIconRef} aria-hidden="true">
-                      <Mic size={20} />
-                      {voice.listening ? <svg className="composer-voice-wave" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
+                      <Mic size={16} />
+                      {voice.listening ? <svg className="composer-voice-wave" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
                         <line x1="10.5" x2="10.5" y1="6" y2="10" />
                         <line x1="12" x2="12" y1="4.5" y2="11.5" />
                         <line x1="13.5" x2="13.5" y1="5.5" y2="10.5" />
@@ -606,23 +650,34 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                       <Square size={12} fill="currentColor" aria-hidden="true" /><span>停止</span>
                     </ComposerPrimitive.Cancel>
                   ) : (
-                    <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={(props.attachmentBusy ? "资料处理完成后即可发送" : props.modelSelectionBusy ? "模型选择保存后即可发送" : props.modelProfileUnavailable ? "当前模型已停用，请切换模型" : "发送消息")}>
-                      <ArrowUp size={18} aria-hidden="true" /><span>发送</span>
-                    </ComposerPrimitive.Send>
+                    <span className="composer-send-tooltip" title={sendTitle}>
+                      <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
+                        <ArrowUp size={18} aria-hidden="true" /><span>发送</span>
+                      </ComposerPrimitive.Send>
+                    </span>
                   )}
                 </div>
               </div>
             </ComposerPrimitive.Root>
             <span id="composer-input-hint" className="sr-only"><span className="composer-keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span className="composer-touch-hint">回车换行，点击发送按钮发送</span></span>
-            <div className={`composer-input-hint${showComposerHint ? " is-active" : ""}`} aria-hidden={!showComposerHint}>
-              <span className="composer-keyboard-hint" aria-hidden="true"><kbd>Enter</kbd><span>发送</span><span className="composer-hint-divider">·</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>换行</span></span>
-              <span className="composer-touch-hint" aria-hidden="true">回车换行 · 点击 <ArrowUp size={12} /> 发送</span>
-              {composerText.length >= 180_000 && <span className="composer-character-count" role="status">{composerText.length.toLocaleString()} / 200,000 字</span>}
+            <div className="composer-footer">
+              <div className="composer-tools-bar" role="group" aria-label="技能与外部工具">
+                {presentationService ? <button className="composer-tool composer-ppt-tool" type="button" onClick={() => void openPresentation()} title="在当前会话制作演示文稿"><FileSliders size={16} aria-hidden="true" /><span>制作 PPT</span></button> : null}
+                <SkillPicker selectedSkillId={props.selectedSkillId} onSelectSkill={props.onSelectSkill} onPresentation={presentationService ? () => void openPresentation() : undefined} />
+                <a className="composer-tool composer-connections-tool" href="#/settings/extensions" title="管理插件与 MCP 外部连接">
+                  <Plug size={16} aria-hidden="true" /><span>外部连接</span>
+                </a>
+              </div>
+              <div className={`composer-input-hint${showComposerHint ? " is-active" : ""}`} aria-hidden={!showComposerHint}>
+                <span className="composer-keyboard-hint" aria-hidden="true"><kbd>Enter</kbd><span>发送</span><span className="composer-hint-divider">·</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>换行</span></span>
+                <span className="composer-touch-hint" aria-hidden="true">回车换行 · 点击 <ArrowUp size={12} /> 发送</span>
+                {composerText.length >= 180_000 && <span className="composer-character-count" role="status">{composerText.length.toLocaleString()} / 200,000 字</span>}
+              </div>
             </div>
             {isDraggingAttachment ? <div className="composer-drop-hint" aria-live="polite">松开即可添加图片或文档</div> : null}
           </div>
           {expandedPreview ? (
-            <AttachmentPreviewDialog attachment={expandedPreview} localFile={props.localFiles[expandedPreview.id]} loadOriginal={props.onLoadAttachment} gallery={gallery} onNavigate={setExpandedPreview} onClose={() => setExpandedPreview(null)} />
+            <AttachmentPreviewDialog attachment={expandedPreview} localFile={props.localFiles[expandedPreview.id]} loadOriginal={props.onLoadAttachment} onEditGeneratedImage={props.onEditGeneratedImage} gallery={gallery} onNavigate={setExpandedPreview} onClose={() => setExpandedPreview(null)} />
           ) : null}
         </div>
       </ThreadPrimitive.Root>
@@ -634,10 +689,12 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
         streaming={props.chatBusy && activeResearch.agent === props.latestAgent}
         onClose={() => closeResearchDetails()}
       />
-      {resultSelection ? <ResultDialog key={resultSelection.messageId} {...resultSelection} services={props} onClose={() => setResultSelection(null)} /> : null}
+      {resultSelection ? <ResultDialog key={resultSelection.messageId} {...resultSelection} conversationId={props.currentConversationId ?? undefined} services={props} onClose={() => setResultSelection(null)} /> : null}
+      </DocumentActionsContext.Provider>
       </ResultActionsContext.Provider>
       </AttachmentThumbnailContext.Provider>
       </AssetOriginalContext.Provider>
+      </LatestGeneratedImageContext.Provider>
       </AttachmentPreviewContext.Provider>
       </DeleteTurnContext.Provider>
       </QuoteSelectionContext.Provider>

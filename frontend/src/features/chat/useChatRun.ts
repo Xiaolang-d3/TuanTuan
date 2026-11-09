@@ -10,7 +10,7 @@ import type { RefObject } from "react";
 
 type Options = { apiBase: string; accessToken: string; fetchJson: ReturnType<typeof createApiClient>; currentConversationId: number | null; currentConversationIdRef: RefObject<number | null>; modelProfileId?: string | null; setErrorMessage: (message: string) => void; setNoticeMessage: (message: string) => void; refreshConversations: () => Promise<unknown>; onLibraryChanged: () => Promise<void> };
 
-export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options) {
+export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, selectedSkillId, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options & { selectedSkillId?: string | null }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const [chatBusy, setChatBusy] = useState(false);
@@ -236,7 +236,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     };
 
     const handleTerminal = (snapshot: {
-      careerLoop: {
+      tuantuan: {
         status: "done" | "failed" | "cancelled" | "waiting_user";
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
@@ -245,7 +245,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
       if (terminalReceived) return;
       terminalReceived = true;
       if (!isCurrentRun()) return;
-      const { userMessage, assistantMessage } = snapshot.careerLoop;
+      const { userMessage, assistantMessage } = snapshot.tuantuan;
       if (currentConversationIdRef.current === conversationId) {
         setChatMessages((current) => [
           ...current.filter((message) => ![
@@ -276,7 +276,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
       url: `${apiBase}/ag-ui`,
       fetch: (url, requestInit) => fetchWithTimeout(url, requestInit, 600_000),
       headers: { Authorization: `Bearer ${accessToken}` },
-      agentId: "careerloop",
+      agentId: "tuantuan",
       threadId: String(conversationId),
       initialMessages: [
         ...chatMessages.map((message) => ({
@@ -293,7 +293,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     const subscriber: AgentSubscriber = {
       onCustomEvent: ({ event }) => {
         if (!acceptsStreamEvents()) return;
-        if (event.name === "careerloop.user_message") {
+        if (event.name === "tuantuan.user_message") {
           const userMessage = event.value as ChatMessage;
           if (userMessage.payload?.web_search_options) {
             const resolved = webSearchOptionsFromMessage(userMessage);
@@ -319,10 +319,10 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
             });
           }
         }
-        if (event.name === "careerloop.agent_event" && event.value && typeof event.value === "object") {
+        if (event.name === "tuantuan.agent_event" && event.value && typeof event.value === "object") {
           updateAgentEvent(event.value as AgentRunResult["events"][number]);
         }
-        if (event.name === "careerloop.run_timing" && event.value && typeof event.value === "object") {
+        if (event.name === "tuantuan.run_timing" && event.value && typeof event.value === "object") {
           const timing = event.value as { run_id?: string; started_at?: string };
           if (timing.run_id !== executionRunId || typeof timing.started_at !== "string"
             || !Number.isFinite(Date.parse(timing.started_at))) return;
@@ -412,7 +412,8 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
           runId: executionRunId,
           tools: [],
           context: [],
-          forwardedProps: { conversationId, modelProfileId: selectedModelProfileId, client: "careerloop-web", attachmentIds, visionAttachmentIds,
+          forwardedProps: { conversationId, modelProfileId: selectedModelProfileId, client: "tuantuan-web", attachmentIds, visionAttachmentIds,
+            ...(selectedSkillId === undefined ? {} : { skillId: selectedSkillId }),
             ...(webSearch === undefined ? {} : { webSearch }),
             ...(webSearchTopic === undefined ? {} : { webSearchTopic }),
             ...(webSearchSourcePreference === undefined ? {} : { webSearchSourcePreference }),

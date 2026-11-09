@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import shutil
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check-docs-sync.sh"
-pytestmark = pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None, reason="needs git and bash")
+GIT = shutil.which("git")
+BASH = shutil.which("bash")
+if os.name == "nt":
+    # System32/bash.exe is a WSL launcher, not an installed Unix shell.
+    root = Path(GIT).resolve().parent.parent if GIT else None
+    BASH = next((str(path) for path in (root / "bin/bash.exe", root / "usr/bin/bash.exe") if path.is_file()), None) if root else None
+pytestmark = pytest.mark.skipif(GIT is None or BASH is None, reason="needs git and an installed Bash (Git Bash on Windows)")
 
 
 def _repo(tmp_path: Path, files: list[str]) -> tuple[Path, str, str]:
@@ -29,7 +36,7 @@ def _repo(tmp_path: Path, files: list[str]) -> tuple[Path, str, str]:
 
 def _check(tmp_path: Path, files: list[str]) -> subprocess.CompletedProcess[str]:
     repo, base, head = _repo(tmp_path, files)
-    return subprocess.run(["bash", str(SCRIPT), base, head], cwd=repo, capture_output=True, text=True)
+    return subprocess.run([BASH, SCRIPT.as_posix(), base, head], cwd=repo, capture_output=True, text=True, encoding="utf-8")
 
 
 @pytest.mark.parametrize("document", ["docs/agent.md", "docs/nested/notes.md", "docs/images/example.png"])
@@ -57,7 +64,7 @@ def test_untracking_docs_preserves_local_files_and_passes(tmp_path):
     subprocess.run([
         "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "local docs",
     ], cwd=repo, check=True)
-    result = subprocess.run(["bash", str(SCRIPT), base, "HEAD"], cwd=repo, capture_output=True, text=True)
+    result = subprocess.run([BASH, SCRIPT.as_posix(), base, "HEAD"], cwd=repo, capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout
     assert (repo / "docs/agent.md").read_text() == "x\n"
     ignored = subprocess.run(["git", "check-ignore", "docs/agent.md"], cwd=repo, capture_output=True)
@@ -66,5 +73,5 @@ def test_untracking_docs_preserves_local_files_and_passes(tmp_path):
 
 def test_invalid_head_fails(tmp_path):
     repo, base, _ = _repo(tmp_path, ["README.md"])
-    result = subprocess.run(["bash", str(SCRIPT), base, "missing-ref"], cwd=repo, capture_output=True)
+    result = subprocess.run([BASH, SCRIPT.as_posix(), base, "missing-ref"], cwd=repo, capture_output=True)
     assert result.returncode != 0

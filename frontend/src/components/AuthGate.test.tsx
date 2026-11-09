@@ -16,7 +16,7 @@ describe("AuthGate", () => {
   });
 
   it("validates an existing session without requesting sign-in configuration", async () => {
-    window.sessionStorage.setItem("careerloop-auth-token", "saved-token");
+    window.sessionStorage.setItem("tuantuan-auth-token", "saved-token");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).endsWith("/auth/me")) {
         return new Response(JSON.stringify({ user: { email: "owner@example.com" } }), { status: 200 });
@@ -29,23 +29,23 @@ describe("AuthGate", () => {
 
     await screen.findByText("应用已就绪");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
-    expect(window.sessionStorage.getItem("careerloop-auth-token")).toBe("saved-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBe("saved-token");
   });
 
   it("keeps a saved session when the backend is briefly unavailable", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
 
     render(<AuthGate apiBase="https://app.example.com">{() => <div>应用已就绪</div>}</AuthGate>);
 
     expect(await screen.findByText("登录服务暂时不可用，请重新连接。正在自动重试…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新连接" })).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBe("saved-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBe("saved-token");
   });
 
   it("only signs out when the saved token is rejected", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "expired-token");
+    window.localStorage.setItem("tuantuan-auth-token", "expired-token");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith("/auth/me")) {
@@ -59,7 +59,7 @@ describe("AuthGate", () => {
     render(<AuthGate apiBase="https://app.example.com">{() => <div>应用已就绪</div>}</AuthGate>);
 
     expect(await screen.findByLabelText("邮箱")).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
   it("renders a local-only account form without a captcha", async () => {
@@ -145,8 +145,8 @@ describe("AuthGate", () => {
     expect(screen.getByRole("button", { name: "正在创建…" })).toBeDisabled();
     finishRegistration(new Response(JSON.stringify({ access_token: "new-token", user: { email: "new@example.com" } }), { status: 200 }));
     expect(await screen.findByText("已进入 new@example.com")).toBeInTheDocument();
-    expect(window.sessionStorage.getItem("careerloop-auth-token")).toBe("new-token");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBe("new-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
   it.each(["short", "passwordpassword"])("enforces the new password policy before creating from login: %s", async (password) => {
@@ -212,7 +212,7 @@ describe("AuthGate", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("该邮箱已注册，请直接登录。");
     expect(screen.queryByRole("button", { name: "创建并登录" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登录" })).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -378,7 +378,7 @@ describe("AuthGate", () => {
     fireEvent.click(screen.getByRole("button", { name: "创建账号" }));
 
     expect(await screen.findByText("已进入 new@example.com")).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBe("new-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBe("new-token");
   });
 
   it("respects reduced motion on the decorative background", async () => {
@@ -446,12 +446,12 @@ describe("account session lifecycle", () => {
     fireEvent.click(screen.getByLabelText("保持登录"));
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await screen.findByText("账户已就绪");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
-    expect(window.sessionStorage.getItem("careerloop-auth-token")).toBe("new-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBe("new-token");
   });
 
   it("revokes the session before clearing the saved login", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     let finishLogout: (response: Response) => void = () => undefined;
     const fetchMock = mockAuth((path, init) => {
       if (path.endsWith("/auth/logout")) {
@@ -463,14 +463,14 @@ describe("account session lifecycle", () => {
     render(<AuthGate apiBase="https://app.example.com">{(_token, logout) => <button onClick={logout}>退出登录</button>}</AuthGate>);
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
     expect(await screen.findByText("正在退出登录…")).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBe("saved-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBe("saved-token");
     await act(async () => finishLogout(new Response(null, { status: 204 })));
     await screen.findByLabelText("邮箱");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
   it("keeps the session and offers retry when logout fails", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     let attempts = 0;
     vi.stubGlobal("fetch", mockAuth((path) => {
       if (path.endsWith("/auth/logout") && ++attempts === 1) return Promise.reject(new TypeError("Failed to fetch"));
@@ -478,50 +478,50 @@ describe("account session lifecycle", () => {
     render(<AuthGate apiBase="https://app.example.com">{(_token, logout) => <button onClick={logout}>退出登录</button>}</AuthGate>);
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
     await screen.findByText("退出未完成，请重新连接后重试。");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBe("saved-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBe("saved-token");
     fireEvent.click(screen.getByRole("button", { name: "重试退出" }));
     await screen.findByLabelText("邮箱");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
   it("returns to login when a protected request rejects the session", async () => {
     const { createApiClient } = await import("../api/client");
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     vi.stubGlobal("fetch", mockAuth((path) => path.endsWith("/library") ? new Response('{"detail":"登录失效"}', { status: 401 }) : undefined));
     render(<AuthGate apiBase="https://app.example.com">{(token) => <button onClick={() => { void createApiClient("https://app.example.com", token)("/library").catch(() => undefined); }}>加载资料</button>}</AuthGate>);
     fireEvent.click(await screen.findByRole("button", { name: "加载资料" }));
     await screen.findByLabelText("邮箱");
     expect(screen.getByRole("status")).toHaveTextContent("登录状态已失效，请重新登录");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
   it("ignores a late 401 belonging to a replaced session", async () => {
     const { SESSION_EXPIRED_EVENT } = await import("../api/client");
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     vi.stubGlobal("fetch", mockAuth());
     render(<AuthGate apiBase="https://app.example.com">{(token, _logout, user, update) => <button onClick={() => update("fresh-token", user)}>{token}</button>}</AuthGate>);
     fireEvent.click(await screen.findByRole("button", { name: "saved-token" }));
     await screen.findByRole("button", { name: "fresh-token" });
     act(() => window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { token: "saved-token" } })));
     expect(screen.getByRole("button", { name: "fresh-token" })).toBeInTheDocument();
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBe("fresh-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBe("fresh-token");
   });
 
   it("synchronizes logout across persistent browser tabs", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     vi.stubGlobal("fetch", mockAuth());
     render(<AuthGate apiBase="https://app.example.com">{() => <div>账户已就绪</div>}</AuthGate>);
     await screen.findByText("账户已就绪");
     act(() => {
-      window.localStorage.removeItem("careerloop-auth-token");
-      window.dispatchEvent(new StorageEvent("storage", { key: "careerloop-auth-token", newValue: null }));
+      window.localStorage.removeItem("tuantuan-auth-token");
+      window.dispatchEvent(new StorageEvent("storage", { key: "tuantuan-auth-token", newValue: null }));
     });
     await screen.findByLabelText("邮箱");
     expect(screen.getByRole("status")).toHaveTextContent("账户已在其他窗口退出");
   });
 
   it("retries session restoration through repeated identical network errors", async () => {
-    window.localStorage.setItem("careerloop-auth-token", "saved-token");
+    window.localStorage.setItem("tuantuan-auth-token", "saved-token");
     let attempts = 0;
     const fetchMock = mockAuth((path) => {
       if (path.endsWith("/auth/me") && ++attempts < 3) return Promise.reject(new TypeError("Failed to fetch"));
@@ -570,7 +570,7 @@ describe("account session lifecycle", () => {
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "a-long-test-password" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
     await screen.findByText("登录服务返回了无效数据，请重试");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
     expect(screen.queryByText("账户已就绪")).not.toBeInTheDocument();
   });
 
@@ -591,7 +591,7 @@ describe("account session lifecycle", () => {
   it("expires an active login at the token deadline", async () => {
     const expiry = Math.floor(Date.now() / 1000) + 10;
     const token = `${btoa(JSON.stringify({ exp: expiry }))}.signature`;
-    window.localStorage.setItem("careerloop-auth-token", token);
+    window.localStorage.setItem("tuantuan-auth-token", token);
     vi.stubGlobal("fetch", mockAuth());
     vi.useFakeTimers();
     await act(async () => { render(<AuthGate apiBase="https://app.example.com">{() => <div>账户已就绪</div>}</AuthGate>); });
@@ -599,7 +599,7 @@ describe("account session lifecycle", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(screen.getByLabelText("邮箱")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("登录已到期");
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 });
 
@@ -641,7 +641,7 @@ describe("restricted storage and request cancellation", () => {
     rendered.unmount();
     expect(signal?.aborted).toBe(true);
     await act(async () => resolveLogin(new Response('{"access_token":"late-token","user":{"email":"owner@example.com"}}')));
-    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 });
 
@@ -653,8 +653,8 @@ it("restores a new persistent login in an already open signed-out tab", async ()
   try {
     await screen.findByLabelText("邮箱");
     act(() => {
-      window.localStorage.setItem("careerloop-auth-token", "other-tab-token");
-      window.dispatchEvent(new StorageEvent("storage", { key: "careerloop-auth-token", newValue: "other-tab-token" }));
+      window.localStorage.setItem("tuantuan-auth-token", "other-tab-token");
+      window.dispatchEvent(new StorageEvent("storage", { key: "tuantuan-auth-token", newValue: "other-tab-token" }));
     });
     expect(await screen.findByText("同步登录成功")).toBeInTheDocument();
   } finally {

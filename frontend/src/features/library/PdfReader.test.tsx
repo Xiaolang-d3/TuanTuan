@@ -10,6 +10,20 @@ describe("PDF original reader", () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
+  it("starts at the cited page and bounds an out-of-range target", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const page = { getViewport: () => ({ width: 595, height: 842 }), render: mocks.render };
+    mocks.render.mockReturnValue({ promise: Promise.resolve(), cancel: mocks.cancel });
+    const pdf = { numPages: 3, getPage: vi.fn().mockResolvedValue(page) };
+    mocks.getDocument.mockReturnValue({ promise: Promise.resolve(pdf), destroy: mocks.destroy });
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const view = render(<PdfReader bytes={bytes} title="来源" initialPage={3} />);
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledWith(3));
+    view.rerender(<PdfReader bytes={bytes} title="来源" initialPage={99} />);
+    expect(screen.getByText("3 / 3")).toBeVisible();
+    view.rerender(<PdfReader bytes={bytes} title="来源" initialPage={2} />);
+    await waitFor(() => expect(pdf.getPage).toHaveBeenCalledWith(2));
+  });
   it("renders the original, bounds pages and cancels superseded renders", async () => {
     vi.stubGlobal(
       "ResizeObserver",

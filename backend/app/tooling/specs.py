@@ -57,5 +57,6 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "search_public_web": _spec("search_public_web", "检索公开网页", "external_read", "web.search.generic"),
     "get_library_context": _spec("get_library_context", "读取知识库", "read_only", "library.read"),
     "search_library": _spec("search_library", "检索资料", "read_only", "library.search"),
+    "read_library_source": _spec("read_library_source", "分页读取资料", "read_only", "library.read.blocks"),
     "propose_library_knowledge": _spec("propose_library_knowledge", "添加待确认知识", "local_pending_write", "library.propose"),
 }

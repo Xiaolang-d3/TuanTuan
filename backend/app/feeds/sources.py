@@ -114,7 +114,7 @@ def _fetch(url: str, *, head_only: bool = False, json_body: dict[str, Any] | Non
 def _fetch_once(url: str, *, head_only: bool, deadline: float, json_body: dict[str, Any] | None = None) -> str:
     remaining = max(0.1, deadline - time.monotonic())
     timeout = httpx.Timeout(min(8 if head_only else 20, remaining), connect=min(5 if head_only else 15, remaining))
-    headers = {"User-Agent": "CareerLoop-Developer-Home/1.0", "Accept": "application/json, application/atom+xml, application/rss+xml, application/xml, text/xml, text/html", "Accept-Language": "zh"}
+    headers = {"User-Agent": "tuantuan-Developer-Home/1.0", "Accept": "application/json, application/atom+xml, application/rss+xml, application/xml, text/xml, text/html", "Accept-Language": "zh"}
     state = request_state.get()
     conditional = state if state and state.url == url and not head_only and json_body is None else None
     if conditional:

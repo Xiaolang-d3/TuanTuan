@@ -1,12 +1,13 @@
 {
-  "name": "careerloop-desktop",
+  "name": "tuantuan-desktop",
   "private": true,
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "node scripts/dev.mjs",
     "build": "tauri build",
-    "package-sidecar": "python3 scripts/package-sidecar.py"
+    "package-sidecar": "python3 scripts/package-sidecar.py",
+    "test": "node --test scripts/*.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

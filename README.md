@@ -5,9 +5,9 @@
 
 **理解你的想法，帮你把事情做好。**
 
-[![CI](https://github.com/Xiaolang-d3/CareerLoop/actions/workflows/ci.yml/badge.svg)](https://github.com/Xiaolang-d3/CareerLoop/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/Xiaolang-d3/CareerLoop?color=blue)](LICENSE)
-[![Community Standards](https://img.shields.io/badge/Community-Standards-blue)](https://github.com/Xiaolang-d3/CareerLoop/community)
+[![CI](https://github.com/Xiaolang-d3/TuanTuan/actions/workflows/ci.yml/badge.svg)](https://github.com/Xiaolang-d3/TuanTuan/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/Xiaolang-d3/TuanTuan?color=blue)](LICENSE)
+[![Community Standards](https://img.shields.io/badge/Community-Standards-blue)](https://github.com/Xiaolang-d3/TuanTuan/community)
 
 </div>
 
@@ -17,7 +17,7 @@
 
 <div align="center">
 
-[贡献指南](CONTRIBUTING.md) · [问题反馈](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)
+[贡献指南](CONTRIBUTING.md) · [问题反馈](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)
 
 </div>
 
@@ -31,14 +31,24 @@
 | **联网研究** | 按需搜索公开信息，在回答中引用来源，并从参考来源面板打开原网页核对；支持 Tavily 或独立部署的 AgentSearch。 |
 | **文件库与知识** | 导入 PDF、DOCX、TXT、Markdown 或粘贴文本，按文件夹和主题集合整理；预览原件、校正提取文字，选择一次对话使用或长期参考。 |
 | **成果保存与复用** | 将对话中的有用内容存档，继续用于后续任务；推导出的知识先进入待确认队列，确认后再复用。配置兼容的生图模型后，也可在对话中生成、预览和下载图片。 |
-| **多模型连接** | 管理多个模型服务和模型档案，在对话中切换；支持 OpenAI 兼容接口、Responses、Anthropic、Gemini、Ollama，以及备用模型策略。 |
+| **多模型连接** | 填写 Base URL 与 API Key，获取模型目录，跨服务选择文本与图片默认模型；参数、协议及备用规则按需展开。支持 OpenAI 兼容接口、Responses、Images、Anthropic、Gemini 与 Ollama。 |
+
+### 模型配置与服务层
+
+进入「设置 → 模型设置」，添加服务并填写 Base URL 和 API Key，保存后获取模型。名称和接口协议可保持自动；目录中的「使用文本」「使用图片」分别保存默认用途，服务筛选只影响当前列表。聊天选模同样列出所有启用服务，同名模型按所属服务区分。请求参数保存在各自模型档案中，可在「参数」里按需修改。
+
+目录读取不执行生成。提供商声明、名称推断和未知输出分别保留；支持看图不代表支持生图，声明能力也不能启用尚未接入的接口。OpenAI 兼容目录会尝试 `kind=all` 获取 Magpie 等网关的图片/视频条目；仅在服务明确拒绝该目录参数时退回标准读取。视频模型可以展示，视频生成执行暂未接入。
+
+模型服务层位于 `backend/app/models/`：`service.py` 汇合 Provider factory、协议适配、确定性用途选择与既有用量快照；`selection.py` 负责候选资格和选择理由，`catalog_discovery.py` 保存按连接版本隔离的目录证据。`POST /agent/model-selection/preview` 仅预演选择，不解密凭证或调用模型。用量继续来自已有调用记录，不新增第二套计数器；高级诊断中的统计按当前绑定模型展示。Agent Runtime 的任务、工具和阶段生命周期保持不变，入口绑定使用统一选择结果，不依赖 Magpie 进程。
+
+工作区数据库升级到 v36，新增模型目录缓存表；升级前按既有机制备份，旧连接、密钥引用、参数及任务快照保留。旧任务恢复仍使用已绑定版本并校验当前可用性；图片生成结果不明确时不会因路由而自动重复提交。
 | **开发者资讯首页** | 浏览 AI / Agent 动态、GitHub 日榜与周榜、关注仓库的 Releases 和工程实践；收藏线索，或带入对话继续分析。 |
 
-多用户托管在单台服务器时，设置 `CAREERLOOP_DEPLOYMENT_MODE=hosted` 和 `CAREERLOOP_SECRET_MASTER_KEY`，各用户可在“设置 → 模型设置”中保存自己的模型连接。用 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成主密钥；通过服务器安全配置注入并单独备份，禁止提交到仓库。备份用户工作区时须保留其中的 `.model-secrets` 目录，并恢复到原数据路径（凭证引用与路径绑定）；主密钥丢失后，用户需要重新配置密钥。新用户不会自动继承服务器的模型环境变量，已有环境密钥引用仍保持兼容。
+多用户托管在单台服务器时，设置 `TUANTUAN_DEPLOYMENT_MODE=hosted` 和 `TUANTUAN_SECRET_MASTER_KEY`，各用户可在“设置 → 模型设置”中保存自己的模型连接。用 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成主密钥；通过服务器安全配置注入并单独备份，禁止提交到仓库。备份用户工作区时须保留其中的 `.model-secrets` 目录，并恢复到原数据路径（凭证引用与路径绑定）；主密钥丢失后，用户需要重新配置密钥。新用户不会自动继承服务器的模型环境变量，已有环境密钥引用仍保持兼容。
 
-托管模式仅接受 HTTPS 和允许的模型服务域名：OpenAI、Anthropic、Gemini 官方域名默认允许，其他域名由管理员通过 `CAREERLOOP_MODEL_ALLOWED_HOSTS`（逗号分隔）添加。本地模式不受此限制。该域名限制不能防止 DNS 重绑定和服务端重定向；部署时必须使用出站防火墙或安全代理阻止访问本机、私有网络和云元数据地址，并使用 HTTPS 保护用户到服务器的连接。
+托管模式仅接受 HTTPS 和允许的模型服务域名：OpenAI、Anthropic、Gemini 官方域名默认允许，其他域名由管理员通过 `TUANTUAN_MODEL_ALLOWED_HOSTS`（逗号分隔）添加。本地模式不受此限制。该域名限制不能防止 DNS 重绑定和服务端重定向；部署时必须使用出站防火墙或安全代理阻止访问本机、私有网络和云元数据地址，并使用 HTTPS 保护用户到服务器的连接。
 
-界面提供 **首页、AI 工作区、文件库、设置** 四个入口，支持浅色、深色和跟随系统外观。项目沿用 `CareerLoop` 仓库名，当前产品定位与功能以团团为准。
+界面提供 **首页、AI 工作区、文件库、设置** 四个入口，支持浅色、深色和跟随系统外观。产品名称为团团，英文标识统一使用 `tuantuan`。
 
 ## 技术栈
 
@@ -51,7 +61,7 @@
 ## 项目结构
 
 ```text
-CareerLoop/
+TuanTuan/
 ├── backend/
 │   ├── app/            # API 路由、资料库、聊天、Agent、解析及持久化
 │   ├── tests/
@@ -85,6 +95,82 @@ CareerLoop/
 
 功能是否可用取决于所选模型、服务权限与本地可选依赖。
 
+## 扩展与技能
+
+在「设置 → 扩展中心」导入 `SKILL.md`，或包含一个 `SKILL.md` 及其资源的技能 ZIP。技能默认停用，启用后可在聊天输入框的「技能」中选择；选择「普通对话」清除当前选择。技能及启停状态按账号保存，刷新后保留。元数据支持 YAML 多行描述；说明中的权限声明不会自动授予工具或资料访问权限。
+
+技能 ZIP 限 2 MB，展开后限 5 MB、100 个条目，拒绝越界路径、链接和大小写重名。插件首版只保存 `api_version: 1` 的 JSON 清单，MCP 只保存连接草稿，尚不执行插件或连接工具服务。内置 PPT Master 支持 AI 生成：点击聊天输入框工具栏的「制作 PPT」，或从「技能 → PPT Master」展开制作要求，填写主题和建议页数后，任务以卡片保存在当前会话中，使用该会话的文本模型。卡片显示真实阶段，提供需求、设计两次确认入口；制作完成后可逐页预览并鉴权下载可编辑 PPTX。预览内支持选择页码、方向键翻页和直接下载。刷新、切换会话或关闭详情不会取消任务，失败时显示原因并保留要求供编辑重做。扩展中心仍保留独立制作工作台。
+
+未提交的 PPT 要求按会话暂存在页面内存中，切换会话、查看模型设置或收起表单后可继续编辑；提交成功后清空，完整刷新页面后不保留。不同登录连接的草稿互相隔离。
+
+制作卡片显示当前模型请求对应的动作和已等待时间，以及已校验并提交的页面数量；实际总页数来自设计计划，未知时不以建议页数替代。失败或中断后仍显示已保存的页数。刷新只读取状态，编辑要求后重做会创建新任务；请求结果不明时不会自动重复提交。长要求可展开完整查看，重做继续使用原文。点击成果封面可直接预览，缩略图支持定位，方向键与 Home/End 可翻页；关闭后重新打开会回到当前卡片上次查看的页面，点击封面则打开第 1 页。位置仅保存在当前卡片内存中，不跨刷新或会话切换保存。逐页预览在整份制作完成后提供，可编辑大纲、在线页面编辑和逐页修改尚未接入。
+
+PPT 制作当前支持 Windows 本地部署。先按固定的 PPT Master 版本（`492a52b2b845927b0924b6eaaa495fc0dfc8f646`）构建独立运行包，再在 `backend/.env` 配置 `TUANTUAN_PPT_RUNTIME` 为运行包的绝对路径。`backend/scripts/build_ppt_runtime.py` 接受 `--checkout`、`--font`、`--font-license` 与 `--destination`；构建须使用独立的 Windows CPython 3.12 虚拟环境，按 `backend/requirements-ppt-lock.txt` 以 `--require-hashes` 安装依赖。运行包与操作系统匹配，并包含完整性清单、固定中文字体和宿主预览入口；旧运行包缺少该入口时会拒绝创建制作任务。修改运行包后应重新构建，不直接修改已绑定任务的资源。
+
+本地制作默认启用，仍需在模型设置中配置可用的文本模型。工作台会检查运行包与模型，缺少条件时说明原因；配置后点击「重新检查」。管理员可设置 `TUANTUAN_PPT_PREPARATION_ENABLED=false` 或 `TUANTUAN_PPT_GENERATION_ENABLED=false` 关闭新建制作；环境变量修改后须重启后端，托管部署始终禁用本机执行。生成需求建议、设计和页面会调用绑定的模型并计入用量。当前范围为中文 16:9、1–20 页、自由设计、连续制作、用户图片或无图，以及可选讲稿。模板、额外设计规格审批、动画、音频、拆分制作与原生数据对象编辑仍未支持；确认页选择未支持的能力时会提示纠正，不提交回执。图表和表格以可编辑形状交付。PNG 是 SVG 预览，字体和 Office 最终显示效果仍须在 PowerPoint/WPS 中检查。
+
+PPT 单次模型调用默认等待 300 秒，可通过 `TUANTUAN_PPT_MODEL_TIMEOUT_SECONDS` 设置 30–600 的整数秒，缺失或无效时使用 300；外层总等待额外保留 30 秒收尾，1800 秒任务活动预算继续生效。此设置独立于聊天。PPT 请求启用结构化 JSON，OpenAI Chat Completions 与 Responses 原生适配器会传递对应格式约束，仍严格校验完整结果；网关不支持时不会自动撤掉约束再次调用。结果不完整会明确提示格式错误，原始响应保留，不自动修补或重放。增加本地等待时限不能消除上游网关自身的时限或输出错误。
+
+扩展中心底部展开「执行环境与后台任务」，可查看真实环境状态和当前账号的任务、阶段确认、取消、恢复与版本文件下载。任务只接受服务端注册的受信任适配器；关闭页面不会取消任务，崩溃恢复须先确认原执行环境停止；无法判定结果的外部操作不会自动重试。
+
+通用隔离执行环境使用 Docker CLI，配置 `TUANTUAN_EXECUTION_IMAGE=仓库名@sha256:镜像摘要`，对应镜像必须已在本机准备好。当前要求 Linux engine、seccomp、可用的非 root 身份；Linux 后端以 root 运行时明确不可用。容器默认禁网、只读根目录、限制资源，仅挂载单个任务目录，不接收模型凭证。缺少引擎、镜像未固定或环境校验不通过时不执行，不回退宿主 shell。该配置不代表 PPT 工作流已经可用。
+
+数据库版本升级至 34，新增扩展、任务、事件、文件成果与执行尝试记录，沿用现有升级备份流程。
+
+## 微信消息渠道
+
+在「设置 → 消息渠道 → 微信」点击连接，用手机微信扫码并确认；需要数字验证时输入手机显示的验证码。接入依据为腾讯公开的 [openclaw-weixin 协议](https://github.com/Tencent/openclaw-weixin/blob/main/docs/protocol_zh_CN.md)，无需安装 OpenClaw。
+
+首版接收绑定用户的私聊文字和带转写文字的语音，复用当前账号的模型、联网研究、资料库和多轮会话，回答回传微信；图片、文件和视频消息会提示转到团团处理。账号是否可用仍以微信实际扫码结果为准。消息接收需要团团后端保持运行，前端页面可以关闭。
+
+绑定后侧边栏显示「微信 Bot」，新消息显示头像右上角未读数（超过 99 显示 99+）。点击打开微信会话；消息成功加载后清除已读部分，刷新页面和同一账号重新登录会保留未读数。图片等暂不支持的消息也会在会话中保留提示。侧边栏与设置共用一条经过登录鉴权的 SSE 状态流，变化时推送；断线自动重连，并以 30 秒轮询兜底。隐藏标签页暂停通知连接，回到前台重新获取完整状态，微信接收及任务继续运行。
+
+SSE 每 15 秒发送心跳，45 秒没有数据时客户端重连。反向代理需允许流式响应并关闭缓冲、缓存（接口已返回 `X-Accel-Buffering: no` 和 `Cache-Control: no-store`）；通过公网 Tunnel 分享时需确认中间代理没有缓冲事件。当前微信接收器及推送广播面向单进程部署，请保持一个 worker；多实例需先增加接收器租约与跨进程广播。
+
+凭证与待处理消息加密保存在用户工作区的 `.weixin/`，备份时保留整个目录；本地加密密钥也在该目录，托管模式改用已有 `TUANTUAN_SECRET_MASTER_KEY`。解除绑定会停止接收与执行，并清除本机渠道凭证和队列；已保存的聊天记录保留。回复发送失败只重发已有回答，不重新调用模型。
+
+## 升级与命名兼容
+
+源码、包名、事件和新配置统一使用 `tuantuan`，产品名称为「团团」。旧版环境变量、浏览器登录与偏好、模型凭证和数据库通过兼容层读取；新旧环境变量同时存在时，以新变量为准。数据库更名会同时保留 SQLite 的 WAL/SHM 文件，桌面端继续使用已有数据目录，不自动合并两个不同的工作区。
+
+升级前先停止使用同一数据目录的旧后端并备份数据，再启动新版；不要让两个版本同时操作同一工作区。无需手动改写数据库内容或重新录入模型密钥。
+
+## Windows 桌面端开发
+
+先安装 Node.js、Rust 的 MSVC 工具链、Visual Studio Build Tools 的“使用 C++ 的桌面开发”工作负载，以及 WebView2 Runtime。安装工具后重新打开终端。
+
+在仓库根目录的 `.venv` 或 `backend/.venv` 中准备后端 Python 依赖，再执行：
+
+```powershell
+cd frontend
+npm ci
+cd ../desktop
+npm ci
+npm run dev
+```
+
+桌面开发端默认连接网页后端 `http://127.0.0.1:8000`，请先启动该后端。两端使用同一账号登录后共用账号、聊天、资料和设置；登录状态由各客户端分别保存。关闭桌面窗口不会停止共享后端。服务不可用时桌面端会提示错误，不会另建独立数据库。
+
+在仓库根目录准备 `.venv` 后，可另开终端启动共享后端：
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m app.server app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+若使用 `backend/.venv`，将解释器路径改为 `.\.venv\Scripts\python.exe`。`app.server` 保留 Uvicorn 的命令行参数，并将退出等待上限设为 5 秒，避免微信实时通知等长连接阻塞热重载；可通过 `--timeout-graceful-shutdown` 调整。退出或热重载会中断超过等待上限的请求，正在进行重要任务时请等待任务完成再重启。
+
+可用环境变量 `TUANTUAN_API_BASE` 指定本机其他端口的共享后端；仅支持 `localhost` 或 `127.0.0.1` 的根地址，不支持路径前缀。后端版本须与桌面端一致。例如：
+
+```powershell
+$env:TUANTUAN_API_BASE = "http://127.0.0.1:8000"
+npm run dev
+```
+
+已有的桌面独立数据仍保存在原应用数据目录，本次不会迁移或合并。发布包未设置该变量时仍使用内置本地服务。
+
+开发配置不需要预先打包 sidecar。`npm run build` 仍沿用原来的发布配置；Windows 安装包构建尚未适配。
+
 ## 本地 MinIO（可选）
 
 附件默认保存在本地目录。使用 MinIO 时，在 `backend/.env` 中设置 `ATTACHMENT_STORAGE=minio`，并填写 `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET` 与 `MINIO_SECURE`。上传的新附件写入私有桶；预览和下载按需缓存到本地，历史本地附件仍可读取。切换存储不会自动迁移历史文件。
@@ -99,7 +185,7 @@ Windows 上可用 `powershell -File scripts/start-minio.ps1 -BinaryPath <MinIO�
 - 版本与里程碑摘要：[`CHANGELOG.md`](CHANGELOG.md)
 - 社区行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - 安全漏洞报告：[`SECURITY.md`](SECURITY.md)；请使用私密报告渠道。
-- 问题反馈、功能建议与使用咨询：[创建 Issue](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)
+- 问题反馈、功能建议与使用咨询：[创建 Issue](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)
 
 ## 许可证
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from dataclasses import asdict
 
 from ..privacy import scan_and_redact
 from ..documents.parser import parse_document_result
@@ -13,6 +14,7 @@ def parse_document_upload(
     mode: str,
 ) -> dict[str, Any]:
     suffix = Path(filename).suffix.lower()
+    document_data = {}
     if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
         from ..documents.ocr import extract_image_text
 
@@ -24,6 +26,8 @@ def parse_document_upload(
         text = parsed.text
         parser = parsed.parser
         warnings = parsed.warnings
+        document_data = {"blocks": [asdict(block) for block in parsed.blocks], "extracted_characters": parsed.extracted_characters,
+                         "complete": parsed.complete, "unprocessed_ranges": parsed.unprocessed_ranges, "units": parsed.units}
     findings, redacted_text = scan_and_redact(text)
     return {
         "filename": filename[:255],
@@ -33,6 +37,7 @@ def parse_document_upload(
         "character_count": len(text),
         "parser": parser,
         "warnings": warnings,
+        **document_data,
         "notice": "仅完成本地文本提取；原文保留，默认仅向模型提供脱敏文本。保存前不会写入知识库。",
     }
 

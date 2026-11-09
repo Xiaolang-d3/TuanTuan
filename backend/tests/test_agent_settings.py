@@ -15,12 +15,12 @@ class AgentSettingsTest(unittest.TestCase):
     def setUp(self) -> None:
         self._temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self._temp_dir.name) / "test.db"
-        os.environ["CAREERLOOP_SECRET_BACKEND"] = "memory"
+        os.environ["TUANTUAN_SECRET_BACKEND"] = "memory"
         _MEMORY_SECRETS.clear()
         init_db(self.db_path)
 
     def tearDown(self) -> None:
-        os.environ.pop("CAREERLOOP_SECRET_BACKEND", None)
+        os.environ.pop("TUANTUAN_SECRET_BACKEND", None)
         _MEMORY_SECRETS.clear()
         self._temp_dir.cleanup()
 
@@ -47,7 +47,7 @@ class AgentSettingsTest(unittest.TestCase):
         for stored_name, expected in [
             ("CareerLoop", "团团"),
             ("BossCopilot", "团团"),
-            ("灯灯", "团团"),
+            ("团团", "团团"),
             ("我的研究搭档", "我的研究搭档"),
         ]:
             with self.subTest(stored_name=stored_name):

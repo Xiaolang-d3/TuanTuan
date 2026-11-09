@@ -12,6 +12,8 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
+  const selectedConversation = useRef(currentConversationId);
+  selectedConversation.current = currentConversationId;
 
   const [conversationBusy, setConversationBusy] = useState(false);
 
@@ -28,8 +30,10 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
     return next;
   }
 
-  async function createNewConversation() {
+  async function createNewConversation({ onlyIfUnchanged = false }: { onlyIfUnchanged?: boolean } = {}) {
     if (conversationBusy) return;
+    const originalSelection = selectedConversation.current;
+    const canActivate = () => clientRef.current === fetchJson && (!onlyIfUnchanged || selectedConversation.current === originalSelection);
     setConversationBusy(true);
     try {
       const created = await fetchJson<Conversation>("/conversations", {
@@ -37,10 +41,13 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "新对话" })
       });
+      if (!canActivate()) return;
       await refreshConversations();
+      if (!canActivate()) return;
       setCurrentConversationId(created.id);
       setActiveView("chat");
       setNoticeMessage("已新建对话");
+      return created;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "新建对话失败");
     } finally {

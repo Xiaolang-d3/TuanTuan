@@ -22,6 +22,10 @@ from ..chat.artifacts import ArtifactConflict, SaveArtifactIn, message_artifacts
 from ..chat.image_assets import with_generation_prompts
 
 
+from ..chat.image_editing import ImageEditIn, edit_generated_image
+from ..models import ModelProviderError
+from ..secret_store import SecretStoreUnavailable
+
 router = APIRouter()
 
 
@@ -317,6 +321,8 @@ async def run_ag_ui(payload: dict[str, Any], request: Request) -> StreamingRespo
         raise HTTPException(status_code=422, detail="messages 中缺少用户文本消息")
     forwarded = ag_ui_input.forwarded_props or {}
     model_selection = {}
+    if isinstance(forwarded, dict) and "skillId" in forwarded:
+        model_selection["skill_id"] = forwarded["skillId"]
     if isinstance(forwarded, dict) and "modelProfileId" in forwarded:
         selected = forwarded["modelProfileId"]
         if selected is not None and (not isinstance(selected, str) or not selected.strip() or len(selected) > 120):
@@ -353,3 +359,15 @@ def current_durable_agent_run(conversation_id: int | None = None) -> dict[str, A
 @router.post("/agent/runs/{run_id}/cancel")
 def cancel_durable_agent_run(run_id: str) -> dict[str, Any]:
     return execution.cancel_durable_agent_run(run_id)
+
+
+@router.post("/chat-assets/{asset_id}/edits")
+async def generated_image_edit(asset_id: str, payload: ImageEditIn):
+    try:
+        return await edit_generated_image(asset_id, payload)
+    except ModelProviderError as exc:
+        raise HTTPException(status_code=409 if exc.code in {"image_operation_conflict", "image_generation_uncertain"} else 502, detail=str(exc)) from exc
+    except SecretStoreUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

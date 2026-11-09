@@ -6,11 +6,11 @@ from app.main import app
 
 
 def test_reveal_key_is_scoped_to_the_authenticated_workspace(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "careerloop.db")
-    monkeypatch.setenv("CAREERLOOP_DEPLOYMENT_MODE", "hosted")
-    monkeypatch.delenv("CAREERLOOP_SECRET_BACKEND", raising=False)
-    monkeypatch.setenv("CAREERLOOP_SECRET_MASTER_KEY", Fernet.generate_key().decode())
-    monkeypatch.setenv("CAREERLOOP_MODEL_ALLOWED_HOSTS", "models.example.test")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
+    monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", "hosted")
+    monkeypatch.delenv("TUANTUAN_SECRET_BACKEND", raising=False)
+    monkeypatch.setenv("TUANTUAN_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("TUANTUAN_MODEL_ALLOWED_HOSTS", "models.example.test")
     with register_authenticated_client(app, "owner@example.test") as owner, register_authenticated_client(app, "other@example.test") as other:
         created = owner.post("/agent/model-connections", json={
             "name": "owner", "model_base_url": "https://models.example.test/v1", "api_key": "private-test-key",

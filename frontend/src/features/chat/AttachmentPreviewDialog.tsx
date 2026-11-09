@@ -1,9 +1,10 @@
 import { createContext, lazy, Suspense, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, FileText, Image as ImageIcon, LoaderCircle, Minus, Plus, RotateCcw, Scan, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, LoaderCircle, Minus, Plus, RotateCcw, Scan, X } from "lucide-react";
 import { MarkdownContent } from "./ChatMarkdown";
 import type { ChatAttachment, ChatWorkspaceProps } from "./types";
 import "./attachment-preview.css";
+import { ImageEditor, type EditGeneratedImage } from "./ImageEditor";
 
 const PdfReader = lazy(() => import("../library/PdfReader"));
 export const AttachmentPreviewContext = createContext<((attachment: ChatAttachment) => void) | null>(null);
@@ -23,15 +24,17 @@ function fileSize(bytes?: number) {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, gallery = [], onNavigate, onClose }: {
+export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, gallery = [], onNavigate, onClose, onEditGeneratedImage }: {
   attachment: ChatAttachment;
   localFile?: File;
   loadOriginal?: ChatWorkspaceProps["onLoadAttachment"];
+  onEditGeneratedImage?: EditGeneratedImage;
   onClose: () => void;
   gallery?: ChatAttachment[];
   onNavigate?: (attachment: ChatAttachment) => void;
 }) {
   const format = attachmentFormat(attachment);
+  const editorEnabled = format === "image" && attachment.origin === "generated" && !!onEditGeneratedImage;
   const galleryIndex = gallery.findIndex(item => item.id === attachment.id);
   const loaderRef = useRef(loadOriginal);
   loaderRef.current = loadOriginal;
@@ -168,31 +171,34 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
 
   const formatLabel = { image: "图片", pdf: "PDF", markdown: "Markdown", text: "文本", word: "Word", file: "附件" }[format];
   return createPortal(
-    <div className="chat-attachment-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className={`chat-attachment-backdrop${format === "image" ? " is-image-backdrop" : ""}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={dialogRef} className={`chat-attachment-dialog${format === "image" ? " is-image-preview" : ""}`} role="dialog" aria-modal="true" aria-label={`${attachment.original_filename} 预览`}
         onKeyDown={(event) => {
           if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+          if (format === "image" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            if (event.key === "ArrowLeft" && galleryIndex > 0) { event.preventDefault(); onNavigate?.(gallery[galleryIndex - 1]); }
+            if (event.key === "ArrowRight" && galleryIndex >= 0 && galleryIndex < gallery.length - 1) { event.preventDefault(); onNavigate?.(gallery[galleryIndex + 1]); }
+          }
           if (format === "image" && imageSize && !event.altKey && !event.ctrlKey && !event.metaKey) {
             if (event.key === "+" || event.key === "=") { event.preventDefault(); changeZoom(1); }
             if (event.key === "-") { event.preventDefault(); changeZoom(-1); }
             if (event.key === "0") { event.preventDefault(); setZoom(null); }
-            if (event.key === "ArrowLeft" && galleryIndex > 0) { event.preventDefault(); onNavigate?.(gallery[galleryIndex - 1]); }
-            if (event.key === "ArrowRight" && galleryIndex >= 0 && galleryIndex < gallery.length - 1) { event.preventDefault(); onNavigate?.(gallery[galleryIndex + 1]); }
           }
           if (event.key !== "Tab") return;
-          const fields = [...dialogRef.current!.querySelectorAll<HTMLElement>(":is(button:not(:disabled),a[href],[tabindex='0'])")].filter(field => !field.closest("[hidden]"));
+          const fields = [...dialogRef.current!.querySelectorAll<HTMLElement>(":is(button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),a[href],[tabindex='0'])")].filter(field => !field.closest("[hidden]"));
           const first = fields[0], last = fields.at(-1);
           if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
           else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
         }}>
-        <header className="chat-attachment-heading">
-          <div className="chat-attachment-title">{format === "image" ? <ImageIcon size={20} aria-hidden="true" /> : <FileText size={20} aria-hidden="true" />}<div><h2 title={attachment.original_filename}>{attachment.original_filename}</h2><p>{formatLabel}{imageSize ? ` · ${imageSize.width} × ${imageSize.height}` : ""}{fileSize(blob?.size ?? attachment.size_bytes) ? ` · ${fileSize(blob?.size ?? attachment.size_bytes)}` : ""}</p></div></div>
+        {format === "image" ? <button ref={closeRef} type="button" className="chat-image-close" onClick={onClose} aria-label="关闭附件预览"><X size={20} /></button> : <header className="chat-attachment-heading">
+          <div className="chat-attachment-title"><FileText size={20} aria-hidden="true" /><div><h2 title={attachment.original_filename}>{attachment.original_filename}</h2><p>{formatLabel}{fileSize(blob?.size ?? attachment.size_bytes) ? ` · ${fileSize(blob?.size ?? attachment.size_bytes)}` : ""}</p></div></div>
           <div className="chat-attachment-actions">
             <button type="button" onClick={download} disabled={!blob} aria-label="下载原文件"><Download size={16} /> <span>下载</span></button>
             <button ref={closeRef} type="button" className="chat-attachment-close" onClick={onClose} aria-label="关闭附件预览"><X size={19} /></button>
           </div>
-        </header>
+        </header>}
         {format === "word" ? <p className="chat-attachment-note">当前显示提取的文字内容，完整排版请下载原文件查看。</p> : null}
+        {editorEnabled ? <ImageEditor attachment={attachment} url={url} onEdit={onEditGeneratedImage!} onSubmitted={onClose} onNavigate={item => onNavigate?.(item)} onDownload={download} loadError={error} onReload={() => setAttempt(current => current + 1)} navigation={gallery.length > 1 ? <><button type="button" aria-label="上一张图片" disabled={galleryIndex <= 0} onClick={() => onNavigate?.(gallery[galleryIndex - 1])}><ChevronLeft size={17} /></button><span className="chat-image-counter">{galleryIndex + 1} / {gallery.length}</span><button type="button" aria-label="下一张图片" disabled={galleryIndex < 0 || galleryIndex >= gallery.length - 1} onClick={() => onNavigate?.(gallery[galleryIndex + 1])}><ChevronRight size={17} /></button></> : null} /> : <>
         <div className={`chat-attachment-content${format === "image" ? " is-image" : ""}`}>
         <div ref={bodyRef} className={`chat-attachment-body is-${format}${canPan ? " can-pan" : ""}${dragging ? " is-dragging" : ""}`} aria-busy={loading} tabIndex={format === "image" ? 0 : undefined} aria-label={format === "image" ? "图片画布" : undefined}
           onDoubleClick={() => { if (format === "image" && imageSize) setZoom(current => current === 1 ? null : 1); }}
@@ -232,10 +238,12 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
             <button type="button" title="放大（+）" aria-label="放大图片" disabled={!imageSize || imageScale >= 4} onClick={() => changeZoom(1)}><Plus size={17} /></button>
             <span className="chat-image-control-divider" aria-hidden="true" />
             <button type="button" className="chat-image-fit" title="适应窗口（0）" aria-label="适应窗口" aria-pressed={zoom === null} disabled={!imageSize} onClick={() => setZoom(null)}><Scan size={16} /><span>适应窗口</span></button>
+            <button type="button" onClick={download} disabled={!blob} aria-label="下载原文件"><Download size={16} /></button>
           </nav>
-          <p id={imageHintId} className="chat-image-hint">双击查看原图 · 放大后可拖动</p>
+          <span id={imageHintId} className="sr-only">双击查看原图，放大后可拖动</span>
         </div> : null}
         </div>
+        </>}
       </section>
     </div>, document.body
   );

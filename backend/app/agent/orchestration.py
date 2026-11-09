@@ -29,7 +29,7 @@ TOOL_POLICIES: dict[str, ToolSpec] = TOOL_SPECS
 
 # Always visible to the model, never part of a lane plan, and never blocked as
 # tool_not_planned. Must not be added to allowed_tools.
-INTERRUPT_TOOLS = frozenset({"ask_user"})
+INTERRUPT_TOOLS = frozenset({"ask_user", "load_skill"})
 
 
 ROUTE_LABELS = {

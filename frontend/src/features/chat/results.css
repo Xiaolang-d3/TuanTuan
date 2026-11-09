@@ -48,10 +48,8 @@
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 100%; min-width: 0; gap: 0; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: transparent; box-shadow: none; color: var(--color-text-muted); cursor: zoom-in; }
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child > span { display: none; }
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child > svg { margin: 56px auto; }
-.chat-workspace .chat-generated-image .generated-image-preview > button:first-child::after { content: "查看原图 ↗"; position: absolute; right: 10px; bottom: 10px; padding: 5px 9px; border-radius: 6px; color: var(--color-bg); background: color-mix(in srgb, var(--color-text) 88%, transparent); font: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s ease; }
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child:is(:hover, :focus-visible) { background: transparent; box-shadow: none; }
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child:focus-visible { border-color: transparent; outline: 2px solid var(--color-brand); outline-offset: -2px; box-shadow: none; }
-.chat-workspace .chat-generated-image .generated-image-preview > button:first-child:is(:hover, :focus-visible)::after { opacity: 1; }
 .chat-generated-image .generated-image-preview img { display: block; width: auto; max-width: 100%; height: auto; max-height: 320px; object-fit: contain; border-radius: 0; }
 .chat-generated-image .generated-image-preview > button:not(:first-child) { margin-top: 6px; padding: 5px 0; border: 0; color: var(--color-text-muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
 .chat-generated-image figcaption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: 6px; padding: 0 2px; color: var(--color-text-muted); font-size: 12px; }
@@ -62,8 +60,6 @@
 .chat-workspace .chat-generated-image figcaption button:disabled { opacity: .55; cursor: wait; }
 .chat-generated-image button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 @media (max-width: 480px) { .chat-workspace .chat-generated-image figcaption button { min-height: 40px; } }
-@media (hover: none) { .chat-workspace .chat-generated-image .generated-image-preview > button:first-child::after { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .chat-workspace .chat-generated-image .generated-image-preview > button:first-child, .chat-workspace .chat-generated-image .generated-image-preview > button:first-child::after { transition: none; } }
 .chat-result-notice { color: var(--color-text-muted); font-size: 12px; padding: 0 24px; }
 
 .chat-workspace .generated-image-prompt { margin-top: 6px; color: var(--color-text-muted); font-size: 12px; }
@@ -77,3 +73,9 @@
 .chat-workspace .generated-image-prompt-body > button:hover { color: var(--color-brand); }
 .chat-workspace .generated-image-prompt-body > [role=status] { margin-left: 10px; }
 @media (max-width: 480px) { .chat-workspace .generated-image-prompt > summary, .chat-workspace .generated-image-prompt-body > button { min-height: 40px; } }
+
+/* Keep the hit area stable while moving from an older image to its actions. */
+@media (hover: hover) and (pointer: fine) {
+  .chat-generated-image[data-actions="hover"] > :is(figcaption, .generated-image-prompt) { opacity: 0; pointer-events: none; }
+  .chat-generated-image[data-actions="hover"]:is(:hover, :focus-within, :has(details[open])) > :is(figcaption, .generated-image-prompt) { opacity: 1; pointer-events: auto; }
+}

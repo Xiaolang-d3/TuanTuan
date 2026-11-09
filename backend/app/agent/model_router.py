@@ -112,80 +112,67 @@ def _replace_executor(connection: dict[str, Any], chosen: dict[str, Any], reason
     }
 
 
+def _binding_catalog(catalog, connection):
+    """Include the already resolved conversation preference in a metadata choice."""
+    result = deepcopy(catalog)
+    profile_id, connection_id = connection.get("profile_id"), connection.get("connection_id")
+    if profile_id and connection_id:
+        profile = {**connection, "id": profile_id, "enabled": True}
+        source = {"id": connection_id, "enabled": True, "protocol": connection.get("model_protocol", "auto"),
+                  "effective_base_url": connection.get("model_base_url", ""),
+                  "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
+        # Do not overwrite saved source metadata shared by other profiles.
+        if not any(item["id"] == connection_id for item in result.get("connections", [])):
+            result.setdefault("connections", []).append(source)
+        result["profiles"] = [item for item in result.get("profiles", []) if item["id"] != profile_id] + [profile]
+    return result
+
+
+def _live_purpose_exclusion(connection, purpose, *, strict_capabilities=False):
+    from ..models.selection import purpose_exclusion
+    source = {"protocol": connection.get("model_protocol", "auto"), "effective_base_url": connection.get("model_base_url", ""),
+              "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
+    return purpose_exclusion(connection, source, purpose, strict_capabilities=strict_capabilities)
+
+
 def bind_image_model(connection: dict[str, Any], *, catalog: dict[str, Any], resolve: Callable, explicit_profile: bool = False) -> dict[str, Any]:
-    """Choose an enabled image executor once, before any call or run binding."""
-    from ..model_protocol import is_image_generation_model, model_protocol_for_profile, resolve_model_protocol
-
-    def eligible(value: dict[str, Any]) -> bool:
-        capability = value.get("capabilities", {}).get("image_generation", "unknown")
-        return (
-            is_image_generation_model(value["model_name"], value.get("model_protocol", "auto"), value.get("model_base_url", ""))
-            and ("api_key" not in value or bool(value["api_key"]))
-            and capability != "unsupported"
-            and (not connection.get("strict_capabilities") or capability == "supported")
-        )
-
-    preferred = catalog.get("purpose_defaults", {}).get("image")
-    if preferred and not (explicit_profile and eligible(connection)):
-        chosen = resolve(preferred)
-        if not eligible(chosen):
-            raise ValueError("默认图片模型不满足生图能力，请检查模型设置")
-        return _replace_executor(connection, chosen, "image_default")
-    if eligible(connection):
+    """Choose once at the model-service boundary; this never retries image calls."""
+    from ..models.selection import select_model_for_purpose
+    available = _binding_catalog(catalog, connection)
+    preferred = connection.get("profile_id") if explicit_profile or not catalog.get("purpose_defaults", {}).get("image") else None
+    selected = select_model_for_purpose(available, "image", preferred_profile_id=preferred, strict_capabilities=connection.get("strict_capabilities", False))
+    if not selected["eligible"]:
+        raise ValueError(selected["error"])
+    if selected["profile_id"] == connection.get("profile_id"):
+        if _live_purpose_exclusion(connection, "image", strict_capabilities=connection.get("strict_capabilities", False)):
+            raise ValueError("生图模型配置已变化，请重新发送请求")
         return connection
-    connections = {item["id"]: item for item in catalog["connections"]}
-    candidates = []
-    for profile in catalog["profiles"]:
-        source = connections.get(profile["connection_id"])
-        if not profile["enabled"] or not source or not source["enabled"] or not source.get("api_key_configured"):
-            continue
-        candidate = {**profile, "model_protocol": model_protocol_for_profile(profile["model_name"], source["protocol"]), "model_base_url": source.get("effective_base_url", "")}
-        if eligible(candidate):
-            candidates.append(candidate)
-    # Prefer dedicated Images adapters; stable catalog order breaks ties.
-    candidates.sort(key=lambda item: (
-        resolve_model_protocol(item["model_name"], item["model_protocol"], item["model_base_url"]) != "images",
-        item.get("capabilities", {}).get("image_generation") != "supported",
-    ))
-    if not candidates:
-        raise ValueError("已识别为生图请求，但没有可用的生图模型。请在设置中启用支持生图的模型并配置凭证；严格能力模式还需确认图片生成能力。")
-    chosen = resolve(candidates[0]["id"])
-    # Recheck after resolution, in case configuration changed before binding.
-    if not eligible(chosen):
+    chosen = resolve(selected["profile_id"])
+    if _live_purpose_exclusion(chosen, "image", strict_capabilities=connection.get("strict_capabilities", False)):
         raise ValueError("生图模型配置已变化，请重新发送请求")
-    return _replace_executor(connection, chosen, "image_intent")
+    return _replace_executor(connection, chosen, "image_default" if selected["reason"] == "purpose_default" else "image_intent")
 
 
 def bind_text_model(connection: dict[str, Any], *, catalog: dict[str, Any], resolve: Callable) -> dict[str, Any]:
     """A pure Images selection must not receive questions or classification."""
-    from ..model_protocol import model_protocol_for_profile, resolve_model_protocol
-
-    sources = {item["id"]: item for item in catalog["connections"]}
-    candidates = []
-    for profile in catalog["profiles"]:
-        source = sources.get(profile["connection_id"])
-        if not profile["enabled"] or not source or not source["enabled"]:
-            continue
-        if resolve_model_protocol(profile["model_name"], model_protocol_for_profile(profile["model_name"], source["protocol"]), source.get("effective_base_url", "")) == "images":
-            continue
-        if not source.get("api_key_configured") and source["protocol"] != "ollama":
-            continue
-        candidates.append(profile)
-    preferred = [catalog.get("purpose_defaults", {}).get("chat"), catalog.get("effective_execution_profile_id"), catalog.get("default_profile_id")]
-    candidates.sort(key=lambda item: preferred.index(item["id"]) if item["id"] in preferred else len(preferred))
-    if not candidates:
-        raise ValueError("已识别为文字请求，但没有可用的聊天模型。请在设置中配置并启用聊天模型。")
-    chosen = resolve(candidates[0]["id"])
-    if resolve_model_protocol(chosen["model_name"], chosen.get("model_protocol"), chosen.get("model_base_url", "")) == "images":
+    from ..model_protocol import resolve_model_protocol
+    from ..models.selection import model_output_types, select_model_for_purpose
+    selected = select_model_for_purpose(catalog, "chat", strict_capabilities=connection.get("strict_capabilities", False))
+    if not selected["eligible"]:
+        raise ValueError(selected["error"])
+    chosen = resolve(selected["profile_id"])
+    if _live_purpose_exclusion(chosen, "chat", strict_capabilities=connection.get("strict_capabilities", False)):
         raise ValueError("聊天模型配置已变化，请重新发送请求")
     result = _replace_executor(connection, chosen, "text_intent")
-    # Classification/planning may have inherited the same Images default.
+    # Keep configured text stage roles; repair known non-chat defaults that
+    # classify/plan inherited before purpose defaults were introduced.
     for stage, value in result["stage_connections"].items():
-        if resolve_model_protocol(value["model_name"], value.get("model_protocol"), value.get("model_base_url", "")) == "images":
+        types, _ = model_output_types(value, {"protocol": value.get("model_protocol", "auto")})
+        if (resolve_model_protocol(value["model_name"], value.get("model_protocol"), value.get("model_base_url", "")) == "images"
+                or (types and "chat" not in types) or value.get("capabilities", {}).get("chat") == "unsupported"):
             result["stage_connections"][stage] = {**result["stage_connections"]["execute"]}
     result["stage_selections"] = {stage: internal_model_selection(value) for stage, value in result["stage_connections"].items()}
     return result
-
 
 class ModelRouter:
     def __init__(self, connections: dict[str, dict[str, Any]], providers: dict[str, Any], *, strict_capabilities: bool = False) -> None:

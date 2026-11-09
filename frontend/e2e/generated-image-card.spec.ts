@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test-fixtures";
 
 for (const theme of ["light", "dark"] as const) {
   test(`generated image preview is edge-to-edge with separate actions in ${theme}`, async ({ page }) => {
@@ -33,7 +33,7 @@ for (const theme of ["light", "dark"] as const) {
       "/agent/capabilities": { configured: true, active_model_name: "gpt-image-2", tools: [], web_research: { enabled: false, provider: "none" } },
       "/attachments/config": { storage: "local", vision_enabled: false, checks: [] }
     };
-    await page.addInitScript(theme => { localStorage.setItem("careerloop-auth-token", "image-card-e2e-token"); localStorage.setItem("careerloop-theme", theme); }, theme);
+    await page.addInitScript(theme => { localStorage.setItem("tuantuan-auth-token", "image-card-e2e-token"); localStorage.setItem("tuantuan-theme", theme); }, theme);
     await page.route("http://127.0.0.1:4173/**", route => {
       const path = new URL(route.request().url()).pathname;
       if (route.request().method() !== "GET") writes.push(path);

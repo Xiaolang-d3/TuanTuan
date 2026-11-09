@@ -22,7 +22,7 @@ from fake_llm_server import FakeLLMServer  # noqa: E402 - loopback model server 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--executable", type=Path, default=ROOT / "desktop/src-tauri/resources/careerloop-runtime/careerloop-runtime")
+    parser.add_argument("--executable", type=Path, default=ROOT / "desktop/src-tauri/resources/tuantuan-runtime/tuantuan-runtime")
     args = parser.parse_args()
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -49,7 +49,7 @@ def main() -> None:
         else:
             raise AssertionError("A revoked credential still accesses the library")
 
-    with tempfile.TemporaryDirectory(prefix="careerloop-sidecar-smoke-") as directory:
+    with tempfile.TemporaryDirectory(prefix="tuantuan-sidecar-smoke-") as directory:
         with (Path(directory) / "runtime.log").open("w+") as log:
             started = time.monotonic()
             process = subprocess.Popen(
@@ -57,7 +57,7 @@ def main() -> None:
                 cwd=directory, stdout=log, stderr=log,
                 env={**os.environ, "EMBEDDING_BACKEND": "hash", "ATTACHMENT_STORAGE": "local", "OPENAI_API_KEY": "", "MODEL_PROTOCOL": "openai", "WEB_RESEARCH_ENABLED": "false",
                      # Synthetic smoke key only; never touch the real keychain.
-                     "CAREERLOOP_SECRET_BACKEND": "memory", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"},
+                     "TUANTUAN_SECRET_BACKEND": "memory", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"},
             )
             try:
                 # macOS scans a freshly built bundle on its first launch (~20s observed); warm starts take <1s.
@@ -74,7 +74,7 @@ def main() -> None:
                             raise RuntimeError("Runtime startup timed out")
                         time.sleep(0.1)
                 cold_start = time.monotonic() - started
-                assert health == {"status": "ok", "service": "careerloop", "version": version, "instance_id": instance_id}, health
+                assert health == {"status": "ok", "service": "tuantuan", "version": version, "instance_id": instance_id}, health
                 print(f"Packaged runtime: cold start to /health {cold_start:.2f}s")
                 account = request("/auth/register", {"email": "smoke@local.test", "password": "synthetic-smoke-password"})
                 token = account["access_token"]

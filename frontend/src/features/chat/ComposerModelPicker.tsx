@@ -1,4 +1,4 @@
-import { Check, ChevronRight, ChevronUp, Image, RefreshCw, MessageSquare, Settings2, TriangleAlert, Video } from "lucide-react";
+import { Check, ChevronRight, ChevronUp, RefreshCw, Settings2, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { ChatWorkspaceProps, ServiceModelCatalog } from "./types";
@@ -86,10 +86,11 @@ export function ComposerModelPicker(props: Props) {
   const allGroups = services.map(service => ({ service, models: Array.from(new Set(service.models)).map((name): ModelOption => {
     const matching = props.profiles.filter(profile => profile.connection_id === service.connection_id && profile.model_name === name);
     const profile = matching.find(profile => profile.id === props.selectedProfileId) ?? matching[0];
-    return { id: profile?.id, model_name: name, categories: modelCategories(name, service.model_protocol, profile?.capabilities) };
+    const entry = service.entries?.find(value => value.id === name);
+    const overridden = ["chat", "image_generation", "video_generation"].some(key => ["supported", "unsupported"].includes(String(profile?.capabilities?.[key])));
+    return { id: profile?.id, model_name: name, categories: entry && !overridden ? entry.output_types : modelCategories(name, service.model_protocol, profile?.capabilities) };
   }) }));
   const groups = allGroups.map(group => ({ ...group, models: group.models.filter(model => model.categories.includes(category)) })).filter(group => group.models.length || group.service.busy || group.service.error);
-  const CategoryIcon = currentCategory === "image" ? Image : currentCategory === "video" ? Video : MessageSquare;
   const disabled = props.busy || !props.canSelect;
 
   const choose = (profileId: string) => {
@@ -180,8 +181,6 @@ export function ComposerModelPicker(props: Props) {
         title={warning ? `当前模型${warning}` : props.canSelect ? `当前模型：${label}` : "开始对话后可切换模型"}
         onClick={() => { if (!open) setCategory(currentCategory); setOpen((value) => !value); }}
       >
-        {warning ? <TriangleAlert size={15} aria-hidden="true" className="model-pill-alert" /> : null}
-        {!warning ? <CategoryIcon size={14} aria-hidden="true" className="model-pill-type" /> : null}
         <span className="model-pill-name">{label}</span>
         {warning ? <span className="model-pill-badge" role="status">{warning}</span> : null}
         {props.busy ? <small className="model-pill-busy" role="status">保存中…</small> : <ChevronUp size={14} aria-hidden="true" className="model-pill-caret" />}

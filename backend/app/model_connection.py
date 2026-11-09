@@ -1,6 +1,8 @@
 """Resolve a draft without allowing a saved credential to cross API roots."""
 from __future__ import annotations
 
+from .branding import env
+
 import os
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -34,9 +36,9 @@ def normalize_api_root(base_url: str, protocol: str = "openai") -> str:
         raise ValueError("Base URL 不能包含账号或密钥，请在 API Key 中填写凭证")
     if parsed.query or parsed.fragment:
         raise ValueError("Base URL 应为 API 根地址，不能包含查询参数或片段")
-    if os.getenv("CAREERLOOP_DEPLOYMENT_MODE", "local").strip().lower() == "hosted":
+    if env("TUANTUAN_DEPLOYMENT_MODE", "local").strip().lower() == "hosted":
         allowed = {"api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com"}
-        allowed.update(host.strip().lower() for host in os.getenv("CAREERLOOP_MODEL_ALLOWED_HOSTS", "").split(",") if host.strip())
+        allowed.update(host.strip().lower() for host in env("TUANTUAN_MODEL_ALLOWED_HOSTS", "").split(",") if host.strip())
         if parsed.scheme.lower() != "https" or parsed.hostname.lower() not in allowed:
             raise ValueError("托管模式只允许使用已授权的 HTTPS 模型服务地址")
     scheme = parsed.scheme.lower()

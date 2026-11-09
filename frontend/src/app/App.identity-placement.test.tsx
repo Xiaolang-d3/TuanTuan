@@ -25,7 +25,7 @@ const library = vi.hoisted(() => ({
   setErrorMessage: (_message: string) => {}, setNoticeMessage: (_message: string) => {}
 }));
 
-vi.mock("../api/client", () => ({ createApiClient: () => api.fetchJson, fetchWithTimeout: vi.fn() }));
+vi.mock("../api/client", async (importOriginal) => ({ ...await importOriginal<typeof import('../api/client')>(), createApiClient: () => api.fetchJson, fetchWithTimeout: vi.fn() }));
 vi.mock("../page-prefetch", () => ({ createPagePrefetcher: () => ({ prefetch: vi.fn(), prefetchWhenIdle: vi.fn() }) }));
 vi.mock("../hooks/useAsyncPolling", () => ({ useAsyncPolling: vi.fn() }));
 vi.mock("../features/chat/useConversations", () => ({ useConversations: () => conversations }));
@@ -82,6 +82,7 @@ beforeEach(() => {
   library.refreshLibrary.mockResolvedValue(undefined);
   api.fetchJson.mockImplementation(async (path) => {
     if (path === "/system/database-status") return { status: "ready" };
+    if (path === "/channels/weixin") return { connected: false, enabled: false, error: "" };
     if (path === "/agent/settings") return { ...defaultAgentSettings, model_name: "test-model", api_key_configured: true };
     if (path === "/agent/model-monitor?hours=24" || path === "/agent/models/capabilities") return null;
     if (path === "/agent/models/discover") return { models: [], count: 0 };
@@ -94,11 +95,85 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete (api.fetchJson as typeof api.fetchJson & { events?: unknown }).events;
   vi.restoreAllMocks();
   localStorage.clear();
 });
 
 describe("App identity placement", () => {
+  it('shares one live Weixin stream between the sidebar and settings across navigation', async () => {
+    const signals: AbortSignal[] = [];
+    let push!: (event: string, data: unknown) => void;
+    const state = { connected: true, enabled: true, error: '', conversation_id: 6, unread_count: 2,
+      latest_sequence: 2, readable_sequence: 2, read_sequence: 0, binding_id: 'binding', stream_id: 'server', revision: 1 };
+    Object.assign(api.fetchJson, { events: async (_path: string, signal: AbortSignal, callback: typeof push) => {
+      signals.push(signal); push = callback;
+      callback('weixin-status', state);
+      await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve()));
+    } });
+    window.history.replaceState(null, '', '#/settings/channels');
+    const view = renderApp();
+    expect(await screen.findByText('已连接微信')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /微信 Bot.*2 条未读消息/ })).toBeInTheDocument();
+    await act(async () => { window.location.hash = '#/settings/account'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByText('测试账号设置')).toBeInTheDocument();
+    await act(async () => { push('weixin-status', { ...state, unread_count: 4, revision: 2 }); });
+    expect(screen.getByRole('button', { name: /微信 Bot.*4 条未读消息/ })).toBeInTheDocument();
+    await act(async () => { window.location.hash = '#/settings/channels'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(await screen.findByText('已连接微信')).toBeInTheDocument();
+    expect(signals).toHaveLength(1);
+    expect(signals[0].aborted).toBe(false);
+    expect(api.fetchJson.mock.calls.some(([path]) => path === '/channels/weixin')).toBe(false);
+    view.unmount();
+    expect(signals[0].aborted).toBe(true);
+  });
+  it('waits for a new bot conversation to enter the list before navigating', async () => {
+    const old = { id: 8, title: '旧会话', status: 'active', summary: '', updated_at: '' } as Conversation;
+    const bot = { ...old, id: 6, title: '微信会话' };
+    conversations.conversations = [old];
+    conversations.currentConversationId = 8;
+    const originalApi = api.fetchJson.getMockImplementation()!;
+    api.fetchJson.mockImplementation(async path => path === '/channels/weixin' ? {
+      connected: true, enabled: true, error: '', conversation_id: 6, unread_count: 1,
+      readable_sequence: 1, read_sequence: 0, latest_sequence: 1, binding_id: 'binding'
+    } : originalApi(path));
+    let finish: () => void = () => {};
+    conversations.refreshConversations.mockImplementationOnce(() => new Promise<Conversation[]>(resolve => {
+      finish = () => { conversations.conversations = [bot, old]; resolve([bot, old]); };
+    }));
+    renderApp();
+    const nav = screen.getByRole('navigation', { name: '主导航' });
+    const entry = await screen.findByRole('button', { name: /^微信 Bot/ });
+    expect(within(nav).queryByRole('button', { name: /^微信 Bot/ })).not.toBeInTheDocument();
+    expect(entry.closest('.sidebar-identity-slot')).toBeTruthy();
+    const account = screen.getByRole('button', { name: '账号菜单' });
+    expect(account.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(entry);
+    expect(window.location.hash).toBe('#/home');
+    await act(async () => finish());
+    await waitFor(() => expect(window.location.hash).toBe('#/chat/6'));
+  });
+  it("resets extension drafts when switching accounts that have no numeric ID", async () => {
+    let second = false;
+    const originalApi = api.fetchJson.getMockImplementation()!;
+    api.fetchJson.mockImplementation(async path => path === "/extensions" ? { extensions: second ? [] : [{ id: "owner-skill", kind: "skill", name: "仅第一账号技能", description: "私有说明", source: "user", enabled: true, permissions: [] }], connections: [], execution: { available: false, reason: "未接入" } } : originalApi(path));
+    window.history.replaceState(null, "", "#/settings/extensions");
+    const view = renderApp();
+    expect(await screen.findByText("仅第一账号技能")).toBeInTheDocument();
+    second = true;
+    view.rerender(<ThemeProvider><App apiBase="/test-api" accessToken="second-test-session" onLogout={vi.fn()}
+      user={{ email: "second@example.test", has_avatar: false }} updateSession={vi.fn()} /></ThemeProvider>);
+    expect(await screen.findByRole("heading", { name: "让团团学会你的工作方法" })).toBeInTheDocument();
+    expect(screen.queryByText("仅第一账号技能")).not.toBeInTheDocument();
+  });
+
+  it("opens the channels deep link with its page title and Weixin controls", async () => {
+    window.history.replaceState(null, "", "#/settings/channels");
+    renderApp();
+    expect(await screen.findByRole("heading", { name: /^消息渠道$/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^连接微信$/ })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe("消息渠道｜团团"));
+  });
   it.each(["#/chat/7", "#/chat/library"])("keeps conversation management visible outside hidden page content on %s", async (hash) => {
     const conversation: Conversation = { id: 7, title: "原有对话", summary: "", status: "active", updated_at: "2026-10-14" };
     conversations.conversations = [conversation];
@@ -225,6 +300,6 @@ describe("App identity placement", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(expectSidebarIdentity(container).closest("aside")).toHaveClass("collapsed");
-    await waitFor(() => expect(localStorage.getItem("careerloop-sidebar:developer@example.test")).toBe("collapsed"));
+    await waitFor(() => expect(localStorage.getItem("tuantuan-sidebar:developer@example.test")).toBe("collapsed"));
   });
 });

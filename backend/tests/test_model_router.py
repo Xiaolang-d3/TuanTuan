@@ -314,11 +314,12 @@ def test_text_requests_do_not_inspect_image_catalog(catalog, monkeypatch, prompt
 @pytest.mark.parametrize("prompt", ["你好", "生成图片需要多少钱", "帮我生成一张猫图的提示词"])
 def test_images_selection_automatically_uses_chat_for_text(catalog, monkeypatch, prompt):
     _, profiles = catalog
+    profiles["default"]["capabilities"]["chat"] = "supported"
     image = {**profiles["explicit"], "model_name": "gpt-image-2", "model_protocol": "images", "profile_id": "image-profile"}
     resolve = lambda profile_id=None, **kwargs: image if profile_id == "image-profile" else profiles["default"]
     available = {
         "default_profile_id": profiles["default"]["profile_id"],
-        "profiles": [{"id": profiles["default"]["profile_id"], "connection_id": "text-service", "model_name": "default", "enabled": True}],
+        "profiles": [{"id": profiles["default"]["profile_id"], "connection_id": "text-service", "model_name": "default", "enabled": True, "capabilities": {"chat": "supported"}}],
         "connections": [{"id": "text-service", "protocol": "openai", "enabled": True, "api_key_configured": True}],
     }
     monkeypatch.setattr(bootstrap, "get_profile_connection", resolve)
@@ -333,11 +334,12 @@ def test_images_selection_automatically_uses_chat_for_text(catalog, monkeypatch,
 
 def test_text_routing_replaces_image_classification_and_planning(catalog):
     path, profiles = catalog
+    profiles["default"]["capabilities"]["chat"] = "supported"
     connection = bind(profiles, path)
     for value in connection["stage_connections"].values():
         value.update(model_name="gpt-image-2", model_protocol="images")
     available = {
-        "profiles": [{"id": "chat", "connection_id": "chat-service", "model_name": "chat", "enabled": True}],
+        "profiles": [{"id": "chat", "connection_id": "chat-service", "model_name": "chat", "enabled": True, "capabilities": {"chat": "supported"}}],
         "connections": [{"id": "chat-service", "protocol": "openai", "enabled": True, "api_key_configured": True}],
     }
     routed = bind_text_model(connection, catalog=available, resolve=lambda _: profiles["default"])

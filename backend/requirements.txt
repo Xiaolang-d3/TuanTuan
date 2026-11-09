@@ -11,6 +11,7 @@ minio==7.2.16
 keyring==25.6.0
 cryptography==50.0.2
 Pillow==12.3.0
+qrcode==8.2
 python-dotenv==1.2.2
 httpx==0.28.1
 feedparser==6.0.14
@@ -19,3 +20,6 @@ numpy==2.4.6
 onnxruntime==1.31.0
 kaldi-native-fbank==1.22.4
 PyYAML==6.0.3
+jsonschema==4.26.0
+markdown-it-py==4.2.0
+reportlab==4.4.10

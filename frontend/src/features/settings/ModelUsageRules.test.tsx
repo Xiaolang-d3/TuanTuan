@@ -14,6 +14,12 @@ const catalog: ModelCatalog = {
 };
 
 describe("ModelUsageRules", () => {
+  it("offers eligible models from every service and labels their source", () => {
+    const second: ModelCatalog = { ...catalog, service_connection_id: "shared", connections: [...catalog.connections, { ...catalog.connections[0], id: "other", name: "第二服务" }], profiles: [...catalog.profiles, { ...catalog.profiles[1], id: "other-image", connection_id: "other" }] };
+    render(<ModelUsageRules catalog={second} busy={false} loading={false} onMutate={vi.fn()} onApplied={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "更换图片生成模型" }));
+    expect(screen.getByRole("option", { name: /第二服务.*gpt-image-2|gpt-image-2.*第二服务/ })).toHaveValue("other-image");
+  });
   it("shows summaries until editing, filters by purpose and cancels without saving", () => {
     const onMutate = vi.fn();
     render(<ModelUsageRules catalog={catalog} busy={false} loading={false} onMutate={onMutate} onApplied={vi.fn()} />);

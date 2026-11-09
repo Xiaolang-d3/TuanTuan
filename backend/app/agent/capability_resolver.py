@@ -7,14 +7,16 @@ from ..tooling import ToolSpec
 
 LIBRARY_READ_CAPABILITY = "library.read"
 LIBRARY_SEARCH_CAPABILITY = "library.search"
+LIBRARY_BLOCK_READ_CAPABILITY = "library.read.blocks"
 WEB_SEARCH_CAPABILITY = "web.search.generic"
 KNOWLEDGE_PROPOSAL_CAPABILITY = "library.propose"
-LIBRARY_READ_CAPABILITIES = frozenset({LIBRARY_READ_CAPABILITY, LIBRARY_SEARCH_CAPABILITY})
+LIBRARY_READ_CAPABILITIES = frozenset({LIBRARY_READ_CAPABILITY, LIBRARY_SEARCH_CAPABILITY, LIBRARY_BLOCK_READ_CAPABILITY})
 
 # Order controls both the allowed-tool order and required-tool resolution order.
 CAPABILITY_ORDER = (
     LIBRARY_READ_CAPABILITY,
     LIBRARY_SEARCH_CAPABILITY,
+    LIBRARY_BLOCK_READ_CAPABILITY,
     WEB_SEARCH_CAPABILITY,
     KNOWLEDGE_PROPOSAL_CAPABILITY,
 )
@@ -188,6 +190,8 @@ def resolve_capabilities(
     requested: set[str] = set(KIND_CAPABILITIES.get(kind, ()))
     if request.use_private_library:
         requested |= LIBRARY_READ_CAPABILITIES
+    if requested & LIBRARY_READ_CAPABILITIES:
+        requested.add(LIBRARY_BLOCK_READ_CAPABILITY)
     if request.need_public_web and web_search_allowed:
         requested.add(WEB_SEARCH_CAPABILITY)
     if request.need_knowledge_proposal:

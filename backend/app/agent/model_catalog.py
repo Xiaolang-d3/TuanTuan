@@ -1,6 +1,8 @@
 """Workspace model connections, profiles and immutable configuration versions."""
 from __future__ import annotations
 
+from ..branding import display_name
+
 import hashlib
 import hmac
 import json
@@ -170,14 +172,20 @@ def _ensure_catalog(db_path) -> None:
 
 def get_model_catalog(db_path: str | Path | None = None) -> dict[str, Any]:
     from .model_purposes import purpose_defaults, model_output_types, supported_purposes
+    from ..models.catalog_discovery import discovered_entry
     _ensure_catalog(db_path)
     with connect(db_path) as conn:
-        connections = [_decode_connection(row) for row in conn.execute("SELECT * FROM model_connections ORDER BY created_at, id")]
-        profiles = [_decode_profile(row) for row in conn.execute("SELECT * FROM model_profiles ORDER BY created_at, id")]
+        connections = [_decode_connection(row) for row in conn.execute("SELECT * FROM model_connections WHERE deleted_at IS NULL ORDER BY created_at, id")]
+        profiles = [_decode_profile(row) for row in conn.execute("SELECT p.* FROM model_profiles p JOIN model_connections c ON c.id=p.connection_id WHERE c.deleted_at IS NULL ORDER BY p.created_at, p.id")]
         row = conn.execute("SELECT default_model_profile_id, config_revision FROM agent_settings WHERE id = 1").fetchone()
         policy = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
         execution_profile = (json.loads(policy[0]) if policy else {}).get("roles", {}).get("execute") or row["default_model_profile_id"]
         defaults, purpose_version = purpose_defaults(conn)
+        connection_versions = {item["id"]: item["revision"] for item in connections}
+        for profile in profiles:
+            entry = discovered_entry(conn, profile["connection_id"], connection_versions[profile["connection_id"]], profile["model_name"])
+            if entry:
+                profile["discovery"] = entry
     sources = {item["id"]: item for item in connections}
     default_profile = next((item for item in profiles if item["id"] == row["default_model_profile_id"]), None)
     routing_payload = json.loads(policy[0]) if policy else {}
@@ -251,7 +259,7 @@ def get_profile_connection(profile_id: str | None = None, db_path: str | Path | 
     if requested.get("credential_fingerprint") and not hmac.compare_digest(requested["credential_fingerprint"], credential_fingerprint):
         raise SecretStoreUnavailable("运行绑定的模型凭证已改变，无法恢复原配置；请新建任务")
     # Restored runs retain their bound adapter; only new selections infer an Images adapter.
-    profile_protocol = (requested.get("model_protocol") or connection["protocol"]) if selection is not None else model_protocol_for_profile(profile["model_name"], connection["protocol"])
+    profile_protocol = (requested.get("model_protocol") or connection["protocol"]) if selection is not None else model_protocol_for_profile(profile["model_name"], connection["protocol"], profile.get("capabilities"), connection["effective_base_url"])
     resolved = resolve_model_connection({"model_name": profile["model_name"], "model_base_url": connection["effective_base_url"], "model_protocol": profile_protocol, "api_key": api_key})
     if resolved["resolved_model_protocol"] == "images":
         detected = None
@@ -398,6 +406,8 @@ def create_model_connection(values: dict[str, Any], db_path: str | Path | None =
 
 def _updated_connection(conn, connection_id, values, db_path, candidates, model_name=""):
     current = _connection(conn, connection_id)
+    if current.get("deleted_at"):
+        raise ValueError("服务已删除，请重新添加服务")
     _check_revision(current, values)
     key = str(values.get("api_key") or "").strip()
     old_key, _, _ = _secret(current, model_name, db_path) if not key else ("", "none", "")
@@ -510,7 +520,9 @@ def ensure_service_model_profile(connection_id: str, values: dict[str, Any], db_
             return existing
         if matches:
             raise ValueError("此模型已停用，请在模型设置中启用")
-        record = {"id": str(uuid4()), "connection_id": connection_id, "revision": 1, **_validated_profile({"model_name": model_name})}
+        from ..models.catalog_discovery import discovered_capabilities
+        capabilities = discovered_capabilities(conn, connection_id, connection["revision"], model_name)
+        record = {"id": str(uuid4()), "connection_id": connection_id, "revision": 1, **_validated_profile({"model_name": model_name, "capabilities": capabilities})}
         _write_profile(conn, record)
         return _profile(conn, record["id"])
     return _mutate(f"ensure_service_profile:{connection_id}", values, db_path, operation)
@@ -576,6 +588,28 @@ def archive_model_connection(connection_id: str, values: dict[str, Any] | None =
     return get_model_catalog(db_path)
 
 
+def remove_model_connection(connection_id: str, values: dict[str, Any], db_path: str | Path | None = None) -> dict[str, Any]:
+    """Remove a service from selection while retaining historical model bindings."""
+    def operation(conn, _candidates):
+        current = _connection(conn, connection_id)
+        _check_revision(current, values)
+        default_id = conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0]
+        if default_id and _profile(conn, default_id)["connection_id"] == connection_id:
+            raise ValueError("请先切换默认模型，再删除此服务")
+        from .model_purposes import protect_purpose_defaults
+        protect_purpose_defaults(conn, connection_id=connection_id)
+        # Do not resolve credentials: unavailable keychains must not prevent cleanup.
+        conn.execute("UPDATE model_connections SET enabled=0, deleted_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=?", (connection_id,))
+        _version(conn, "connection", _connection(conn, connection_id))
+        policy = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
+        payload = json.loads(policy[0])
+        if payload.get("service_connection_id") == connection_id:
+            payload.pop("service_connection_id")
+        conn.execute("UPDATE model_routing_policy SET version=version+1, payload_json=? WHERE id=1", (_json(payload),))
+    _mutate(f"remove_connection:{connection_id}", values, db_path, operation)
+    return get_model_catalog(db_path)
+
+
 def save_default_agent_settings(values: dict[str, Any], db_path: str | Path | None = None) -> dict[str, Any]:
     def operation(conn, candidates):
         row = dict(conn.execute("SELECT * FROM agent_settings WHERE id=1").fetchone())
@@ -621,8 +655,8 @@ def save_default_agent_settings(values: dict[str, Any], db_path: str | Path | No
 def public_default_agent_settings(db_path: str | Path | None = None) -> dict[str, Any]:
     _ensure_catalog(db_path)
     row = settings._row(db_path)
-    if row.get("display_name") in {"CareerLoop", "BossCopilot", "灯灯"}:
-        row["display_name"] = settings.DEFAULT_AGENT_SETTINGS["display_name"]
+    if display_name(str(row.get("display_name") or "")) != row.get("display_name"):
+        row["display_name"] = display_name(str(row.get("display_name") or ""))
         with connect(db_path) as conn:
             conn.execute("UPDATE agent_settings SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1", (row["display_name"],))
     if not row["default_model_profile_id"]:

@@ -5,8 +5,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        提问前可先查看 [README](https://github.com/Xiaolang-d3/CareerLoop#readme) 和已有 Issue。
-        请遵守 [社区行为准则](https://github.com/Xiaolang-d3/CareerLoop/blob/main/CODE_OF_CONDUCT.md)，不要粘贴 .env、密钥、数据库或个人资料。
+        提问前可先查看 [README](https://github.com/Xiaolang-d3/TuanTuan#readme) 和已有 Issue。
+        请遵守 [社区行为准则](https://github.com/Xiaolang-d3/TuanTuan/blob/main/CODE_OF_CONDUCT.md)，不要粘贴 .env、密钥、数据库或个人资料。
   - type: textarea
     id: question
     attributes:

@@ -36,6 +36,9 @@ import type {
 } from "../../types";
 import { type HomePendingFact } from "../home/home-metrics";
 import { FilePreview } from "./FilePreview";
+import { DocumentReviewPanel } from "../chat/DocumentReviewPanel";
+import type { DocumentReviewService } from "../chat/document-review-service";
+import { AttachmentPreviewDialog } from "../chat/AttachmentPreviewDialog";
 import { LibraryImageThumbnail } from "./LibraryImageThumbnail";
 import { LibraryDialog } from "./LibraryDialog";
 import { LibraryFilters } from "./LibraryFilters";
@@ -46,6 +49,8 @@ import "./file-library.css";
 import "./library-architecture.css";
 
 type Props = {
+  documentReviewService?: DocumentReviewService;
+  onOpenDocuments?: () => void;
   initialSourceId?: number | null;
   onInitialSourceConsumed?: () => void;
   editor: LibraryEditor;
@@ -302,7 +307,7 @@ export function LibraryPage(props: Props) {
   }
   async function open(id: number, complete = false) {
     if (previewId === id && (preview || loading)) {
-      if (complete) setFull(true);
+      if (complete && !preview?.mime_type.startsWith("image/") && !sources.find((item) => item.id === id)?.mime_type.startsWith("image/")) setFull(true);
       return;
     }
     const sequence = ++request.current;
@@ -310,7 +315,7 @@ export function LibraryPage(props: Props) {
     setLoading(true);
     setPreview(null);
     setPreviewId(id);
-    setFull(complete);
+    setFull(complete && !sources.find((item) => item.id === id)?.mime_type.startsWith("image/"));
     setMode("original");
     setMenu(null);
     setError("");
@@ -319,6 +324,7 @@ export function LibraryPage(props: Props) {
       const detail = await props.onLoadSource(id);
       if (sequence !== request.current) return;
       if (detail.trashed_at) throw new Error("请先恢复文件，再打开。");
+      if (detail.mime_type.startsWith("image/")) setFull(false);
       setPreview(detail);
       await props.onOrganizeSource?.(id, { opened: true });
     } catch (reason) {
@@ -471,6 +477,7 @@ export function LibraryPage(props: Props) {
       </button>
     </div>
   );
+  const imagePreview = Boolean(preview?.mime_type.startsWith("image/") || sources.find((item) => item.id === previewId)?.mime_type.startsWith("image/"));
   const viewer = preview && (
     <>
       <header className="fl-viewer-header">
@@ -532,6 +539,7 @@ export function LibraryPage(props: Props) {
         </span>
       </nav>
       <div className="fl-preview-scroll">
+        {props.documentReviewService && draft === null && preview.character_count > 0 ? <DocumentReviewPanel service={props.documentReviewService} source={preview} /> : null}
         {(preview.mime_type.startsWith("image/") || preview.mime_type.startsWith("video/")) && <p className="fl-media-notice" role="note">
           {preview.mime_type.startsWith("image/") ? "图片可预览；导入时会尝试在本机提取图片中的文字。用于对话时只提供提取或补充的文字，暂不直接分析画面。" : "视频暂不支持上传、播放或分析画面与声音。"}
         </p>}
@@ -630,7 +638,7 @@ export function LibraryPage(props: Props) {
       {!full && <header className="fl-header">
         <h1>文件库</h1>
         <nav className="fl-workspace-navigation" aria-label="文件类型">
-          {([["all", "全部"], ["image", "图片"], ["document", "文档"], ["video", "视频"]] as const).map(([key, label]) => (
+          {([["all", "全部"], ["image", "图像"], ["document", "文档"], ["video", "视频"]] as const).map(([key, label]) => (
             <button type="button" key={key} aria-current={area === "files" && fileType === key ? "page" : undefined}
               onClick={() => { setArea("files"); setFileType(key); setSelected([]); closePreview(); setMenu(null); }}>{label}</button>
           ))}
@@ -654,7 +662,8 @@ export function LibraryPage(props: Props) {
             {menu === "workspace" && <div className="fl-menu">
               <button type="button" onClick={() => { setArea("files"); setToolsOpen(!toolsOpen); if (toolsOpen) { setQuery(""); resetFilters(); setCategory("all"); } setMenu(null); }}><Search size={16} />{toolsOpen ? "收起搜索与筛选" : "搜索与筛选"}</button>
               <button type="button" onClick={() => { closePreview(); setArea("knowledge"); setSelected([]); setMenu(null); }}>知识</button>
-              <button type="button" onClick={() => show("preferences")}><Settings size={16} />文件库设置</button>
+                {props.onOpenDocuments ? <button type="button" onClick={() => { setMenu(null); props.onOpenDocuments?.(); }}><FileText size={16} />文档成果</button> : null}
+                <button type="button" onClick={() => show("preferences")}><Settings size={16} />文件库设置</button>
             </div>}
           </div>
         </div>
@@ -672,7 +681,7 @@ export function LibraryPage(props: Props) {
           if (!props.onReviewFact) throw new Error("知识审核接口不可用");
           await props.onReviewFact(id, action);
         })}
-      /> : full && (preview || loading) ? (
+      /> : full && !imagePreview && (preview || loading) ? (
         <section className="fl-reader" aria-label="文件阅读器">
           {preview ? (
             viewer
@@ -686,7 +695,7 @@ export function LibraryPage(props: Props) {
           )}
         </section>
       ) : (
-          <div className={`fl-body ${preview || loading ? "with-preview" : ""}`}>
+          <div className={`fl-body ${!imagePreview && (preview || loading) ? "with-preview" : ""}`}>
             <section
               className="fl-browser"
               onDragOver={(event) => {
@@ -966,7 +975,7 @@ export function LibraryPage(props: Props) {
                 </div>
               )}
             </section>
-            {preview || loading ? (
+            {!imagePreview && (preview || loading) ? (
               <aside className="fl-preview" aria-label="文件快速预览">
                 {preview ? (
                   viewer
@@ -982,6 +991,12 @@ export function LibraryPage(props: Props) {
             ) : null}
           </div>
       )}
+      {imagePreview && preview && <AttachmentPreviewDialog
+        attachment={{ id: `library-${preview.id}`, kind: "image", original_filename: preview.original_filename || preview.title,
+          parse_status: "parsed", content_type: preview.mime_type, size_bytes: preview.size_bytes }}
+        loadOriginal={props.onLoadOriginal ? async (_attachment, signal) => ({ file: await props.onLoadOriginal!(preview, signal) }) : undefined}
+        onClose={closePreview}
+      />}
       {dialog && (
         <LibraryDialog title={titles[dialog.kind]} close={() => !working && setDialog(null)}>
           {error && (

@@ -48,12 +48,12 @@ it("syncs another tab's preference and safely falls back for invalid values", ()
   expect(document.documentElement).toHaveAttribute("data-theme", "light");
 });
 it("migrates the current account's home preference once without overriding a global choice", () => {
-  localStorage.setItem("careerloop-home-theme:account-a", "dark");
-  localStorage.setItem("careerloop-home-theme:account-b", "light");
+  localStorage.setItem("tuantuan-home-theme:account-a", "dark");
+  localStorage.setItem("tuantuan-home-theme:account-b", "light");
   const view = render(<ThemeProvider><Migration account="account-a" /><AppearanceSettingsPage /></ThemeProvider>);
   fireEvent.click(screen.getByRole("button", { name: "迁移" }));
   expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
-  expect(localStorage.getItem("careerloop-home-theme:account-a")).toBeNull();
+  expect(localStorage.getItem("tuantuan-home-theme:account-a")).toBeNull();
   view.rerender(<ThemeProvider><Migration account="account-b" /><AppearanceSettingsPage /></ThemeProvider>);
   fireEvent.click(screen.getByRole("button", { name: "迁移" }));
   expect(document.documentElement).toHaveAttribute("data-theme", "dark");

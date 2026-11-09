@@ -25,16 +25,16 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, build_opener, urlopen
 
 
-REPOSITORY = "Xiaolang-d3/CareerLoop"
-APP_LABEL = "online.xiaocheng.dengdeng.web"
-POLL_LABEL = "online.xiaocheng.dengdeng.deploy"
+REPOSITORY = "Xiaolang-d3/TuanTuan"
+APP_LABEL = "online.xiaocheng.tuantuan.web"
+POLL_LABEL = "online.xiaocheng.tuantuan.deploy"
 MAX_ARCHIVE_BYTES = 300 * 1024**2
 MAX_EXTRACTED_BYTES = 1024**3
 REVISION = re.compile(r"[0-9a-f]{40}")
 LOCAL_HTTP = build_opener(ProxyHandler({}))
 PUBLIC_FILES = ("tuantuan-logo.png", "tuantuan-favicon.png")
 DATABASE_READY_CODE = """
-from app.workspace import auth_db_path, existing_workspace_roots
+from app.workspace import auth_db_path, existing_workspace_roots, workspace_db_path
 from app.database_lifecycle import database_status
 from app.db import DB_PATH
 import sqlite3
@@ -43,7 +43,7 @@ if not path.is_file():
     raise SystemExit(1)
 with sqlite3.connect(path) as connection:
     connection.execute('SELECT id FROM users LIMIT 1').fetchall()
-paths = [root / 'careerloop.db' for root in existing_workspace_roots()]
+paths = [workspace_db_path(root) for root in existing_workspace_roots()]
 if DB_PATH.is_file() and DB_PATH != path:
     paths.append(DB_PATH)
 raise SystemExit(0 if all(database_status(p)['status'] == 'ready' for p in paths) else 1)
@@ -64,7 +64,7 @@ def write_json(path: Path, value) -> None:
 
 def clean_environment() -> dict[str, str]:
     # Do not pass GitHub, model or search credentials to dependency installers.
-    keep = ("HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SSL_CERT_FILE")
+    keep = ("HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER", "LOGNAME", "SSL_CERT_FILE", "SYSTEMROOT", "WINDIR")
     return {key: os.environ[key] for key in keep if key in os.environ}
 
 
@@ -148,9 +148,9 @@ def extract_bundle(archive: Path, destination: Path) -> None:
 def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: Path | None = None):
     env = clean_environment()
     env.update({
-        "BIND_HOST": "127.0.0.1", "API_DOCS_ENABLED": "false", "CAREERLOOP_DESKTOP": "false",
-        "CAREERLOOP_DATA_DIR": str(smoke_data or config["data_dir"]),
-        "CAREERLOOP_INSTANCE_ID": revision, "OPENAI_API_KEY": "", "TAVILY_API_KEY": "",
+        "BIND_HOST": "127.0.0.1", "API_DOCS_ENABLED": "false", "TUANTUAN_DESKTOP": "false",
+        "TUANTUAN_DATA_DIR": str(smoke_data or config["data_dir"]),
+        "TUANTUAN_INSTANCE_ID": revision, "OPENAI_API_KEY": "", "TAVILY_API_KEY": "",
         "AGENT_SEARCH_TOKEN": "", "MINIO_ACCESS_KEY": "", "MINIO_SECRET_KEY": "",
         "WEB_RESEARCH_ENABLED": "false", "ATTACHMENT_STORAGE": "local",
         "EMBEDDING_BACKEND": "hash" if smoke_data else "auto",
@@ -158,10 +158,10 @@ def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: 
     })
     # User-provided credentials remain in their existing per-workspace keyring.
     # No operator .env or global model credential is imported into a release.
-    env["CAREERLOOP_SECRET_BACKEND"] = "memory" if smoke_data else "keyring"
+    env["TUANTUAN_SECRET_BACKEND"] = "memory" if smoke_data else "keyring"
     if not smoke_data:
-        env["CAREERLOOP_MAINTENANCE_FILE"] = str(root / "maintenance")
-        env["CAREERLOOP_BENCHMARK_ENV_FILE"] = str(root / "service.env")
+        env["TUANTUAN_MAINTENANCE_FILE"] = str(root / "maintenance")
+        env["TUANTUAN_BENCHMARK_ENV_FILE"] = str(root / "service.env")
     return env
 
 
@@ -187,7 +187,7 @@ def smoke(release: Path, root: Path, config: dict, revision: str) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    with tempfile.TemporaryDirectory(prefix="dengdeng-smoke-") as data:
+    with tempfile.TemporaryDirectory(prefix="tuantuan-smoke-") as data:
         env = runtime_environment(root, config, revision, smoke_data=Path(data))
         with (root / "logs" / "smoke.log").open("ab") as log:
             process = subprocess.Popen(
@@ -239,7 +239,7 @@ def prepare(root: Path, config: dict, revision: str) -> Path | None:
         release.mkdir(parents=True, exist_ok=True)
         extract_bundle(stage / "app.tar.gz", release)
     env = clean_environment()
-    env["CAREERLOOP_BASE_PYTHON"] = config["python"]
+    env["TUANTUAN_BASE_PYTHON"] = config["python"]
     # The repo installer creates the venv at its final path and scans .pth files.
     with (root / "logs" / "prepare.log").open("ab") as log:
         subprocess.run(["/bin/sh", str(release / "backend/scripts/install_deps.sh"),
@@ -257,7 +257,9 @@ def service(root: Path, action: str) -> None:
         run(["launchctl", "bootstrap", domain, str(plist)], stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, timeout=60)
         return
-    target = f"{domain}/{APP_LABEL}"
+    # Existing installations retain the label recorded in their own plist.
+    label = plistlib.loads(plist.read_bytes())["Label"] if plist.is_file() else APP_LABEL
+    target = f"{domain}/{label}"
     state = subprocess.run(["launchctl", "print", target], capture_output=True, text=True,
                            env=clean_environment(), timeout=10)
     if state.returncode:

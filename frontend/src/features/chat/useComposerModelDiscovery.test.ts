@@ -9,6 +9,14 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("useComposerModelDiscovery", () => {
+  it("keeps provider output evidence per service and never confuses vision with generation", async () => {
+    const entry = { id: "gateway/shared", display_name: "Vision group", input_types: ["image"], output_types: ["chat"], output_types_source: "provider" };
+    const client = vi.fn().mockResolvedValue({ models: ["gateway/shared"], entries: [entry] });
+    const { result } = renderHook(() => useComposerModelDiscovery({ fetchJson: client as ReturnType<typeof createApiClient>, scope: "user-a", connection }));
+    await act(() => result.current.discover());
+    expect(result.current.catalogs[0].entries).toEqual([entry]);
+    expect(result.current.entries).toEqual([entry]);
+  });
   it("queries every enabled connection independently and preserves an image catalog when chat discovery fails", async () => {
     const pending = deferred<{ models: string[] }>();
     const client = vi.fn((path: string) => path.includes("image-service") ? Promise.resolve({ models: ["gpt-image-1"] }) : pending.promise);

@@ -83,7 +83,7 @@ class _Fake:
 # --- 1. migration -----------------------------------------------------------
 
 def test_v27_database_upgrades_to_current_schema_with_backup(tmp_path):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     init_db(path)
     with sqlite3.connect(path) as conn:
         conn.execute("ALTER TABLE model_connections DROP COLUMN detected_protocol")
@@ -95,7 +95,7 @@ def test_v27_database_upgrades_to_current_schema_with_backup(tmp_path):
         assert "detected_protocol" in {row[1] for row in conn.execute("PRAGMA table_info(model_connections)")}
         assert "reasoning_effort" in {row[1] for row in conn.execute("PRAGMA table_info(model_profiles)")}
         assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == DB_SCHEMA_VERSION
-    assert (tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "careerloop.db").exists()
+    assert (tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "tuantuan.db").exists()
 
 
 # --- 1. detected protocol ---------------------------------------------------

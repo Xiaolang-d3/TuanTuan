@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from ..branding import display_name
+
+from ..branding import env
+
 import hashlib
 import hmac
 import json
@@ -77,7 +81,7 @@ def _initialize_connection(db_path: str | Path | None) -> dict[str, Any]:
     if row.get("model_config_initialized") and row.get("connection_id"):
         return row
     config = get_settings()
-    hosted = os.getenv("CAREERLOOP_DEPLOYMENT_MODE", "local").strip().lower() == "hosted"
+    hosted = env("TUANTUAN_DEPLOYMENT_MODE", "local").strip().lower() == "hosted"
     # Import the old effective environment configuration once. Subsequent
     # explicit empty URLs are real choices and never fall back to the environment.
     name = str(row.get("model_name") or ("" if hosted else config.model_name)).strip()
@@ -211,8 +215,7 @@ def _public_settings(row: dict[str, Any], db_path: str | Path | None) -> dict[st
     result = dict(row)
     for private in ("model_api_key", "model_secret_ref", "model_config_initialized"):
         result.pop(private, None)
-    if result.get("display_name") in {"CareerLoop", "BossCopilot", "灯灯"}:
-        result["display_name"] = DEFAULT_AGENT_SETTINGS["display_name"]
+    result["display_name"] = display_name(str(result.get("display_name") or ""))
     for field in _MEMORY_FIELDS:
         result[field] = bool(result[field])
     effective = _connection(row, api_key)
@@ -233,7 +236,7 @@ def _public_settings(row: dict[str, Any], db_path: str | Path | None) -> dict[st
 
 
 def _settings_fallback(config: Any) -> dict[str, Any]:
-    hosted = os.getenv("CAREERLOOP_DEPLOYMENT_MODE", "local").strip().lower() == "hosted"
+    hosted = env("TUANTUAN_DEPLOYMENT_MODE", "local").strip().lower() == "hosted"
     fallback = dict(DEFAULT_AGENT_SETTINGS)
     fallback.pop("model_api_key", None)
     fallback.update(

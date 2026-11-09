@@ -15,12 +15,12 @@ from test_agent_runtime import ScriptedModel, runtime_for
 
 @pytest.fixture
 def uploaded(tmp_path, monkeypatch):
-    path = tmp_path / "careerloop.db"
+    path = tmp_path / "tuantuan.db"
     monkeypatch.setattr(db, "DB_PATH", path)
     db.init_db(path)
     cid = create_conversation("附件续接")["id"]
     store = AttachmentStore(local_root=tmp_path / "objects")
-    text = "前页内容。" * 300 + "\nCareerLoop：个人开源项目，负责运行时、工具编排与中断恢复。\n第二页末尾。"
+    text = "前页内容。" * 300 + "\ntuantuan：个人开源项目，负责运行时、工具编排与中断恢复。\n第二页末尾。"
     attachment = create_attachment(cid, "document", "resume.txt", text.encode(), store=store)
     attachment = parse_attachment(attachment["id"], store=store)
     row = save_chat_message("user", "帮我分析这份简历", {"attachments": [{"id": attachment["id"]}]}, cid)
@@ -34,13 +34,13 @@ def snapshot(content):
         clarification=AgentClarification(question="项目是个人还是公司项目？"))
 
 
-def test_clarification_keeps_full_execution_text_but_bounds_routing_preview(uploaded):
+def test_clarification_keeps_audit_text_but_describes_bounded_model_context(uploaded):
     _, _, full, _, _ = uploaded
     context, history, _ = clarification_context(snapshot(full))
     assert history[0].content == full and history[0].content.endswith("第二页末尾。")
     assert "第二页末尾。" not in context
     assert "前页内容。" not in context
-    assert "附件全文保留在执行上下文" in context
+    assert "附件以受限片段和版本句柄提供" in context
     assert len(context) < 1300
 
 

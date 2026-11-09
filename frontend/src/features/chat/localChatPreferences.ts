@@ -1,6 +1,7 @@
+import { readStorageItem } from "../../storage";
 export function readStringMap(storageKey: string): Map<number, string> {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = readStorageItem(storageKey);
     const parsed = raw ? JSON.parse(raw) as unknown : {};
     const values = new Map<number, string>();
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return values;
@@ -24,7 +25,7 @@ export function writeStringMap(storageKey: string, values: Map<number, string>) 
 
 export function readIdList(storageKey: string): number[] {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = readStorageItem(storageKey);
     const parsed = raw ? JSON.parse(raw) as unknown : [];
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((id): id is number => Number.isInteger(id) && id > 0);
@@ -46,7 +47,7 @@ const FOLDER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function readConversationFolders(storageKey: string): { folders: ConversationFolder[]; assignments: Record<number, string> } {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = readStorageItem(storageKey);
     const parsed = raw ? JSON.parse(raw) as unknown : {};
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { folders: [], assignments: {} };
     const record = parsed as { folders?: unknown; assignments?: unknown };

@@ -1,4 +1,4 @@
-灯灯本机离线语音模型 — FunASR 2pass
+团团本机离线语音模型 — FunASR 2pass
 
 Models: Alibaba / DAMO Academy / ModelScope FunASR.
 Fixed per-file revisions, sizes and SHA256: app/speech-models.json.

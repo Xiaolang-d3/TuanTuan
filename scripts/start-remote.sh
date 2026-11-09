@@ -20,7 +20,7 @@ if lsof -tiTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 
-if screen -ls 2>/dev/null | grep -q "careerloop-remote"; then
+if screen -ls 2>/dev/null | grep -q "tuantuan-remote"; then
   echo "远程服务已经运行。公开 URL："
   grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' "$REMOTE_LOG" | tail -n 1 || true
   exit 0
@@ -39,7 +39,7 @@ echo "构建前端…"
 
 : > "$BACKEND_LOG_DIR/remote-backend.log"
 : > "$REMOTE_LOG"
-screen -dmS careerloop-remote-backend zsh -lc \
+screen -dmS tuantuan-remote-backend zsh -lc \
   "cd '$BACKEND_DIR' && BIND_HOST=127.0.0.1 API_DOCS_ENABLED=false env -u PYTHONPATH -u VIRTUAL_ENV -u PYTHONHOME .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > '$BACKEND_LOG_DIR/remote-backend.log' 2>&1"
 
 for _ in {1..20}; do
@@ -49,12 +49,12 @@ for _ in {1..20}; do
   sleep 1
 done
 if ! curl -fsS --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
-  screen -S careerloop-remote-backend -X quit || true
+  screen -S tuantuan-remote-backend -X quit || true
   echo "后端没有成功启动；查看 $BACKEND_LOG_DIR/remote-backend.log" >&2
   exit 1
 fi
 
-screen -dmS careerloop-remote zsh -lc \
+screen -dmS tuantuan-remote zsh -lc \
   "cloudflared tunnel --url http://127.0.0.1:8000 > '$REMOTE_LOG' 2>&1"
 
 for _ in {1..30}; do
@@ -70,7 +70,7 @@ for _ in {1..30}; do
   sleep 1
 done
 
-screen -S careerloop-remote -X quit || true
-screen -S careerloop-remote-backend -X quit || true
+screen -S tuantuan-remote -X quit || true
+screen -S tuantuan-remote-backend -X quit || true
 echo "Cloudflare Tunnel 未能取得公开 URL；查看 $REMOTE_LOG" >&2
 exit 1

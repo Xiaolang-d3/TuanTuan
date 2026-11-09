@@ -1,0 +1,17 @@
+.weixin-settings { max-width: 720px; color: var(--color-text); }
+.weixin-settings header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
+.weixin-settings header > div { min-width: 0; overflow-wrap: anywhere; }
+.weixin-settings header > svg { flex-shrink: 0; }
+.weixin-settings h2 { margin: 0 0 8px; font-size: 22px; }
+.weixin-settings p { line-height: 1.7; }
+.weixin-settings header p, .weixin-help { color: var(--color-text-secondary); margin-top: 0; }
+.weixin-settings [role="alert"] { color: var(--color-danger); }
+.weixin-pairing { padding: 20px 0; }
+.weixin-pairing img { max-width: 100%; height: auto; background: white; border-radius: 8px; }
+.weixin-pairing form { display: flex; align-items: flex-start; flex-direction: column; gap: 12px; }
+.weixin-pairing input { width: min(100%, 240px); padding: 10px 12px; border: 1px solid var(--color-border-strong); border-radius: 8px; color: var(--color-text); background: var(--color-surface); }
+.weixin-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.weixin-settings button { min-height: 42px; padding: 9px 16px; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.weixin-actions button:first-child { background: var(--color-brand); color: white; border-color: var(--color-brand); }
+.weixin-settings button:disabled { opacity: .5; cursor: default; }
+.weixin-settings :is(button, input, a):focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }

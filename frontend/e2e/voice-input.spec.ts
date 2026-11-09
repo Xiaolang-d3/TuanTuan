@@ -1,12 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test-fixtures";
 
 for (const theme of ["light", "dark"] as const) {
   test(`voice input uses only icon color and live audio waves in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("careerloop-auth-token", "voice-e2e-token");
-      localStorage.setItem("careerloop-theme", value);
+      localStorage.setItem("tuantuan-auth-token", "voice-e2e-token");
+      localStorage.setItem("tuantuan-theme", value);
       // Exercise the actual AudioWorklet without opening a real microphone.
       Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
         const context = new AudioContext({ sampleRate: 16000 });

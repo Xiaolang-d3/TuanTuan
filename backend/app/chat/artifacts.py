@@ -69,12 +69,15 @@ def _sources(message: dict[str, Any]) -> list[dict[str, str]]:
                 url = _safe_url(str(item.get("url") or ""))
                 if url and not any(s.get("url") == url for s in sources):
                     sources.append({"title": " ".join(str(item.get("title") or url).split()), "url": url})
-        if event.get("tool_name") == "search_library":
+        if event.get("tool_name") == "search_library" and not data.get("evidence"):
             for item in data.get("excerpts", []):
                 if isinstance(item, dict) and item.get("source_id") is not None:
                     source = {"title": " ".join(str(item.get("title") or "本地资料").split()), "source_id": str(item["source_id"])}
                     if source not in sources:
                         sources.append(source)
+    for card in (message["payload"].get("agent") or {}).get("evidence", []):
+        if isinstance(card, dict) and card.get("citation_id"):
+            sources.append(card)
     return sources
 
 
@@ -132,7 +135,7 @@ def _manifest(message: dict[str, Any], db_path: str | Path | None) -> dict[str, 
             content = "> 未完成：此内容来自已停止或失败的执行。\n\n" + content
         if citations:
             content += "\n\n---\n\n## 来源\n\n" + "\n".join(
-                f"- {s['title']}：{s['url']}" if s.get("url") else f"- {s['title']}（本地资料 ID：{s['source_id']}）"
+                f"- {s['title']}：{s['url']}" if s.get("url") else f"- {s['title']}（" + (f"本地资料 ID：{s['source_id']}" if s.get("source_id") else f"对话附件：{s.get('attachment_id')}") + "）"
                 for s in citations
             ) + "\n"
         artifacts.append({"selector": "answer", "kind": "answer", "filename": "回答.md",
@@ -167,6 +170,38 @@ def message_artifacts(message_id: int, db_path: str | Path | None = None) -> dic
     if message is None:
         raise ValueError("消息不存在")
     return _manifest(message, db_path)
+
+
+def write_archive_snapshot(conn, *, filename, mime_type, source_uri, text, data, metadata, enabled, copies=(), db_path=None):
+    """Write one account-local snapshot; chat and authored documents share copies."""
+    status = metadata["text_parse_status"]
+    cursor = conn.execute("""INSERT INTO library_sources
+        (source_kind, title, original_filename, mime_type, source_uri, content, redacted_content,
+         privacy_mode, enabled, parse_status, content_hash, character_count, metadata_json)
+        VALUES ('upload', ?, ?, ?, ?, ?, ?, 'redacted', ?, ?, ?, ?, ?)""",
+        (_clean_title(Path(filename).stem), filename, mime_type, source_uri, text, scan_and_redact(text)[1],
+         int(enabled), "ready" if status == "not_required" else status, sha256(data).hexdigest(), len(text), json_dump(metadata)))
+    source_id = int(cursor.lastrowid)
+    directory = _source_dir(source_id, db_path)
+    try:
+        stored = directory / filename
+        stored.write_bytes(data)
+        stored.chmod(0o600)
+        if copies:
+            image_directory = directory / "assets"
+            image_directory.mkdir(mode=0o700)
+            for asset, image_data in copies:
+                target = image_directory / f"{asset['id']}{Path(asset['original_filename']).suffix}"
+                target.write_bytes(image_data)
+                target.chmod(0o600)
+        conn.execute("UPDATE library_sources SET stored_path=? WHERE id=?", (stored.relative_to(resolve_document_dir(db_path)).as_posix(), source_id))
+    except Exception:
+        # Cleanup is inside the caller's write transaction, before an ID can be
+        # reused by another archive. Never follow a directory outside storage.
+        if directory.resolve().is_relative_to(resolve_document_dir(db_path).resolve()) and not directory.is_symlink():
+            shutil.rmtree(directory, ignore_errors=True)
+        raise
+    return source_id, directory
 
 
 def save_artifact(message_id: int, request: SaveArtifactIn, db_path: str | Path | None = None) -> dict[str, Any]:
@@ -246,30 +281,33 @@ def save_artifact(message_id: int, request: SaveArtifactIn, db_path: str | Path 
                 metadata["chat_archive"].update(saved_at=datetime.now(timezone.utc).isoformat(), run_id=run["run_id"] if run else None,
                                                model_name=execute.get("model_name") or selection.get("model_name", ""),
                                                model_selection={key: execute[key] for key in ("profile_id", "profile_revision", "connection_id", "connection_revision") if key in execute})
-                cursor = conn.execute("""INSERT INTO library_sources
-                    (source_kind, title, original_filename, mime_type, source_uri, content, redacted_content,
-                     privacy_mode, enabled, parse_status, content_hash, character_count, metadata_json)
-                    VALUES ('upload', ?, ?, ?, ?, ?, ?, 'redacted', ?, ?, ?, ?, ?)""",
-                    (_clean_title(Path(filename).stem), filename, artifact["mime_type"], f"chat:{message['conversation_id']}/{message_id}",
-                     text, scan_and_redact(text)[1], int(request.enabled), "ready" if text_status == "not_required" else text_status, sha256(data).hexdigest(), len(text), json_dump(metadata)))
-                source_id = int(cursor.lastrowid)
-                directory = _source_dir(source_id, db_path)
-                stored = directory / filename
-                stored.write_bytes(data)
-                stored.chmod(0o600)
-                if copies:
-                    image_directory = directory / "assets"
-                    image_directory.mkdir(mode=0o700)
-                    for asset, image_data in copies:
-                        target = image_directory / f"{asset['id']}{Path(asset['original_filename']).suffix}"
-                        target.write_bytes(image_data)
-                        target.chmod(0o600)
-                conn.execute("UPDATE library_sources SET stored_path = ? WHERE id = ?",
-                             (stored.relative_to(resolve_document_dir(db_path)).as_posix(), source_id))
+                source_id, directory = write_archive_snapshot(conn, filename=filename, mime_type=artifact["mime_type"],
+                    source_uri=f"chat:{message['conversation_id']}/{message_id}", text=text, data=data, metadata=metadata,
+                    enabled=request.enabled, copies=copies, db_path=db_path)
     except Exception:
         if directory is not None:
             shutil.rmtree(directory, ignore_errors=True)
         raise
     source = get_source(source_id, db_path=db_path)
+    if source["content"] and not source.get("source_revision"):
+        from ..documents.blocks import text_document
+        from ..library.source_versions import save_source_version, source_state, get_attachment_version
+        parsed = text_document(source["content"], parser="chat_archive")
+        if artifact["kind"] == "attachment":
+            state = source_state("attachment", artifact["attachment_id"], db_path)
+            if state.get("source_revision"):
+                version = get_attachment_version(artifact["attachment_id"], state["source_revision"], db_path,
+                                                 conversation_id=message["conversation_id"])
+                # The archive's frozen body must match before copying positions.
+                # Older attachments without a matching version keep text ranges.
+                if version["text"] == source["content"]:
+                    from ..documents.blocks import DocumentBlock
+                    from ..documents.parser import DocumentParseResult
+                    parsed = DocumentParseResult(source["content"], "attachment_archive",
+                        blocks=[DocumentBlock(**block) for block in version["blocks"]],
+                        complete=version["complete"], units=version["units"],
+                        unprocessed_ranges=version["unprocessed_ranges"])
+        save_source_version(source_id, parsed, db_path)
+        source = get_source(source_id, db_path=db_path)
     _index_source(source, db_path)
     return {"source": source, "reused": reused}

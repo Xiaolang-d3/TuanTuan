@@ -13,10 +13,12 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from ..config import get_settings
+from ..branding import LEGACY_ATTACHMENT_BUCKET
 from ..db import connect, json_dump, row_to_dict, rows_to_dicts
 from ..workspace import attachments_dir
 
 AttachmentKind = Literal["image", "document"]
+ATTACHMENT_SOURCE_TYPE = "conversation_attachment"
 
 MAX_BYTES: dict[AttachmentKind, int] = {"image": 10 * 1024 * 1024, "document": 8 * 1024 * 1024}
 ALLOWED_SUFFIXES: dict[AttachmentKind, set[str]] = {
@@ -79,15 +81,27 @@ class AttachmentStore:
             "local" if local_root is not None else self.settings.attachment_storage
         )
 
+    def _bucket(self) -> str:
+        bucket = self.settings.minio_bucket
+        # Existing implicit-default deployments keep their original private bucket.
+        # Do not guess or probe another bucket when an operator configured one.
+        if (
+            bucket == "tuantuan-attachments"
+            and self.settings.minio_bucket_legacy_fallback
+            and self._minio_client().bucket_exists(LEGACY_ATTACHMENT_BUCKET)
+        ):
+            return LEGACY_ATTACHMENT_BUCKET
+        return bucket
+
     def put(self, attachment_id: str, filename: str, content: bytes) -> StoredAttachment:
         suffix = Path(filename).suffix.lower()
         object_key = f"{attachment_id[:2]}/{attachment_id}{suffix}"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         if self.storage == "minio":
             client = self._minio_client()
-            if not client.bucket_exists(self.settings.minio_bucket):
-                client.make_bucket(self.settings.minio_bucket)
-            client.put_object(self.settings.minio_bucket, object_key, BytesIO(content), len(content), content_type=content_type)
+            if not client.bucket_exists(self._bucket()):
+                client.make_bucket(self._bucket())
+            client.put_object(self._bucket(), object_key, BytesIO(content), len(content), content_type=content_type)
         else:
             self._write_local(object_key, content)
         return StoredAttachment(object_key, content_type, len(content), hashlib.sha256(content).hexdigest())
@@ -124,7 +138,7 @@ class AttachmentStore:
             from minio.error import S3Error
 
             try:
-                response = self._minio_client().get_object(self.settings.minio_bucket, object_key)
+                response = self._minio_client().get_object(self._bucket(), object_key)
             except S3Error as exc:
                 if exc.code in {"NoSuchKey", "NoSuchBucket"}:
                     raise ValueError("附件原文件不存在，可能已被移除") from exc
@@ -139,7 +153,7 @@ class AttachmentStore:
     def delete(self, object_key: str) -> None:
         path = self._local_path(object_key)
         if self.storage == "minio":
-            self._minio_client().remove_object(self.settings.minio_bucket, object_key)
+            self._minio_client().remove_object(self._bucket(), object_key)
         path.unlink(missing_ok=True)
         if path.parent != self.local_root and path.parent.exists() and not any(path.parent.iterdir()):
             shutil.rmtree(path.parent)
@@ -151,7 +165,7 @@ class AttachmentStore:
             raise RuntimeError("图片直传需要配置可被模型网关访问的 MINIO_PUBLIC_ENDPOINT")
         expires = timedelta(seconds=expires_seconds or self.settings.attachment_vision_url_ttl_seconds)
         return self._minio_client(endpoint=self.settings.minio_public_endpoint).presigned_get_object(
-            self.settings.minio_bucket,
+            self._bucket(),
             object_key,
             expires=expires,
         )
@@ -215,6 +229,7 @@ def create_attachment(
     *,
     db_path: str | Path | None = None,
     store: AttachmentStore | None = None,
+    publish=None,
 ) -> dict[str, Any]:
     validate_attachment(kind, filename, content)
     attachment_id = uuid.uuid4().hex
@@ -245,6 +260,10 @@ def create_attachment(
                     stored.sha256,
                 ),
             )
+            if publish is not None:
+                # Trusted server callback: commit a document-version receipt in
+                # the same transaction as the attachment identity.
+                publish(conn, attachment_id)
             row = conn.execute("SELECT * FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
     except Exception:
         attachment_store.delete(stored.object_key)
@@ -287,7 +306,11 @@ def get_attachment_metadata(
     attachment = get_attachment(attachment_id, db_path=db_path)
     if attachment is None:
         raise ValueError("附件不存在")
-    return _safe_attachment(attachment)
+    result = _safe_attachment(attachment)
+    if attachment["kind"] == "document":
+        from ..library.source_versions import source_state
+        result.update(source_state("attachment", attachment_id, db_path))
+    return result
 
 
 def list_attachments(
@@ -312,6 +335,7 @@ def parse_attachment(
     if attachment is None:
         raise ValueError("附件不存在")
     attachment_store = store or get_attachment_store()
+    parsed_document = None
     try:
         if attachment["kind"] == "image":
             text = ""
@@ -328,6 +352,7 @@ def parse_attachment(
             from ..documents.parser import parse_document_result
 
             parsed = parse_document_result(attachment["original_filename"], content, mode)
+            parsed_document = parsed
             findings, redacted_text = scan_and_redact(parsed.text)
             text = parsed.text
             metadata = {
@@ -337,27 +362,63 @@ def parse_attachment(
                 "warnings": parsed.warnings,
             }
     except Exception as exc:
-        with connect(db_path) as conn:
-            conn.execute(
-                "UPDATE attachments SET parse_status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (attachment_id,),
-            )
+        if attachment["parse_status"] != "parsed":
+            with connect(db_path) as conn:
+                conn.execute("UPDATE attachments SET parse_status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?", (attachment_id,))
         if isinstance(exc, ValueError):
             raise
         raise ValueError("附件解析失败，请确认文件未损坏且内容可识别") from exc
 
-    with connect(db_path) as conn:
-        conn.execute(
-            """
-            UPDATE attachments
-            SET parse_status = 'parsed', parsed_text = ?, redacted_text = ?,
-                metadata_json = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (text, redacted_text, json_dump(metadata), attachment_id),
-        )
-        row = conn.execute("SELECT * FROM attachments WHERE id = ?", (attachment_id,)).fetchone()
+    document_reference = attachment.get("metadata", {}).get("document")
+    if document_reference is not None:
+        # This provenance is assigned by the trusted document continuation
+        # publisher; reparsing must not detach the selected saved version.
+        metadata["document"] = document_reference
+    version = None
+    if parsed_document is not None:
+        from ..library.source_versions import save_attachment_version
+        version = save_attachment_version(attachment_id, parsed_document, db_path, activate=False)
+    try:
+        with connect(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT parsed_text FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+            if current is None or current["parsed_text"] != attachment["parsed_text"]:
+                raise ValueError("附件正文已变化，请重新解析")
+            conn.execute("""UPDATE attachments SET parse_status='parsed',parsed_text=?,redacted_text=?,
+                metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""", (text, redacted_text, json_dump(metadata), attachment_id))
+            if version is not None:
+                parsed_attachment = {**attachment, "parse_status": "parsed", "parsed_text": text, "redacted_text": redacted_text, "metadata": metadata}
+                index_attachment(attachment_id, db_path=db_path, version=version, connection=conn, attachment=parsed_attachment)
+                conn.execute("""INSERT INTO document_source_state(source_kind,source_key,current_revision,backfill_status)
+                    VALUES('attachment',?,?,'ready') ON CONFLICT(source_kind,source_key) DO UPDATE SET
+                    current_revision=excluded.current_revision,backfill_status='ready',error_code=''""", (attachment_id, version["revision"]))
+            row = conn.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
+    except Exception:
+        if attachment["parse_status"] != "parsed":
+            with connect(db_path) as conn:
+                conn.execute("UPDATE attachments SET parse_status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?", (attachment_id,))
+        raise
     return _safe_attachment(row_to_dict(row) or {})
+
+
+def index_attachment(attachment_id: str, *, db_path: str | Path | None = None, version=None, connection=None, attachment=None) -> int:
+    from ..knowledge.service import index_chunks
+    from ..library.source_versions import source_state, get_attachment_version
+    attachment = attachment or get_attachment(attachment_id, db_path=db_path)
+    if not attachment or attachment["kind"] != "document" or attachment["parse_status"] != "parsed":
+        return 0
+    if version is None:
+        revision = source_state("attachment", attachment_id, db_path)["source_revision"]
+        if not revision:
+            return 0
+        version = get_attachment_version(attachment_id, revision, db_path, conversation_id=attachment["conversation_id"])
+    revision = version["revision"]
+    original = (attachment.get("metadata") or {}).get("privacy_mode") == "original"
+    return index_chunks(ATTACHMENT_SOURCE_TYPE, attachment_id, [
+        {"title": attachment["original_filename"], "content": block["text"] if original else block["model_text"],
+         "metadata": {"attachment_id": attachment_id, "conversation_id": attachment["conversation_id"],
+                      "source_revision": revision, "block_id": block["block_id"], "locator": block["locator"]}}
+        for block in version["blocks"]], db_path, connection=connection)
 
 
 def prepare_attachment_vision_url(
@@ -404,8 +465,12 @@ def delete_attachment(
     if attachment is None:
         return False
     (store or get_attachment_store()).delete(attachment["object_key"])
+    from ..knowledge.service import delete_document
+    delete_document(ATTACHMENT_SOURCE_TYPE, attachment_id, db_path)
     with connect(db_path) as conn:
         conn.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+        conn.execute("DELETE FROM document_source_versions WHERE source_kind='attachment' AND source_key=?", (attachment_id,))
+        conn.execute("DELETE FROM document_source_state WHERE source_kind='attachment' AND source_key=?", (attachment_id,))
     return True
 
 

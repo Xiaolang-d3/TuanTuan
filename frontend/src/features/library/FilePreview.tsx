@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { LibrarySourceDetail } from "../../types";
 import { MarkdownContent } from "../chat/ChatMarkdown";
+import { isLocalEvidence } from "../chat/local-evidence";
 
 const PdfReader = lazy(() => import("./PdfReader"));
 
@@ -25,6 +26,8 @@ export function FilePreview({
   const isPdf = source.mime_type === "application/pdf";
   const isText = source.mime_type.startsWith("text/");
   const isMarkdown = source.mime_type === "text/markdown" || /\.md$/i.test(source.original_filename);
+  const archivedSources = (source.metadata?.chat_archive as { sources?: unknown[] } | undefined)?.sources;
+  const localEvidence = Array.isArray(archivedSources) ? archivedSources.filter(isLocalEvidence) : [];
   const imageLoader = useCallback(async (src: string, signal: AbortSignal) => {
     const id = src.match(/^assets\/([a-f0-9]{32})\.(png|jpg|webp)$/)?.[1];
     if (!id || !loadAsset) throw new Error("图片读取暂不可用");
@@ -83,7 +86,7 @@ export function FilePreview({
     if (isText && originalText !== null)
       return (
         <article className="fl-text-page">
-          {isMarkdown ? <MarkdownContent imageLoader={imageLoader}>{originalText || "原文件没有文字。"}</MarkdownContent> : <pre>{originalText || "原文件没有文字。"}</pre>}
+          {isMarkdown ? <MarkdownContent localEvidence={localEvidence} imageLoader={imageLoader}>{originalText || "原文件没有文字。"}</MarkdownContent> : <pre>{originalText || "原文件没有文字。"}</pre>}
         </article>
       );
     if (isPdf ? !pdfBytes : !url)

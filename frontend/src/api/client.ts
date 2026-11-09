@@ -1,3 +1,12 @@
+import { consumeEvents } from './events';
+import type { LocalEvidence } from '../features/chat/local-evidence';
+
+export function localCitationPath(evidence: LocalEvidence): string {
+  const suffix = `/versions/${encodeURIComponent(evidence.source_revision)}/blocks/${encodeURIComponent(evidence.block_id)}`;
+  return evidence.source_kind === "library" ? `/library/sources/${evidence.source_id}${suffix}`
+    : `/attachments/${encodeURIComponent(evidence.attachment_id)}${suffix}?conversation_id=${evidence.conversation_id}`;
+}
+
 const DEFAULT_API_TIMEOUT_MS = 30_000;
 
 type DesktopApiResponse = { status: number; body: string; bodyBase64?: string | null; contentType?: string | null; retryAfter?: string | null };
@@ -13,7 +22,7 @@ type DesktopStreamEvent = {
 type DesktopInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 type DesktopListen = (event: string, handler: (event: { payload: DesktopStreamEvent }) => void) => Promise<() => void>;
 
-export const SESSION_EXPIRED_EVENT = "careerloop:session-expired";
+export const SESSION_EXPIRED_EVENT = "tuantuan:session-expired";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly retryAfterSeconds = 0, public readonly details: Record<string, unknown> | null = null) {
@@ -212,7 +221,7 @@ async function openDesktopEventStream(
   return ready;
 }
 
-async function tauriAwareFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = DEFAULT_API_TIMEOUT_MS): Promise<Response> {
+async function tauriAwareFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = DEFAULT_API_TIMEOUT_MS, persistentStream = false): Promise<Response> {
   // Desktop WebView is https://tauri.localhost; browser fetch to http://127.0.0.1
   // is mixed-content blocked. Prefer the Rust sidecar proxy (known apiBase),
   // and fall back to the Tauri HTTP plugin for non-loopback URLs.
@@ -237,11 +246,13 @@ async function tauriAwareFetch(input: RequestInfo | URL, init?: RequestInit, tim
         authorization: headers.get("Authorization"),
         requestId,
         timeoutMs,
+        persistentStream,
       };
       let onAbort: (() => void) | undefined;
       try {
         if (init?.signal?.aborted) throw abortReason(init.signal);
         if (tauri?.event?.listen) return await openDesktopEventStream(invoke, tauri.event.listen, request, init?.signal);
+        if (persistentStream) throw new Error('当前桌面版本不支持实时通知，将使用定时刷新');
         const pending = invoke<DesktopApiResponse>("desktop_api_request", { request });
         const cancelled = new Promise<never>((_resolve, reject) => {
           onAbort = () => {
@@ -271,7 +282,8 @@ async function tauriAwareFetch(input: RequestInfo | URL, init?: RequestInit, tim
 export async function fetchWithTimeout(
   input: RequestInfo | URL,
   options: RequestInit = {},
-  timeoutMs = DEFAULT_API_TIMEOUT_MS
+  timeoutMs = DEFAULT_API_TIMEOUT_MS,
+  streamIdleTimeoutMs?: number,
 ): Promise<Response> {
   const controller = new AbortController();
   if (options.signal?.aborted) {
@@ -280,10 +292,15 @@ export async function fetchWithTimeout(
   let timedOut = false;
   const onAbort = () => controller.abort();
   options.signal?.addEventListener("abort", onAbort, { once: true });
-  const timeout = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
+  let timeout: number;
+  const armTimeout = (duration: number) => {
+    window.clearTimeout(timeout);
+    timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, duration);
+  };
+  armTimeout(timeoutMs);
   const release = () => {
     window.clearTimeout(timeout);
     options.signal?.removeEventListener("abort", onAbort);
@@ -291,7 +308,7 @@ export async function fetchWithTimeout(
   let streaming = false;
 
   try {
-    const response = await tauriAwareFetch(input, { ...options, signal: controller.signal }, timeoutMs);
+    const response = await tauriAwareFetch(input, { ...options, signal: controller.signal }, timeoutMs, !!streamIdleTimeoutMs);
     if (controller.signal.aborted) throw abortReason(controller.signal);
     const authorization = new Headers(options.headers).get("Authorization");
     if (response.status === 401 && authorization?.startsWith("Bearer ")) {
@@ -299,6 +316,7 @@ export async function fetchWithTimeout(
     }
     if (response.body && (response.headers.get("Content-Type") ?? "").toLowerCase().includes("text/event-stream")) {
       streaming = true;
+      if (streamIdleTimeoutMs) armTimeout(streamIdleTimeoutMs);
       const reader = response.body.getReader();
       const body = new ReadableStream<Uint8Array>({
         async pull(stream) {
@@ -309,6 +327,7 @@ export async function fetchWithTimeout(
               stream.close();
               return;
             }
+            if (streamIdleTimeoutMs) armTimeout(streamIdleTimeoutMs);
             stream.enqueue(next.value);
           } catch (reason) {
             release();
@@ -344,8 +363,12 @@ function formatValidationErrors(items: ValidationErrorItem[]): string {
   return lines.join("；");
 }
 
-export function createApiClient(apiBase: string, accessToken?: string) {
-  return async function fetchJson<T>(path: string, options?: RequestInit, timeoutMs = DEFAULT_API_TIMEOUT_MS): Promise<T> {
+type ApiClient = (<T>(path: string, options?: RequestInit, timeoutMs?: number) => Promise<T>) & {
+  events?: (path: string, signal: AbortSignal, onEvent: (event: string, data: unknown) => void) => Promise<void>;
+};
+
+export function createApiClient(apiBase: string, accessToken?: string): ApiClient {
+  async function fetchJson<T>(path: string, options?: RequestInit, timeoutMs = DEFAULT_API_TIMEOUT_MS): Promise<T> {
     const headers = new Headers(options?.headers);
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
     const response = await fetchWithTimeout(`${apiBase}${path}`, { ...options, headers }, timeoutMs);
@@ -377,5 +400,22 @@ export function createApiClient(apiBase: string, accessToken?: string) {
     }
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
-  };
+  }
+  async function events(path: string, signal: AbortSignal, onEvent: (event: string, data: unknown) => void) {
+    const headers = new Headers({ Accept: 'text/event-stream' });
+    if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+    const response = await fetchWithTimeout(`${apiBase}${path}`, { headers, signal, cache: 'no-store' }, DEFAULT_API_TIMEOUT_MS, 45_000);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new ApiError('实时通知连接失败', response.status);
+    }
+    await consumeEvents(response, (event, data) => {
+      if (event === 'auth-expired') {
+        window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { token: accessToken } }));
+        throw new ApiError('登录已失效', 401);
+      }
+      onEvent(event, data);
+    });
+  }
+  return Object.assign(fetchJson, { events });
 }

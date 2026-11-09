@@ -21,6 +21,21 @@ const openMenu = () => fireEvent.click(screen.getByRole("button", { name: /切�
 afterEach(cleanup);
 
 describe("ComposerModelPicker", () => {
+  it("uses provider output metadata for opaque IDs and leaves video disabled", () => {
+    const onServiceChange = vi.fn();
+    setup({ onServiceChange, additionalServiceModels: [{ connection_id: "gateway", connection_name: "Gateway", revision: 1, busy: false, error: "", models: ["vendor/paint-alias", "vendor/movie-alias"], entries: [
+      { id: "vendor/paint-alias", output_types: ["image"], output_types_source: "provider" },
+      { id: "vendor/movie-alias", output_types: ["video"], output_types_source: "provider" }
+    ] }] });
+    openMenu();
+    expect(screen.queryByRole("option", { name: "vendor/paint-alias" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "vendor/movie-alias" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "视频" }));
+    expect(screen.getByRole("option", { name: "vendor/movie-alias" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("tab", { name: "图片" }));
+    fireEvent.click(screen.getByRole("option", { name: "vendor/paint-alias" }));
+    expect(onServiceChange).toHaveBeenCalledWith("vendor/paint-alias", "gateway");
+  });
   it("edits the active model parameters without switching models and keeps field keyboard input local", async () => {
     const onSave = vi.fn().mockResolvedValue(true);
     const props = setup({ modelSettings: {

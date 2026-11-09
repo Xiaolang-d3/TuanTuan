@@ -102,7 +102,7 @@ def litellm_arguments(python: str) -> list[str]:
         capture_output=True, text=True, check=False,
     ).stdout.strip()
     if not located:
-        print("litellm is not installed; the sidecar will use DENGDENG_MODEL_BACKEND=native")
+        print("litellm is not installed; the sidecar will use TUANTUAN_MODEL_BACKEND=native")
         return []
     package = Path(located)
     print(f"Bundling LiteLLM from {package}")
@@ -131,10 +131,11 @@ def main() -> None:
     build_env["PYINSTALLER_CONFIG_DIR"] = str(ROOT / "desktop" / ".pyinstaller-cache")
     subprocess.run(
         [
-            pyinstaller, "--noconfirm", "--clean", "--onedir", "--name", "careerloop-runtime",
+            pyinstaller, "--noconfirm", "--clean", "--onedir", "--name", "tuantuan-runtime",
             "--paths", str(BACKEND), "--distpath", str(dist), "--workpath", str(work),
             "--specpath", str(work),
             "--add-data", f"{BACKEND / 'app' / 'password_policy.json'}{os.pathsep}app",
+            "--add-data", f"{BACKEND / 'app' / 'artifacts' / 'fonts'}{os.pathsep}app/artifacts/fonts",
             "--add-data", f"{BACKEND / 'app' / 'password_policy-LICENSE.txt'}{os.pathsep}app",
             "--add-data", f"{BACKEND / 'app' / 'speech-models-NOTICE.txt'}{os.pathsep}app",
             "--add-data", f"{BACKEND / 'app' / 'speech-models.json'}{os.pathsep}app",
@@ -180,7 +181,7 @@ def main() -> None:
         env=build_env,
     )
     BINARIES.mkdir(parents=True, exist_ok=True)
-    destination = BINARIES / f"careerloop-server-{target_triple()}"
+    destination = BINARIES / f"tuantuan-server-{target_triple()}"
     subprocess.run(
         [
             "cc",

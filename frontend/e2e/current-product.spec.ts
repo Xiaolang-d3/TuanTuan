@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test-fixtures";
 
 const conversation = {
   id: 1,
@@ -15,7 +15,7 @@ const conversation = {
 
 async function mockCurrentProduct(page: Page) {
   await page.addInitScript(() => {
-    window.localStorage.setItem("careerloop-auth-token", "e2e-token");
+    window.localStorage.setItem("tuantuan-auth-token", "e2e-token");
   });
   await page.route("http://127.0.0.1:4173/**", async (route) => {
     const url = new URL(route.request().url());
@@ -41,6 +41,8 @@ async function mockCurrentProduct(page: Page) {
     } });
     if (path === "/conversations") return route.fulfill({ json: [conversation] });
     if (path === "/chat/messages") return route.fulfill({ json: [] });
+    if (path === "/presentations") return route.fulfill({ json: { jobs: [], next_cursor: null } });
+    if (path === "/document-reviews") return route.fulfill({ json: { jobs: [] } });
     if (path === "/agent/runs/current") return route.fulfill({ json: { run: null } });
     if (path === "/agent/capabilities") {
       return route.fulfill({
@@ -79,7 +81,7 @@ test.beforeEach(async ({ page }) => {
 
 for (const theme of ["light", "dark"] as const) {
   test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
-    await page.addInitScript(value => localStorage.setItem("careerloop-theme", value), theme);
+    await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
     await page.setViewportSize({ width: 874, height: 770 });
     await page.goto("/#/chat/1");
     const sidebar = page.locator("aside.sidebar");
@@ -182,7 +184,7 @@ for (const theme of ["light", "dark"] as const) {
 }
 
 test("mobile navigation keeps settings reachable through the account menu", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("careerloop-sidebar:e2e@local.test", "collapsed"));
+  await page.addInitScript(() => localStorage.setItem("tuantuan-sidebar:e2e@local.test", "collapsed"));
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 770 });
     await page.goto("/#/chat/1");
@@ -237,7 +239,11 @@ test("long conversations keep one scroll viewport without blank space above the 
   };
   await assertSingleViewport();
   const composer = page.locator(".chat-composer");
-  expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(140);
+  // The compact editor now has a separate, always-reachable skills footer.
+  // Include the two 1px borders around the 100px editor.
+  expect((await composer.locator(".composer-input").boundingBox())!.height).toBeLessThanOrEqual(102);
+  await expect(composer.getByRole("group", { name: "技能与外部工具" })).toBeInViewport();
+  expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(176);
   const [questionBox, answerBox] = await Promise.all([
     // The question includes its in-flow toolbar, even while the controls are hidden.
     page.locator(".message.user").last().boundingBox(),
@@ -343,7 +349,7 @@ test("home and library use current sources and stay usable on narrow screens", a
     await page.goto("/#/library");
     await expect(page.getByRole("table", { name: "文件列表" })).toBeVisible();
     await expect(page.getByRole("button", { name: "操作 读书笔记" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "文件类型" })).toHaveText("全部图片文档视频");
+    await expect(page.getByRole("navigation", { name: "文件类型" })).toHaveText("全部图像文档视频");
     await expect(page.getByRole("textbox", { name: "搜索文件名或内容" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: resolve("..", "..", "output", "playwright", `library-${width}.png`), fullPage: true });

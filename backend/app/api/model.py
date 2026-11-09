@@ -17,6 +17,7 @@ from ..db import connect
 from ..observability.model_monitor import get_model_monitor_snapshot, record_model_service_event
 from ..observability.model_context import model_call_scope
 from ..models import ModelProviderError, OpenAICompatibleProvider, build_model_provider
+from ..models.catalog_discovery import all_model_kinds, normalize_catalog, store_discovery
 from ..model_protocol import connection_protocol_label, normalize_model_protocol, protocol_requires_api_key
 from .schemas import AgentSettingsIn, ModelCapabilitiesIn, ModelDiscoveryIn
 from .model_contracts import CapabilityOverridesIn, ConnectionCreateIn, ConnectionUpdateIn, DefaultProfileIn, FallbackPolicyIn, ProfileCreateIn, ProfileUpdateIn, RoutingPolicyIn, ServiceModelIn, PurposeDefaultIn
@@ -177,10 +178,14 @@ def model_connections_update(connection_id: str, payload: ConnectionUpdateIn) ->
 
 
 @router.delete("/agent/model-connections/{connection_id}")
-def model_connections_archive(connection_id: str) -> dict[str, Any]:
-    from ..agent.model_catalog import archive_model_connection
+def model_connections_archive(connection_id: str, remove: bool = False, expected_revision: int | None = None) -> dict[str, Any]:
+    from ..agent.model_catalog import archive_model_connection, remove_model_connection
 
-    return _catalog_mutation(archive_model_connection, connection_id)
+    if remove:
+        if expected_revision is None:
+            raise HTTPException(status_code=400, detail="请重新读取服务配置后再删除")
+        return _catalog_mutation(remove_model_connection, connection_id, {"expected_revision": expected_revision})
+    return _catalog_mutation(archive_model_connection, connection_id, {"expected_revision": expected_revision})
 
 
 @router.post("/agent/model-profiles")
@@ -275,7 +280,7 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
 
     provider = _provider_for(connection, min(get_settings().model_timeout_seconds, 20), remember=remember)
     try:
-        with model_call_scope(connection, stage="discover"):
+        with model_call_scope(connection, stage="discover"), all_model_kinds():
             async with asyncio.timeout(_diagnostic_timeout()):
                 models = await provider.list_models()
     except TimeoutError as exc:
@@ -305,8 +310,14 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
         )
     provider_name = provider.name
     normalized_base = base_url.rstrip("/")
+    entries = getattr(models, "entries", None) or normalize_catalog(models)
+    if remember and connection.get("connection_id") and connection.get("connection_revision"):
+        with connect() as conn:
+            if not store_discovery(conn, connection["connection_id"], connection["connection_revision"], entries):
+                raise HTTPException(status_code=409, detail="连接已更新，请重新读取模型目录")
     return {
         "models": models,
+        "entries": entries,
         "count": len(models),
         "base_url": normalized_base,
         "provider": provider_name,

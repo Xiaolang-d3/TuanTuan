@@ -16,7 +16,11 @@ retired = {
     'app.tools.research_company', 'app.jobs.evaluations',
 }
 assert not retired.intersection(sys.modules), retired.intersection(sys.modules)
-assert not any(name.startswith(('app.profile', 'app.jobs', 'app.resume', 'app.interview', 'app.opportunities', 'app.projects', 'app.workflow')) for name in sys.modules)
+assert not any(name.startswith(('app.profile', 'app.resume', 'app.interview', 'app.opportunities', 'app.projects', 'app.workflow')) for name in sys.modules)
+# app.jobs is now the general background-task service; career evaluations stay retired.
+assert {name for name in sys.modules if name == 'app.jobs' or name.startswith('app.jobs.')} <= {
+    'app.jobs', 'app.jobs.schema', 'app.jobs.repository', 'app.jobs.service', 'app.jobs.worker', 'app.jobs.confirmation', 'app.jobs.model_ledger',
+}
 """],
         cwd=Path(__file__).resolve().parents[1],
         check=True,

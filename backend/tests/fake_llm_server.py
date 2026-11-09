@@ -27,7 +27,7 @@ def _sse(events: list[Any], *, named: bool = False) -> bytes:
 def openai_chat_json(*, tool: bool = False) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": "" if tool else "你好", "reasoning_content": "先想一想"}
     if tool:
-        message["tool_calls"] = [{"id": "call_1", "type": "function", "function": {"name": "search_library", "arguments": "{\"query\": \"灯灯\"}"}}]
+        message["tool_calls"] = [{"id": "call_1", "type": "function", "function": {"name": "search_library", "arguments": "{\"query\": \"团团\"}"}}]
     return {
         "id": "chatcmpl-1", "object": "chat.completion", "created": 1, "model": "deepseek-v3",
         "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if tool else "stop"}],
@@ -43,7 +43,7 @@ def openai_chat_sse() -> bytes:
         {**base, "choices": [{"index": 0, "delta": {"content": "你"}, "finish_reason": None}]},
         {**base, "choices": [{"index": 0, "delta": {"content": "好"}, "finish_reason": None}]},
         {**base, "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "id": "call_9", "type": "function", "function": {"name": "search_library", "arguments": "{\"query\""}}]}, "finish_reason": None}]},
-        {**base, "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": ": \"灯灯\"}"}}]}, "finish_reason": None}]},
+        {**base, "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": ": \"团团\"}"}}]}, "finish_reason": None}]},
         {**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
         {**base, "choices": [], "usage": {"prompt_tokens": 20, "completion_tokens": 9, "total_tokens": 29}},
     ]
@@ -53,7 +53,7 @@ def openai_chat_sse() -> bytes:
 def anthropic_json(*, tool: bool = False) -> dict[str, Any]:
     content: list[dict[str, Any]] = [{"type": "thinking", "thinking": "需要查资料", "signature": "sig-abc"}]
     if tool:
-        content.append({"type": "tool_use", "id": "toolu_1", "name": "search_library", "input": {"query": "灯灯"}})
+        content.append({"type": "tool_use", "id": "toolu_1", "name": "search_library", "input": {"query": "团团"}})
     else:
         content.append({"type": "text", "text": "你好"})
     return {
@@ -76,7 +76,7 @@ def anthropic_sse() -> bytes:
         {"type": "content_block_stop", "index": 1},
         {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "toolu_2", "name": "search_library", "input": {}}},
         {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "{\"query\": "}},
-        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "\"灯灯\"}"}},
+        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": "\"团团\"}"}},
         {"type": "content_block_stop", "index": 2},
         {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 9}},
         {"type": "message_stop"},
@@ -96,7 +96,7 @@ def gemini_sse() -> bytes:
     chunks = [
         {"candidates": [{"content": {"role": "model", "parts": [{"text": "思考", "thought": True}]}, "index": 0}]},
         {"candidates": [{"content": {"role": "model", "parts": [{"text": "你好"}]}, "index": 0}]},
-        {"candidates": [{"content": {"role": "model", "parts": [{"functionCall": {"name": "search_library", "args": {"query": "灯灯"}}}]}, "finishReason": "STOP", "index": 0}],
+        {"candidates": [{"content": {"role": "model", "parts": [{"functionCall": {"name": "search_library", "args": {"query": "团团"}}}]}, "finishReason": "STOP", "index": 0}],
          "usageMetadata": {"promptTokenCount": 8, "candidatesTokenCount": 5, "totalTokenCount": 13}},
     ]
     lines = []
@@ -122,7 +122,7 @@ def ollama_ndjson() -> bytes:
 def _responses_output(tool: bool) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = [{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc-123", "summary": [{"type": "summary_text", "text": "先检索"}]}]
     if tool:
-        output.append({"type": "function_call", "id": "fc_1", "call_id": "call_r1", "name": "search_library", "arguments": "{\"query\": \"灯灯\"}", "status": "completed"})
+        output.append({"type": "function_call", "id": "fc_1", "call_id": "call_r1", "name": "search_library", "arguments": "{\"query\": \"团团\"}", "status": "completed"})
     else:
         output.append({"type": "message", "id": "msg_r1", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "你好", "annotations": []}]})
     return output

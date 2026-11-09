@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from ..documents.parser import MAX_DOCUMENT_CHARACTERS
 
 class PrivacyScanIn(BaseModel):
-    text: str = Field(default="", max_length=100_000)
+    text: str = Field(default="", max_length=MAX_DOCUMENT_CHARACTERS)
 
 class LoginIn(BaseModel):
     email: str = Field(min_length=1, max_length=320)
@@ -74,7 +75,7 @@ class LibrarySourceIn(BaseModel):
 
 class LibrarySourceUpdateIn(BaseModel):
     title: str | None = Field(default=None, max_length=255)
-    content: str | None = Field(default=None, max_length=200_000)
+    content: str | None = Field(default=None, max_length=MAX_DOCUMENT_CHARACTERS)
     privacy_mode: Literal["redacted", "original"] | None = None
     enabled: bool | None = None
 

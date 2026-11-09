@@ -7,9 +7,12 @@ import { downloadBlob } from "./result-files";
 import { PngExportButton } from "./PngExportButton";
 import type { ChatAttachment, ChatWorkspaceProps } from "./types";
 
+export const LatestGeneratedImageContext = createContext<string | undefined>(undefined);
+
 export const AssetOriginalContext = createContext<ChatWorkspaceProps["onLoadAttachment"]>(undefined);
 
 export function GeneratedImage({ asset, messageId, prompt }: { asset: ChatAttachment; messageId: number; prompt?: string | null }) {
+  const latestImageId = useContext(LatestGeneratedImageContext);
   const preview = useContext(AttachmentPreviewContext);
   const save = useContext(ResultActionsContext);
   const load = useContext(AssetOriginalContext);
@@ -35,7 +38,7 @@ export function GeneratedImage({ asset, messageId, prompt }: { asset: ChatAttach
     try { await navigator.clipboard.writeText(prompt); setCopyState("已复制提示词"); }
     catch { setCopyState("复制失败，请选择提示词后手动复制"); }
   }
-  return <figure className="chat-generated-image" aria-label="模型生成图片" style={imageWidth ? { maxWidth: imageWidth } : undefined}>
+  return <figure className="chat-generated-image" data-actions={latestImageId === undefined || latestImageId === asset.id || busy ? "always" : "hover"} aria-label="模型生成图片" style={imageWidth ? { maxWidth: imageWidth } : undefined}>
     <HistoryAttachment variant="generated" attachment={asset} onPreview={() => preview?.(asset)} />
     <figcaption>
       {asset.width && asset.height ? <span className="generated-image-dimensions">{asset.width} × {asset.height}</span> : null}

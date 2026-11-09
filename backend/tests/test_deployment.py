@@ -108,6 +108,7 @@ def test_stop_failure_reopens_the_unchanged_old_service(deployment_root, monkeyp
     assert deployment.read_json(root / "current.json")["revision"] == OLD
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Deployment locking requires POSIX fcntl")
 def test_interrupted_switch_is_recovered_before_same_sha_is_skipped(deployment_root, monkeypatch):
     root, config = deployment_root
     backup = root / "backups/snapshot"
@@ -155,7 +156,7 @@ def test_readiness_accepts_fresh_and_multi_user_databases(tmp_path, users):
     setup += "; ".join(f"register_user('user{i}@example.test', 'a-long-test-password')" for i in range(users))
     result = subprocess.run([sys.executable, "-c", setup + "\n" + deployment.DATABASE_READY_CODE],
                             cwd=Path(__file__).parents[1], env=env, capture_output=True, timeout=30)
-    assert result.returncode == 0, result.stderr.decode()
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
 
 
 def test_unknown_port_owner_is_not_stopped_or_modified(deployment_root, monkeypatch):
@@ -169,6 +170,7 @@ def test_unknown_port_owner_is_not_stopped_or_modified(deployment_root, monkeypa
     assert deployment.read_json(root / "current.json")["revision"] == OLD
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Deployment locking requires POSIX fcntl")
 def test_newer_main_prevents_activation_of_older_candidate(deployment_root, monkeypatch):
     root, config = deployment_root
     deployment.write_json(root / "config.json", {**config, "enabled": True})
@@ -180,6 +182,7 @@ def test_newer_main_prevents_activation_of_older_candidate(deployment_root, monk
     assert deployment.read_json(root / "current.json")["revision"] == OLD
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Deployment locking requires POSIX fcntl")
 def test_failed_revision_is_not_replayed_without_retry(deployment_root, monkeypatch):
     root, config = deployment_root
     deployment.write_json(root / "config.json", {**config, "enabled": True})
@@ -190,24 +193,28 @@ def test_failed_revision_is_not_replayed_without_retry(deployment_root, monkeypa
 
 
 def test_smoke_environment_never_inherits_operator_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("SYSTEMROOT", "C:/Windows")
+    monkeypatch.setenv("WINDIR", "C:/Windows")
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-do-not-use")
     monkeypatch.setenv("GITHUB_TOKEN", "synthetic-do-not-use")
     monkeypatch.setenv("ARTIFICIAL_ANALYSIS_API_KEY", "fixture-benchmark-key")
-    monkeypatch.setenv("CAREERLOOP_BENCHMARK_ENV_FILE", "/operator/private.env")
+    monkeypatch.setenv("TUANTUAN_BENCHMARK_ENV_FILE", "/operator/private.env")
     env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "real")}, NEW,
                                          smoke_data=tmp_path / "isolated")
     assert env["OPENAI_API_KEY"] == ""
     assert "GITHUB_TOKEN" not in env
-    assert env["CAREERLOOP_DATA_DIR"] == str(tmp_path / "isolated")
-    assert env["CAREERLOOP_SECRET_BACKEND"] == "memory"
+    assert env["SYSTEMROOT"] == "C:/Windows"
+    assert env["WINDIR"] == "C:/Windows"
+    assert env["TUANTUAN_DATA_DIR"] == str(tmp_path / "isolated")
+    assert env["TUANTUAN_SECRET_BACKEND"] == "memory"
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
-    assert "CAREERLOOP_BENCHMARK_ENV_FILE" not in env
+    assert "TUANTUAN_BENCHMARK_ENV_FILE" not in env
 
 
 def test_release_uses_stable_service_config_outside_release(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTIFICIAL_ANALYSIS_API_KEY", "fixture-do-not-inherit")
     env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "real")}, NEW)
-    assert env["CAREERLOOP_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
+    assert env["TUANTUAN_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert env["PYTHON_DOTENV_DISABLED"] == "1"

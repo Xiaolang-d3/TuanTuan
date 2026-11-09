@@ -145,7 +145,7 @@ def user_intent_preview(message: AgentMessage, *, limit: int | None = 1000) -> s
     # A partial excerpt can otherwise be mistaken for a truncated source file.
     prefix = "\n\n以下为用户主动上传附件的本地解析文本，请基于此内容回答：\n"
     request, marker, _ = message.content.partition(prefix)
-    return (request if limit is None else request[:limit]) + ("\n（附件全文保留在执行上下文中，此处仅展示用户请求。）" if marker else "")
+    return (request if limit is None else request[:limit]) + ("\n（附件以受限片段和版本句柄提供，此处仅展示用户请求。）" if marker else "")
 
 
 def clarification_context(snapshot: AgentRunSnapshot) -> tuple[str, list[AgentMessage], bool]:
@@ -164,7 +164,7 @@ def clarification_context(snapshot: AgentRunSnapshot) -> tuple[str, list[AgentMe
         elif message.payload.get("retained_evidence"):
             history.append(message.model_copy(deep=True))
         elif message.role == "tool" and message.payload.get("status") == "done" and message.payload.get("tool_name") in {
-            "get_library_context", "search_library", "search_public_web",
+            "get_library_context", "search_library", "read_library_source", "search_public_web",
         }:
             payload = {**message.payload, "retained_evidence": True}
             history.append(AgentMessage(
@@ -189,16 +189,19 @@ def clarification_context(snapshot: AgentRunSnapshot) -> tuple[str, list[AgentMe
         history.append(AgentMessage(role="assistant", content=question, payload={"clarification_question": True}))
     # A clarification itself can mention private facts read in the previous run.
     private_context = snapshot.requires_query_approval or bool(
-        {"get_library_context", "search_library"} & set(snapshot.completed_tools)
+        {"get_library_context", "search_library", "read_library_source"} & set(snapshot.completed_tools)
     )
     return context, history, private_context
 
 
-def relevant_clarification_history(history: list[AgentMessage], allowed_tools: tuple[str, ...]) -> list[AgentMessage]:
+def relevant_clarification_history(history: list[AgentMessage], allowed_tools: tuple[str, ...], *, library_read_allowed=None) -> list[AgentMessage]:
     """A switch to public sources must not revive private tool evidence."""
-    use_private = bool({"get_library_context", "search_library"} & set(allowed_tools))
+    use_private = bool({"get_library_context", "search_library", "read_library_source"} & set(allowed_tools))
+    if library_read_allowed is not None:
+        use_private = library_read_allowed
     return [message for message in history if not (
         message.payload.get("retained_evidence")
-        and message.payload.get("tool_name") in {"get_library_context", "search_library"}
+        and message.payload.get("tool_name") in {"get_library_context", "search_library", "read_library_source"}
         and not use_private
+        and not any(isinstance(card, dict) and card.get("source_kind") == "attachment" for card in message.payload.get("evidence", []))
     )]

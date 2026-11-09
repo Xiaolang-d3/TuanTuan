@@ -1507,6 +1507,7 @@
 .chat-workspace .chat-thread-surface {
   position: relative;
   display: flex;
+  flex-direction: column;
   grid-column: 1;
   grid-row: 2;
   min-width: 0;
@@ -1524,15 +1525,14 @@
 }
 .chat-workspace .chat-composer { position: relative; }
 .chat-workspace .chat-jump-latest {
-  position: absolute;
-  z-index: 4;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Reserve a row so this control never covers historical message actions. */
+  position: static;
+  flex: none;
+  align-self: center;
   display: block;
   width: max-content;
   max-width: calc(100% - 24px);
-  margin: 0;
+  margin: 4px 12px 12px;
   padding: 7px 14px;
   border: 1px solid var(--color-border);
   border-radius: 999px;

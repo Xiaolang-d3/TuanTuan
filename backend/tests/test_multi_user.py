@@ -17,7 +17,7 @@ from api_client import register_authenticated_client
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "careerloop.db")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
     db.init_db()
     yield
 
@@ -52,7 +52,7 @@ class ChatIsolationTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = TemporaryDirectory()
         self.original_db_path = db.DB_PATH
-        db.DB_PATH = Path(self.temp_dir.name) / "careerloop.db"
+        db.DB_PATH = Path(self.temp_dir.name) / "tuantuan.db"
         db.init_db()
 
     async def asyncTearDown(self) -> None:
@@ -89,12 +89,12 @@ class ChatIsolationTest(unittest.IsolatedAsyncioTestCase):
 
 
 def test_legacy_instance_data_is_adopted_by_the_first_user(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "careerloop.db")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
     db.init_db()
     create_text_source(
         title="旧资料",
         content="这是一份升级前已经存在的本地资料。",
-        db_path=tmp_path / "careerloop.db",
+        db_path=tmp_path / "tuantuan.db",
     )
     owner = register_authenticated_client(app, "legacy-owner@example.com")
     titles = [item["title"] for item in owner.get("/library/sources").json()]
@@ -108,7 +108,7 @@ def test_first_account_keeps_legacy_data_when_second_workspace_initializes_first
 
     create_text_source(
         title="旧账户私有资料", content="历史资料只能交给第一个账户。",
-        db_path=tmp_path / "careerloop.db",
+        db_path=tmp_path / "tuantuan.db",
     )
     # Delay workspace creation to deterministically model interleaved registrations.
     with monkeypatch.context() as delayed:
@@ -117,7 +117,7 @@ def test_first_account_keeps_legacy_data_when_second_workspace_initializes_first
         auth.register_user("second@example.com", "synthetic-test-password")
     second = ensure_workspace(2)
     first = ensure_workspace(1)
-    with db.connect(second / "careerloop.db") as conn:
+    with db.connect(second / "tuantuan.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM library_sources").fetchone()[0] == 0
-    with db.connect(first / "careerloop.db") as conn:
+    with db.connect(first / "tuantuan.db") as conn:
         assert conn.execute("SELECT title FROM library_sources").fetchone()[0] == "旧账户私有资料"

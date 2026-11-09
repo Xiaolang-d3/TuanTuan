@@ -56,6 +56,34 @@ def test_reveal_connection_key_is_explicit_and_not_cached(client):
         assert anonymous.post(path).status_code == 401
 
 
+def test_remove_service_hides_models_and_preserves_history(client):
+    _, connection, profile = create(client, "removable", "synthetic-remove-key")
+    path = f"/agent/model-connections/{connection['id']}"
+    removed = client.delete(path + "?remove=true&expected_revision=1")
+    assert removed.status_code == 200, removed.text
+    for catalog in (removed.json(), client.get("/agent/model-connections").json()):
+        assert connection["id"] not in {item["id"] for item in catalog["connections"]}
+        assert profile["id"] not in {item["id"] for item in catalog["profiles"]}
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM model_profile_versions WHERE profile_id=?", (profile["id"],)).fetchone()[0] == 1
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert client.patch(path, json={"enabled": True, "expected_revision": 2}).status_code == 400
+    assert client.post(path + "/profiles/ensure", json={"model_name": "new", "expected_revision": 2}).status_code == 400
+    from app.agent.model_purposes import selection_catalog
+    choices = selection_catalog()
+    assert connection["id"] not in {item["id"] for item in choices["connections"]}
+    assert profile["id"] not in {item["id"] for item in choices["profiles"]}
+
+
+def test_remove_service_checks_revision_and_default_before_hiding(client):
+    _, connection, profile = create(client, "protected", "synthetic-protected-key")
+    path = f"/agent/model-connections/{connection['id']}"
+    assert client.delete(path + "?remove=true&expected_revision=0").status_code == 409
+    client.post("/agent/model-default", json={"profile_id": profile["id"]})
+    assert client.delete(path + "?remove=true&expected_revision=1").status_code == 400
+    assert connection["id"] in {item["id"] for item in client.get("/agent/model-connections").json()["connections"]}
+
+
 def test_connections_and_profiles_do_not_silently_change_default(client):
     original = client.get("/agent/model-connections").json()["default_profile_id"]
     catalog, first, profile = create(client, "first", "synthetic-first-key")

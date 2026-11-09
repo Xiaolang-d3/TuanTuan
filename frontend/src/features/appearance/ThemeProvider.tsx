@@ -1,14 +1,15 @@
+import { readStorageItem } from "../../storage";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import "./global-theme.css";
 
 export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
-export const THEME_STORAGE_KEY = "careerloop-theme";
+export const THEME_STORAGE_KEY = "tuantuan-theme";
 export function isThemePreference(value: unknown): value is ThemePreference {
   return value === "light" || value === "dark" || value === "system";
 }
 function readTheme(): ThemePreference {
-  try { const saved = localStorage.getItem(THEME_STORAGE_KEY); return isThemePreference(saved) ? saved : "system"; }
+  try { const saved = readStorageItem(THEME_STORAGE_KEY); return isThemePreference(saved) ? saved : "system"; }
   catch { return "system"; }
 }
 function systemIsDark() { return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false; }
@@ -29,11 +30,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPreference = useCallback((value: ThemePreference) => { setValue(value); persistTheme(value); }, []);
   const migrateHomeTheme = useCallback((accountKey: string) => {
     try {
-      if (isThemePreference(localStorage.getItem(THEME_STORAGE_KEY))) return;
-      const legacy = localStorage.getItem(`careerloop-home-theme:${accountKey}`);
+      if (isThemePreference(readStorageItem(THEME_STORAGE_KEY))) return;
+      const legacy = readStorageItem(`tuantuan-home-theme:${accountKey}`);
       if (legacy === "light" || legacy === "dark") {
         setPreference(legacy);
-        localStorage.removeItem(`careerloop-home-theme:${accountKey}`);
+        localStorage.removeItem(`tuantuan-home-theme:${accountKey}`);
       }
     } catch { /* Legacy preferences are optional. */ }
   }, [setPreference]);

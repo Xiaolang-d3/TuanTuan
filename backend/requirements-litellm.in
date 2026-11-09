@@ -1,4 +1,4 @@
-# LiteLLM Python SDK, used as 灯灯's model layer (see docs/model-layer.md).
+# LiteLLM Python SDK, used as 团团's model layer (see docs/model-layer.md).
 # Pinned with hashes; upgrade only via pip-compile --generate-hashes after
 # checking https://github.com/BerriAI/litellm/security/advisories.
 # litellm 1.82.7 / 1.82.8 were compromised on PyPI (2026-03); never use them.

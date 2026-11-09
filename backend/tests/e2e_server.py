@@ -12,9 +12,9 @@ from pathlib import Path
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="careerloop-e2e-") as data_dir:
+    with tempfile.TemporaryDirectory(prefix="tuantuan-e2e-") as data_dir:
         os.environ.update({
-            "CAREERLOOP_DATA_DIR": data_dir, "MODEL_PROTOCOL": "ollama",
+            "TUANTUAN_DATA_DIR": data_dir, "MODEL_PROTOCOL": "ollama",
             "MODEL_NAME": "e2e-local-model", "EMBEDDING_BACKEND": "hash",
             "OPENAI_API_KEY": "", "ATTACHMENT_STORAGE": "local",
             "WEB_RESEARCH_ENABLED": "false", "BIND_HOST": "127.0.0.1",
@@ -59,8 +59,10 @@ def main() -> None:
                 for message in request.messages:
                     if message.role == "tool":
                         context = message.payload
-                        if context.get("document"):
-                            documents.append(context["document"])
+                        for card in context.get("evidence", []):
+                            documents.append(
+                                f"{card['excerpt']} [[cite:{card['citation_id']}]]"
+                            )
                 if "e2e-write" in executed:
                     return ModelResponse(content="知识已提交，等待你确认。")
                 return ModelResponse(content="已根据资料库完成：" + "\n".join(documents))

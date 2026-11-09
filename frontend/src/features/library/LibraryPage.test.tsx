@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibrarySource, LibrarySourceDetail } from "../../types";
 import { LibraryPage } from "./LibraryPage";
+import type { DocumentReviewService } from "../chat/document-review-service";
 const source: LibrarySource = {
   id: 7,
   source_kind: "paste",
@@ -64,7 +65,20 @@ async function preview() {
   return screen.findByRole("complementary", { name: "文件快速预览" });
 }
 describe("file library", () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  it("offers explicit full review in file preview without enabling long-term use", async () => {
+    const target = { source_kind: "library" as const, source_id: 7, source_revision: "a".repeat(64) };
+    const service = { list: vi.fn().mockResolvedValue({ jobs: [] }), create: vi.fn().mockResolvedValue({ id: "review", kind: "document.review", status: "queued", revision: 1, request: { target }, checkpoint: {}, cancel_requested: false }) } as unknown as DocumentReviewService;
+    const p = props();
+    p.onLoadSource.mockResolvedValue({ ...detail, source_revision: target.source_revision, enabled: false });
+    render(<LibraryPage {...p} documentReviewService={service} />);
+    await preview();
+    fireEvent.click(await screen.findByText("全文审阅"));
+    fireEvent.click(screen.getByRole("button", { name: "开始全文审阅" }));
+    await waitFor(() => expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ target })));
+    expect(p.onUpdateSource).not.toHaveBeenCalled();
+    expect(p.onUseForChat).not.toHaveBeenCalled();
+  });
   it("accepts dropped files in the empty page without an upload button", async () => {
     const p = props();
     const view = render(<LibraryPage {...p} sources={[]} />);
@@ -81,7 +95,7 @@ describe("file library", () => {
   it("uses just four header tabs and hides the search/filter toolbar by default", () => {
     render(<LibraryPage {...props()} />);
     const tabs = screen.getByRole("navigation", { name: "文件类型" });
-    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["全部", "图片", "文档", "视频"]);
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["全部", "图像", "文档", "视频"]);
     expect(tabs.closest("header")).toHaveClass("fl-header");
     expect(screen.queryByRole("button", { name: "文件" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "知识" })).not.toBeInTheDocument();
@@ -246,7 +260,7 @@ describe("file library", () => {
   it("keeps categories in the module and protects AI text", async () => {
     const p = props();
     renderWithTools(<LibraryPage {...p} />);
-    expect(screen.getByRole("navigation", { name: "文件类型" })).toHaveTextContent(/全部.*图片.*文档.*视频/);
+    expect(screen.getByRole("navigation", { name: "文件类型" })).toHaveTextContent(/全部.*图像.*文档.*视频/);
     const pane = await preview();
     await waitFor(() => expect(p.onOrganizeSource).toHaveBeenCalledWith(7, { opened: true }));
     fireEvent.click(within(pane).getByRole("button", { name: "AI 读取内容" }));
@@ -260,7 +274,7 @@ describe("file library", () => {
   it("filters files by type", () => {
     const p = props();
     renderWithTools(<LibraryPage {...p} sources={[source, { ...source, id: 8, title: "照片", mime_type: "image/png" }, { ...source, id: 9, title: "影片", mime_type: "video/mp4" }]} />);
-    fireEvent.click(screen.getByRole("button", { name: "图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "图像" }));
     expect(screen.getByRole("button", { name: "预览 照片" })).toBeInTheDocument();
     expect(screen.queryByText("影片")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "视频" }));
@@ -275,7 +289,7 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} sources={[source, image]} />);
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     fireEvent.change(screen.getByLabelText("筛选 AI 使用"), { target: { value: "ready" } });
-    fireEvent.click(screen.getByRole("button", { name: "图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "图像" }));
     expect(screen.queryByRole("columnheader", { name: "AI 使用" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("筛选 AI 使用")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "预览 照片" })).toBeInTheDocument();
@@ -287,25 +301,35 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} />);
     fireEvent.change(screen.getByLabelText("筛选目录"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("搜索文件名或内容"), { target: { value: "笔记" } });
-    fireEvent.click(screen.getByRole("button", { name: "图片" }));
+    fireEvent.click(screen.getByRole("button", { name: "图像" }));
     expect(screen.getByLabelText("筛选目录")).toHaveValue("3");
     expect(screen.getByLabelText("搜索文件名或内容")).toHaveValue("笔记");
     fireEvent.click(screen.getByRole("button", { name: "清除搜索和筛选" }));
     expect(screen.getByLabelText("筛选目录")).toHaveValue("all");
     expect(screen.getByLabelText("搜索文件名或内容")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "图片" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "图像" })).toHaveAttribute("aria-current", "page");
   });
-  it("explains that image use is based on text rather than visual analysis", async () => {
-    const image = { ...source, mime_type: "image/png", parse_status: "failed" as const, character_count: 0 };
+  it("opens images in a large viewer instead of the document side panel", async () => {
+    vi.stubGlobal("URL", { createObjectURL: vi.fn().mockReturnValue("blob:library-cat"), revokeObjectURL: vi.fn() });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const image = { ...source, title: "小猫", original_filename: "小猫.png", mime_type: "image/png", file_available: true };
     const p = props();
-    p.onLoadSource.mockResolvedValue({ ...detail, ...image, content: "", redacted_content: "" });
-    renderWithTools(<LibraryPage {...p} sources={[image]} />);
-    fireEvent.click(screen.getByRole("button", { name: "预览 读书笔记" }));
-    const pane = await screen.findByRole("complementary", { name: "文件快速预览" });
-    expect(within(pane).getByText(/暂不直接分析画面/)).toBeInTheDocument();
-    fireEvent.click(within(pane).getByRole("button", { name: "图片文字与说明" }));
-    expect(within(pane).getByRole("button", { name: "编辑文字说明" })).toBeInTheDocument();
-    expect(within(pane).getByRole("button", { name: "用于对话" })).toBeDisabled();
+    p.onLoadSource.mockResolvedValue({ ...detail, ...image });
+    const loadOriginal = vi.fn().mockResolvedValue(new Blob(["image"], { type: "image/png" }));
+    render(<LibraryPage {...p} sources={[image]} onLoadOriginal={loadOriginal} />);
+    fireEvent.click(screen.getByRole("button", { name: "预览 小猫" }));
+    expect(screen.queryByRole("complementary", { name: "文件快速预览" })).not.toBeInTheDocument();
+    const viewer = await screen.findByRole("dialog", { name: "小猫.png 预览" });
+    expect(await within(viewer).findByRole("img")).toHaveAttribute("src", "blob:library-cat");
+    expect(within(viewer).queryByRole("checkbox", { name: "长期使用" })).not.toBeInTheDocument();
+    expect(within(viewer).queryByText("图片文字与说明")).not.toBeInTheDocument();
+    expect(within(viewer).getByRole("button", { name: "放大图片" })).toBeInTheDocument();
+    expect(loadOriginal).toHaveBeenCalledWith(expect.objectContaining({ id: image.id }), expect.any(AbortSignal));
+    fireEvent.keyDown(viewer, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.doubleClick(screen.getByRole("button", { name: "预览 小猫" }));
+    await screen.findByRole("dialog", { name: "小猫.png 预览" });
+    expect(screen.queryByRole("region", { name: "文件阅读器" })).not.toBeInTheDocument();
   });
   it("creates redacted notes in the current folder", async () => {
     const p = props();

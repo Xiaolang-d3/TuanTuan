@@ -202,3 +202,43 @@ def evaluate_citation_patches(draft: str, cards: list[dict], response: ModelResp
 
 def apply_citation_patches(draft: str, cards: list[dict], response: ModelResponse) -> str | None:
     return evaluate_citation_patches(draft, cards, response)[0]
+
+
+LOCAL_CITATION_GUIDANCE = (
+    "本地资料的可核对片段附有 citation_id。依据片段作答时使用 [[cite:e_32位小写十六进制ID]]，"
+    "其中 ID 必须原样取自返回的证据；不编造 ID、位置或内部 URL。没有证据的内容说明未核对。"
+)
+
+
+def local_citation_ids(markdown: str) -> list[str]:
+    visible, fence = [], None
+    for line in markdown.splitlines():
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if match and match[1][0] == fence[0] and len(match[1]) >= len(fence) and not match[2].strip():
+                fence = None
+            continue
+        if match:
+            fence = match[1]
+            continue
+        if not line.startswith(("    ", "\t")):
+            visible.append(line)
+    text = re.sub(r"(`+).*?\1", "", "\n".join(visible), flags=re.S)
+    return list(dict.fromkeys(re.findall(r"(?<!\\)\[\[cite:(e_[0-9a-f]{32})\]\]", text)))
+
+
+def finalize_local_citations(result, input_evidence, *, conversation_id=None):
+    from ..library.evidence import TRUSTED_EVIDENCE_TOOLS, validate_evidence
+    cards = list(input_evidence)
+    for event in result.events:
+        if event.tool_name in TRUSTED_EVIDENCE_TOOLS and event.status == "done":
+            cards.extend(event.data.get("evidence", []))
+    by_id = {card.get("citation_id"): card for card in cards if isinstance(card, dict)}
+    markdown = result.content + "\n" + "\n".join(str(b.get("text") or "") for b in result.output_blocks if b.get("type") == "text")
+    result.evidence, result.citations = [], []
+    for citation_id in local_citation_ids(markdown):
+        card = by_id.get(citation_id)
+        valid = card is not None and validate_evidence(card, conversation_id=conversation_id)
+        result.citations.append({"citation_id": citation_id, "status": "verified" if valid else "unverified"})
+        if valid:
+            result.evidence.append(card)

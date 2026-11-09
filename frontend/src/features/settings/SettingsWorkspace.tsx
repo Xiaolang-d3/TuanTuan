@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import {
   ArrowLeft,
+  Blocks,
   CheckCircle2,
   ChevronRight,
   Cpu,
   Folder,
   Info,
   KeyRound,
+  MessageCircle,
   Palette,
   TriangleAlert
 } from "lucide-react";
@@ -22,6 +24,8 @@ type WorkspaceProps = {
 };
 
 const pageLabels: Record<Exclude<SettingsPage, "overview">, string> = {
+  extensions: "扩展中心",
+  channels: "消息渠道",
   appearance: "外观",
   account: "账号与安全",
   library: "文件库管理",
@@ -68,6 +72,16 @@ export function SettingsOverview({
   return (
     <div className="settings-overview">
       <div className="settings-overview-grid">
+        <button className="settings-entry-card extensions" type="button" onClick={() => onOpen("extensions")}>
+          <span className="settings-entry-icon"><Blocks size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-copy"><span className="settings-entry-title"><strong>扩展中心</strong></span><span className="settings-entry-primary">技能、插件与 MCP</span></span>
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
+        <button className="settings-entry-card channels" type="button" onClick={() => onOpen("channels")}>
+          <span className="settings-entry-icon"><MessageCircle size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-copy"><span className="settings-entry-title"><strong>消息渠道</strong></span><span className="settings-entry-primary">连接微信，接收任务与回答</span></span>
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
         <button className="settings-entry-card account" type="button" onClick={() => onOpen("account")}>
           <span className="settings-entry-icon"><KeyRound size={20} aria-hidden="true" /></span>
           <span className="settings-entry-copy">

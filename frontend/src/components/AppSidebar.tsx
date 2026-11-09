@@ -11,6 +11,8 @@ import { sidebarHighlightForView, type SidebarHighlight } from "../constants";
 import type { ViewKey } from "../types";
 import type { SettingsPage } from "../routing";
 import { useTheme } from "../features/appearance/ThemeProvider";
+import { WeixinBotEntry } from './WeixinBotEntry';
+import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
 export type ProductNavKey = "dashboard" | "chat" | "library";
 
@@ -35,6 +37,9 @@ type AppSidebarProps = {
   libraryOpen?: boolean;
   onSelectNav: (key: ProductNavKey) => void;
   identity?: ReactNode;
+  weixinBot?: WeixinBotState | null;
+  weixinActive?: boolean;
+  onOpenWeixin?: () => void;
 };
 
 export function AppSidebar({
@@ -46,7 +51,10 @@ export function AppSidebar({
   settingsPage,
   libraryOpen,
   onSelectNav,
-  identity
+  identity,
+  weixinBot,
+  weixinActive = false,
+  onOpenWeixin
 }: AppSidebarProps) {
   const { resolved, setPreference } = useTheme();
   const nextTheme = resolved === "dark" ? "light" : "dark";
@@ -56,7 +64,7 @@ export function AppSidebar({
 
   const primaryItems: SidebarItem[] = [
     { key: "dashboard", label: "首页", icon: <Home size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
-    { key: "chat", label: "AI 工作区", icon: <MessageCircle size={18} />, active: isActive("chat"), prefetch: "chat", onClick: () => onSelectNav("chat") },
+    { key: "chat", label: "AI 工作区", icon: <MessageCircle size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("chat") },
     { key: "library", label: "文件库", icon: <Folder size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") }
   ];
 
@@ -117,6 +125,7 @@ export function AppSidebar({
 
       <div className="sidebar-identity-slot">
         {identity}
+        {weixinBot?.connected && onOpenWeixin && <WeixinBotEntry active={weixinActive} unreadCount={weixinBot.unread_count} enabled={weixinBot.enabled} error={weixinBot.error} onOpen={onOpenWeixin} />}
         <button
           className="sidebar-theme-toggle"
           type="button"

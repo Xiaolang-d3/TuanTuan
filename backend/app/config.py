@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .branding import env
+
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -49,7 +51,8 @@ class Settings(BaseModel):
     minio_endpoint: str | None = None
     minio_access_key: str | None = None
     minio_secret_key: str | None = None
-    minio_bucket: str = "careerloop-attachments"
+    minio_bucket: str = "tuantuan-attachments"
+    minio_bucket_legacy_fallback: bool = True
     minio_secure: bool = False
     minio_public_endpoint: str | None = None
     attachment_vision_enabled: bool = False
@@ -86,7 +89,7 @@ def _benchmark_api_key() -> str | None:
     # Hosted releases disable automatic dotenv loading. Read only this service
     # credential from an explicitly selected file, without importing model keys
     # or expanding references to other environment variables.
-    filename = (os.getenv("CAREERLOOP_BENCHMARK_ENV_FILE") or "").strip()
+    filename = (env("TUANTUAN_BENCHMARK_ENV_FILE") or "").strip()
     if not filename:
         return None
     try:
@@ -106,7 +109,7 @@ def _resolve_allowed_origins(bind_host: str) -> list[str]:
         origins.extend(_origins_for_hosts([bind_host]))
     # Tauri's production WebView serves the bundled SPA from this origin while
     # the API remains on loopback.  Never enable it for ordinary web hosting.
-    if os.getenv("CAREERLOOP_DESKTOP", "false").lower() == "true":
+    if env("TUANTUAN_DESKTOP", "false").lower() == "true":
         origins.extend(["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost", "asset://localhost"])
     return list(dict.fromkeys(origins))
 
@@ -138,7 +141,8 @@ def get_settings() -> Settings:
         minio_endpoint=os.getenv("MINIO_ENDPOINT") or None,
         minio_access_key=os.getenv("MINIO_ACCESS_KEY") or None,
         minio_secret_key=os.getenv("MINIO_SECRET_KEY") or None,
-        minio_bucket=os.getenv("MINIO_BUCKET", "careerloop-attachments"),
+        minio_bucket=os.getenv("MINIO_BUCKET", "tuantuan-attachments"),
+        minio_bucket_legacy_fallback="MINIO_BUCKET" not in os.environ,
         minio_secure=os.getenv("MINIO_SECURE", "false").lower() == "true",
         minio_public_endpoint=os.getenv("MINIO_PUBLIC_ENDPOINT") or None,
         attachment_vision_enabled=os.getenv("ATTACHMENT_VISION_ENABLED", "false").lower() == "true",

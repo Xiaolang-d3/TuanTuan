@@ -1,0 +1,35 @@
+.sidebar .weixin-bot-entry {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.sidebar .weixin-bot-entry:hover,
+.sidebar .weixin-bot-entry.active {
+  color: var(--color-brand-strong);
+  background: var(--color-brand-soft);
+}
+.weixin-bot-status {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  outline: 2px solid var(--color-surface);
+  background: #22a35a;
+}
+.weixin-bot-entry[data-status="warning"] .weixin-bot-status { background: #d99a16; }
+.weixin-bot-entry[data-status="disconnected"] .weixin-bot-status { background: #dc4545; }
+.sidebar .weixin-bot-entry:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+@media (max-width: 820px) {
+  .sidebar .weixin-bot-entry { height: 40px; }
+}

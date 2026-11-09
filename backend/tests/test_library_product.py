@@ -30,11 +30,12 @@ def library_db(tmp_path):
 
 def test_only_general_tools_and_routes_are_exposed():
     names = set(_build_tool_registry(get_settings()).names())
-    assert names == {"ask_user", "get_library_context", "search_library", "propose_library_knowledge", "search_public_web"}
+    assert names == {"ask_user", "get_library_context", "search_library", "read_library_source", "propose_library_knowledge", "search_public_web"}
     assert set(ROUTE_LABELS) == {"conversation", "library_search", "library_update", "content_creation", "web_search"}
     paths = {route.path for route in app.routes}
     assert "/library" in paths
-    assert not any(path.startswith(("/jobs", "/job-", "/quick-match", "/interview", "/resume-versions", "/career-profile", "/opportunit")) for path in paths)
+    assert not any(path.startswith(("/job-", "/quick-match", "/interview", "/resume-versions", "/career-profile", "/opportunit")) for path in paths)
+    assert {path for path in paths if path.startswith("/jobs")} == {"/jobs", "/jobs/{job_id}", "/jobs/{job_id}/cancel", "/jobs/{job_id}/resume", "/jobs/{job_id}/confirm", "/jobs/{job_id}/events", "/jobs/{job_id}/artifacts"}
     route = route_task("根据我的知识库写文章", names)
     assert route.kind == "content_creation"
     assert "get_library_context" in route.required_tools

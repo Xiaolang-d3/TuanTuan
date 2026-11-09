@@ -23,6 +23,7 @@ class EmbeddingSpec:
     backend: str
     model: str
     dimensions: int
+    processing_version: int = 0
 
 
 class Embedder(Protocol):
@@ -45,9 +46,41 @@ class HashEmbedder:
 
 class FastEmbedEmbedder:
     def __init__(self, model: str, cache_dir: str | Path | None = None) -> None:
-        self.spec = EmbeddingSpec("fastembed", model, dimensions_for(model))
+        self.spec = EmbeddingSpec("fastembed", model, dimensions_for(model), processing_version=1)
         self.cache_dir = Path(cache_dir) if cache_dir else default_cache_dir()
         self._model = None
+        self._window_tokenizer = None
+
+    def split_for_embedding(self, text: str) -> list[tuple[int, int]]:
+        if self._window_tokenizer is None:
+            from tokenizers import Tokenizer
+            tokenizer = self._load().model.tokenizer
+            if tokenizer is None or not tokenizer.truncation:
+                raise ValueError("无法确认 embedding 模型的分词窗口")
+            limit = int(tokenizer.truncation["max_length"])
+            unbounded = Tokenizer.from_str(tokenizer.to_str())
+            unbounded.no_truncation()
+            unbounded.no_padding()
+            self._window_tokenizer = (unbounded, limit)
+        tokenizer, limit = self._window_tokenizer
+        result, start = [], 0
+        while start < len(text):
+            if len(tokenizer.encode(text[start:]).ids) <= limit:
+                result.append((start, len(text)))
+                break
+            low, high = start + 1, len(text)
+            end = start
+            while low <= high:
+                candidate = (low + high) // 2
+                if len(tokenizer.encode(text[start:candidate]).ids) <= limit:
+                    end, low = candidate, candidate + 1
+                else:
+                    high = candidate - 1
+            if end == start:
+                raise ValueError("单个字符已超过 embedding 分词窗口")
+            result.append((start, end))
+            start = end
+        return result
 
     def embed(self, text: str) -> list[float]:
         return self.embed_many([text])[0]

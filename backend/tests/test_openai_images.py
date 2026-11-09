@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import socket
 from io import BytesIO
 from unittest.mock import Mock
 
@@ -18,6 +19,15 @@ from app.models import ModelProviderError
 from app.models.factory import build_model_provider
 from app.models.openai_images import OpenAIImagesProvider
 from app.models.litellm_router import route_target_for_connection
+
+
+@pytest.fixture(autouse=True)
+def public_image_dns(monkeypatch):
+    def resolve(host, port, *args, **kwargs):
+        if host.endswith('.invalid'):
+            raise socket.gaierror('unresolvable test host')
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('8.8.8.8', port))]
+    monkeypatch.setattr(socket, 'getaddrinfo', resolve)
 
 
 def png_base64():
@@ -100,15 +110,22 @@ def test_gateway_rejecting_response_format_accepts_minimal_request():
     assert len(requests) == 1 and len(result.images) == 1
 
 
-def test_packy_url_output_is_downloaded_once_without_api_credential():
+@pytest.mark.parametrize('url', [
+    'https://external-resources.packyapi.ai/file_download/test-image?signature=test',
+    'https://www.fastaitoken.com/images/cat.png?signature=test',
+    'https://cdn.example.com/generated/cat.png?signature=test',
+])
+def test_public_url_output_is_downloaded_once_without_api_credential(url):
     requests = []
-    url = 'https://external-resources.packyapi.ai/file_download/test-image?signature=test'
     encoded = png_base64()
     def handler(request):
         requests.append(request)
         if request.method == 'POST':
             return httpx.Response(200, json={"data": [{"url": url}]})
-        assert str(request.url) == url
+        assert request.url.host == '8.8.8.8'
+        assert request.url.raw_path == httpx.URL(url).raw_path
+        assert request.headers['host'] == httpx.URL(url).host
+        assert request.extensions['sni_hostname'] == httpx.URL(url).host
         assert 'authorization' not in request.headers and 'cookie' not in request.headers
         return httpx.Response(200, content=base64.b64decode(encoded), headers={"content-type": "image/png"})
     result, _ = asyncio.run(call_with_transport(handler, streaming=True))
@@ -119,10 +136,12 @@ def test_packy_url_output_is_downloaded_once_without_api_credential():
 
 @pytest.mark.parametrize('url', ['http://external-resources.packyapi.ai/file_download/test',
     'https://localhost/file_download/test', 'https://127.0.0.1/file_download/test',
-    'https://external-resources.packyapi.ai.evil.test/file_download/test',
+    'https://192.168.1.1/cat.png', 'https://169.254.169.254/cat.png',
+    'https://[::1]/cat.png', 'https://[::ffff:127.0.0.1]/cat.png',
+    'https://images.local/cat.png', 'https://images.internal/cat.png',
     'https://user:pass@external-resources.packyapi.ai/file_download/test',
     'https://external-resources.packyapi.ai:1234/file_download/test',
-    'https://external-resources.packyapi.ai/unexpected-path'])
+    'https://cdn.example.com/cat.png#fragment'])
 def test_url_output_rejects_unapproved_downloads_without_another_request(url):
     requests = []
     def handler(request):
@@ -131,6 +150,74 @@ def test_url_output_rejects_unapproved_downloads_without_another_request(url):
     with pytest.raises(ModelProviderError) as caught:
         asyncio.run(call_with_transport(handler))
     assert caught.value.code == 'invalid_image_output' and len(requests) == 1
+
+
+@pytest.mark.parametrize('addresses', [[], ['127.0.0.1'], ['10.0.0.1'], ['169.254.169.254'],
+    ['::1'], ['fc00::1'], ['224.0.0.1'], ['ff02::1'], ['8.8.8.8', '192.168.1.1']])
+def test_url_output_rejects_private_or_empty_dns_before_downloading(monkeypatch, addresses):
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *args, **kwargs: [
+        (socket.AF_INET6 if ':' in address else socket.AF_INET, socket.SOCK_STREAM, 6, '',
+         (address, 443)) for address in addresses
+    ])
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={'data': [{'url': 'https://cdn.example.com/cat.png'}]})
+    with pytest.raises(ModelProviderError) as caught:
+        asyncio.run(call_with_transport(handler))
+    assert caught.value.code == 'invalid_image_output'
+    assert [request.method for request in requests] == ['POST']
+
+
+def test_ipv6_public_download_keeps_original_host_and_tls_name(monkeypatch):
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *args, **kwargs: [
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('2606:4700:4700::1111', 443, 0, 0))
+    ])
+    requests = []
+    encoded = png_base64()
+    def handler(request):
+        requests.append(request)
+        if request.method == 'POST':
+            return httpx.Response(200, json={'data': [{'url': 'https://cdn.example.com/cat.png'}]})
+        assert request.url.host == '2606:4700:4700::1111'
+        assert request.headers['host'] == 'cdn.example.com'
+        assert request.extensions['sni_hostname'] == 'cdn.example.com'
+        return httpx.Response(200, content=base64.b64decode(encoded))
+    result, _ = asyncio.run(call_with_transport(handler))
+    assert result.images[0].base64_data.get_secret_value() == encoded
+    assert [request.method for request in requests] == ['POST', 'GET']
+
+
+@pytest.mark.parametrize('answer', ['8.8.8.8', '127.0.0.1', '198.18.0.5', None])
+def test_proxy_fake_dns_is_resolved_over_https_before_download(monkeypatch, answer):
+    monkeypatch.setattr(socket, 'getaddrinfo', lambda *args, **kwargs: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('198.18.0.55', 443))
+    ])
+    requests = []
+    encoded = png_base64()
+    def handler(request):
+        requests.append(request)
+        if request.method == 'POST':
+            return httpx.Response(200, json={'data': [{'url': 'https://cdn.example.com/cat.png'}]})
+        assert 'authorization' not in request.headers and 'cookie' not in request.headers
+        if request.url.host == '1.1.1.1':
+            assert request.url.params['name'] == 'cdn.example.com'
+            assert request.url.params['type'] == 'A'
+            assert request.headers['host'] == 'cloudflare-dns.com'
+            assert request.extensions['sni_hostname'] == 'cloudflare-dns.com'
+            return httpx.Response(200, json={'Status': 0, 'Answer': [
+                {'type': 1, 'data': answer}
+            ] if answer else []})
+        assert request.url.host == '8.8.8.8'
+        return httpx.Response(200, content=base64.b64decode(encoded))
+    if answer == '8.8.8.8':
+        result, _ = asyncio.run(call_with_transport(handler))
+        assert result.images[0].base64_data.get_secret_value() == encoded
+        assert [request.method for request in requests] == ['POST', 'GET', 'GET']
+    else:
+        with pytest.raises(ModelProviderError):
+            asyncio.run(call_with_transport(handler))
+        assert [request.method for request in requests] == ['POST', 'GET']
 
 
 @pytest.mark.parametrize('failure', ['redirect', 'timeout', 'oversize-header', 'oversize-body', 'empty'])

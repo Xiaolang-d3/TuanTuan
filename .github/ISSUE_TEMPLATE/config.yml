@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 私密报告安全漏洞
-    url: https://github.com/Xiaolang-d3/CareerLoop/security/advisories/new
+    url: https://github.com/Xiaolang-d3/TuanTuan/security/advisories/new
     about: 安全漏洞请通过私密报告提交，不要公开利用细节或真实凭据。
   - name: 项目文档与运行说明
-    url: https://github.com/Xiaolang-d3/CareerLoop#readme
+    url: https://github.com/Xiaolang-d3/TuanTuan#readme
     about: 查看安装、配置、测试与架构说明。

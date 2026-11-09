@@ -10,6 +10,7 @@ import { ModelSettingsDialog } from "./ModelSettingsDialog";
 
 type Props = {
   fetchJson: ReturnType<typeof createApiClient>;
+  manager?: (advanced: ReactNode) => ReactNode;
   connectionManager?: ReactNode;
   routingManager?: ReactNode;
   purposeManager?: ReactNode;
@@ -148,6 +149,7 @@ function CapabilityRow({
 
 export function ModelSettingsPage({
   fetchJson,
+  manager,
   connectionManager,
   routingManager,
   purposeManager,
@@ -262,8 +264,8 @@ export function ModelSettingsPage({
     if (editing && !fieldsBusy && (effectiveProtocol === "ollama" || settings.api_key.trim() || canReuseStoredKey)) onDiscoverModels();
   }
 
-  return (
-    <section className="model-settings-page">
+  const mainContent = (
+    <>
       {connectionManager}
       {purposeManager}
       {!purposeManager && <>
@@ -380,8 +382,10 @@ export function ModelSettingsPage({
           <p className="model-save-note">{monitorBusy && !busy ? "配置已保存，连接检测中；可以继续编辑。" : "保存后从下一次对话生效。"}</p>
         </section>
       </ModelSettingsDialog>}
-      <details className="model-advanced-settings">
-        <summary><strong>{purposeManager ? "高级规则" : "高级设置"}</strong><span>备用模型、自动分工与诊断</span><ChevronDown size={16} /></summary>
+    </>
+  );
+  const advancedContent = (
+    <>
         {routingManager}
         <div className="model-settings-panels">
           <p className="model-diagnostics-note">以下诊断来自已保存的连接。{editing ? "保存修改后可重新检测。" : ""}</p>
@@ -469,7 +473,13 @@ export function ModelSettingsPage({
             </div>
           </section>
         </div>
-      </details>
-    </section>
+    </>
   );
+  return <section className="model-settings-page">{manager ? manager(advancedContent) : <>
+    {mainContent}
+    <details className="model-advanced-settings">
+      <summary><strong>{purposeManager ? "高级规则" : "高级设置"}</strong><span>备用模型、自动分工与诊断</span><ChevronDown size={16} /></summary>
+      {advancedContent}
+    </details>
+  </>}</section>;
 }

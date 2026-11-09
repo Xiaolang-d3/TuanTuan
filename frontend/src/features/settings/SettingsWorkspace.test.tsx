@@ -24,6 +24,12 @@ function renderOverview(
 describe("SettingsOverview", () => {
   afterEach(cleanup);
 
+  it("opens the extension center", () => {
+    const { onOpen } = renderOverview();
+    fireEvent.click(screen.getByRole("button", { name: /扩展中心/ }));
+    expect(onOpen).toHaveBeenCalledWith("extensions");
+  });
+
   it("separates account security from the career library", () => {
     const { onOpen } = renderOverview({ accountName: "小林" });
 

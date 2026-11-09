@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test-fixtures";
 
 for (const theme of ["light", "dark"] as const) {
   test(`daily curation opt-in, polling, evidence and rescreen failure in ${theme}`, async ({ page }) => {
@@ -20,7 +20,7 @@ for (const theme of ["light", "dark"] as const) {
     let pending = 0;
     let failRescreen = false;
     page.on("pageerror", error => errors.push(error.message));
-    await page.addInitScript(value => { localStorage.setItem("careerloop-auth-token", "curation-ui-fixture"); localStorage.setItem("careerloop-theme", value); }, theme);
+    await page.addInitScript(value => { localStorage.setItem("tuantuan-auth-token", "curation-ui-fixture"); localStorage.setItem("tuantuan-theme", value); }, theme);
     await page.route("http://127.0.0.1:4173/**", route => {
       const request = route.request();
       const path = new URL(request.url()).pathname;

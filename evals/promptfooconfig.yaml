@@ -1,9 +1,9 @@
-description: 灯灯路由、工具面、引用校验与模型行为回归
+description: 团团路由、工具面、引用校验与模型行为回归
 prompts:
-  - careerloop-eval
+  - tuantuan-eval
 providers:
-  - id: file://providers/careerloop_eval.py
-    label: careerloop-eval
+  - id: file://providers/tuantuan_eval.py
+    label: tuantuan-eval
     config:
       pythonExecutable: ../backend/.venv/bin/python
 tests:

@@ -1,16 +1,27 @@
+import { readStorageItem } from "../storage";
 import { useModelCatalog } from "../features/settings/useModelCatalog";
 import { useComposerModelDiscovery } from "../features/chat/useComposerModelDiscovery";
 import { useModelDiscovery } from "../features/settings/useModelDiscovery";
 import { useTheme } from "../features/appearance/ThemeProvider";
 import { AppearanceSettingsPage } from "../features/settings/AppearanceSettingsPage";
+import { WeixinSettingsPage } from "../features/settings/WeixinSettingsPage";
+import { useWeixinBot } from '../features/chat/useWeixinBot';
+import { useWeixinStatus } from '../features/chat/useWeixinStatus';
+import { ExtensionPreviewProvider } from "../features/extensions/ExtensionPreviewContext";
+import { LocalCitationProvider } from "../features/chat/LocalCitation";
+import { createDocumentService, type DocumentService, type SavedDocument } from "../features/chat/document-service";
+import { DocumentLibraryDialog } from "../features/chat/DocumentLibraryDialog";
 import { PageLoading } from "../components/PageLoading";
 import { downloadConversationMarkdown } from "../features/chat/conversationActions";
+import { composerModelSources } from "./model-sources";
 import { readConversationFolders, readIdList, readStringMap, writeConversationFolders, writeIdList, writeStringMap, type ConversationFolder } from "../features/chat/localChatPreferences";
+import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
 import { useConversations } from "../features/chat/useConversations";
 import { useLibrary } from "../features/library/useLibrary";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
+import { createDocumentReviewService } from "../features/chat/document-review-service";
 import { createVoiceInputService } from "../features/chat/voiceInput";
 import type { AuthUser } from "../components/AuthGate";
 import { AssistantSurface } from "../components/AssistantSurface";
@@ -89,6 +100,8 @@ const SettingsOverview = lazy(() => loadSettingsWorkspace().then((module) => ({
   default: module.SettingsOverview
 })));
 
+const ExtensionsPage = lazy(() => import("../features/extensions/ExtensionsPage").then((module) => ({ default: module.ExtensionsPage })));
+
 const LibraryPage = lazy(() => loadLibraryPage().then((module) => ({
   default: module.LibraryPage
 })));
@@ -98,6 +111,7 @@ const AccountSettingsPage = lazy(() => loadAccountSettingsPage().then((module) =
 })));
 
 const ModelConnectionManager = lazy(() => import("../features/settings/ModelConnectionManager").then((module) => ({ default: module.ModelConnectionManager })));
+const UnifiedModelManager = lazy(() => import("../features/settings/UnifiedModelManager").then((module) => ({ default: module.UnifiedModelManager })));
 const ModelRoutingPanel = lazy(() => import("../features/settings/ModelRoutingPanel").then((module) => ({ default: module.ModelRoutingPanel })));
 const ModelFallbackSettings = lazy(() => import("../features/settings/ModelFallbackSettings").then((module) => ({ default: module.ModelFallbackSettings })));
 const ModelUsageRules = lazy(() => import("../features/settings/ModelUsageRules").then((module) => ({ default: module.ModelUsageRules })));
@@ -114,22 +128,12 @@ const pagePrefetcher = createPagePrefetcher({
   settings: loadSettingsWorkspace
 });
 
-for (const key of ["sidebar", "view"]) {
-  const legacy = window.localStorage.getItem(`bosscopilot-${key}`);
-  if (legacy !== null) {
-    if (window.localStorage.getItem(`careerloop-${key}`) === null) {
-      window.localStorage.setItem(`careerloop-${key}`, legacy);
-    }
-    window.localStorage.removeItem(`bosscopilot-${key}`);
-  }
-}
-
 function preferenceKey(base: string, email: string) {
   return `${base}:${email}`;
 }
 
 function readPreference(base: string, email: string) {
-  return window.localStorage.getItem(preferenceKey(base, email)) ?? window.localStorage.getItem(base);
+  return readStorageItem(preferenceKey(base, email)) ?? readStorageItem(base);
 }
 
 function appTopBarShowsTitle(route: AppRoute): boolean {
@@ -151,10 +155,19 @@ export function App({
 }) {
   const userEmail = user.email;
   const fetchJson = useMemo(() => createApiClient(apiBase, accessToken), [apiBase, accessToken]);
+  const documentReviewService = useMemo(() => createDocumentReviewService(apiBase, accessToken), [apiBase, accessToken]);
+  const documentService = useMemo(() => createDocumentService(apiBase, accessToken), [apiBase, accessToken]);
+  const documentOwner = useRef(documentService); documentOwner.current = documentService;
+  const documentContinuation = useRef<{ service: DocumentService; documentId: string; version: number; conversationId: number | null; key: string } | null>(null);
+  const continuingDocument = useRef<symbol | null>(null);
+  const [documentsOpen, setDocumentsOpen] = useState(false);
+  const [initialDocumentId, setInitialDocumentId] = useState<string | null>(null);
+  const documentCreation = useRef<AbortController | null>(null);
+  useEffect(() => () => { documentCreation.current?.abort(); documentCreation.current = null; }, [documentService]);
   const voiceInput = useMemo(() => createVoiceInputService(fetchJson), [fetchJson]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarEpoch, setAvatarEpoch] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("careerloop-sidebar", userEmail) === "collapsed");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("tuantuan-sidebar", userEmail) === "collapsed");
   const [appRoute, setAppRoute] = useState<AppRoute>(() => initialAppRoute(window.location.hash));
   const activeView: ViewKey = appRoute.section;
   const workspaceLibraryOpen = appRoute.section === "chat" && appRoute.page === "library";
@@ -167,31 +180,31 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const [homeComposerDraft, setHomeComposerDraft] = useState<ChatComposerDraft | null>(null);
-  const composerDrafts = useMemo(() => readStringMap(preferenceKey("careerloop-composer-drafts", userEmail)), [userEmail]);
+  const composerDrafts = useMemo(() => readStringMap(preferenceKey("tuantuan-composer-drafts", userEmail)), [userEmail]);
   const persistComposerDrafts = useCallback(() => {
-    writeStringMap(preferenceKey("careerloop-composer-drafts", userEmail), composerDrafts);
+    writeStringMap(preferenceKey("tuantuan-composer-drafts", userEmail), composerDrafts);
   }, [composerDrafts, userEmail]);
-  const [pinnedConversationIds, setPinnedConversationIds] = useState<number[]>(() => readIdList(preferenceKey("careerloop-pinned-conversations", userEmail)));
+  const [pinnedConversationIds, setPinnedConversationIds] = useState<number[]>(() => readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
   useEffect(() => {
-    setPinnedConversationIds(readIdList(preferenceKey("careerloop-pinned-conversations", userEmail)));
+    setPinnedConversationIds(readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
   }, [userEmail]);
   function togglePinnedConversation(conversation: Conversation) {
     setPinnedConversationIds((current) => {
       const next = current.includes(conversation.id) ? current.filter((id) => id !== conversation.id) : [...current, conversation.id];
-      writeIdList(preferenceKey("careerloop-pinned-conversations", userEmail), next);
+      writeIdList(preferenceKey("tuantuan-pinned-conversations", userEmail), next);
       return next;
     });
   }
-  const storedFolders = useMemo(() => readConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail)), [userEmail]);
+  const storedFolders = useMemo(() => readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail)), [userEmail]);
   const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>(storedFolders.folders);
   const [conversationFolderAssignments, setConversationFolderAssignments] = useState<Record<number, string>>(storedFolders.assignments);
   useEffect(() => {
-    const next = readConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail));
+    const next = readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail));
     setConversationFolders(next.folders);
     setConversationFolderAssignments(next.assignments);
   }, [userEmail]);
   function storeFolders(folders: ConversationFolder[], assignments: Record<number, string>) {
-    writeConversationFolders(preferenceKey("careerloop-conversation-folders", userEmail), folders, assignments);
+    writeConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail), folders, assignments);
   }
   function createConversationFolder(name: string) {
     const trimmed = name.trim().slice(0, 40);
@@ -231,7 +244,10 @@ export function App({
     homeAnalysisBusyRef.current = false;
     setConversationBusy(false);
   }, [fetchJson, userEmail, setConversationBusy]);
-  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
+  const skillSelectionScope = JSON.stringify([apiBase, user.id ?? user.email, appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId]);
+  const [chatSkillSelection, setChatSkillSelection] = useState<{ scope: string; id: string | null | undefined }>({ scope: "", id: undefined });
+  const selectedSkillId = chatSkillSelection.scope === skillSelectionScope ? chatSkillSelection.id : undefined;
+  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [attachmentConfig, setAttachmentConfig] = useState<AttachmentConfig | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -295,8 +311,7 @@ export function App({
   const defaultModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === (modelCatalog.catalog.effective_execution_profile_id || modelCatalog.catalog.default_profile_id));
   const currentModelName = selectedModelProfile?.model_name || defaultModelProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
   const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
-  const composerServiceConnections = modelCatalog.catalog.service_connection_id ? modelCatalog.catalog.connections.filter(connection => connection.id === modelCatalog.catalog.service_connection_id) : modelCatalog.catalog.connections;
-  const composerConnection = composerServiceConnections.find(connection => connection.id === (modelCatalog.catalog.service_connection_id || (selectedModelProfile || defaultModelProfile)?.connection_id) && connection.enabled);
+  const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
   const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections });
   const composerServiceCatalogs = composerDiscovery.catalogs.map(service => ({ ...service, models: service.models.filter(name => !modelCatalog.catalog.profiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name && !profile.enabled) || activeModelProfiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name)) }));
   const defaultModelHasDraft = Boolean(agentSettings.api_key.trim()) || agentSettings.model_name !== savedAgentSettings.model_name
@@ -433,7 +448,7 @@ export function App({
   }, [currentConversationId]);
 
   useEffect(() => {
-    window.localStorage.setItem(preferenceKey("careerloop-view", userEmail), activeView);
+    window.localStorage.setItem(preferenceKey("tuantuan-view", userEmail), activeView);
   }, [activeView]);
 
   useEffect(() => {
@@ -485,7 +500,7 @@ export function App({
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
       const next = !current;
-      window.localStorage.setItem(preferenceKey("careerloop-sidebar", userEmail), next ? "collapsed" : "expanded");
+      window.localStorage.setItem(preferenceKey("tuantuan-sidebar", userEmail), next ? "collapsed" : "expanded");
       return next;
     });
   }
@@ -494,8 +509,10 @@ export function App({
   const libraryReady = libraryLoaded
     ? hasLibrarySources
     : null;
-  const hiddenMessageCount = Math.max(0, chatMessages.length - visibleMessageCount);
-  const visibleChatMessages = chatMessages.slice(-visibleMessageCount);
+  const imageEdits = useImageEdits({ fetchJson, currentConversationId, currentConversationIdRef, refreshChat, refreshConversations, accountKey: userEmail });
+  const displayedChatMessages = [...chatMessages, ...imageEdits.messages.filter(message => !chatMessages.some(saved => saved.id === message.id))];
+  const hiddenMessageCount = Math.max(0, displayedChatMessages.length - visibleMessageCount);
+  const visibleChatMessages = displayedChatMessages.slice(-visibleMessageCount);
   const latestAgent = [...chatMessages]
     .reverse()
     .find((message) => message.role === "assistant" && message.payload?.agent)?.payload?.agent;
@@ -820,7 +837,6 @@ export function App({
     invalidateModelRequests();
     invalidateDiscovery();
     updateModelSettingsEditing(false);
-    setModelSettingsLoaded(false);
     setModelMonitor(null);
     setModelCapabilities(null);
     routeDataCacheRef.current.invalidate("agentSettings", "modelMonitor", "modelCapabilities", "capabilities");
@@ -945,6 +961,8 @@ export function App({
   const routePageMeta = appRoute.section === "settings"
     ? {
       overview: pageMeta.settings,
+      extensions: { title: "扩展中心", description: "管理技能、插件与 MCP，预览新的工作方式" },
+      channels: { title: "消息渠道", description: "连接微信，在手机上向团团派任务" },
       appearance: { title: "外观", description: "统一设置所有模块的主题" },
       account: { title: "账号与安全", description: "管理跟随登录账号的昵称、头像和密码" },
       library: { title: "文件库管理", description: "整理文件、阅读原件，选取资料用于对话" },
@@ -952,6 +970,12 @@ export function App({
       agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" }
     }[appRoute.page]
     : pageMeta[appRoute.section];
+
+  const weixinChannel = useWeixinStatus(fetchJson, databaseReady);
+  const weixinBot = useWeixinBot({ fetchJson, enabled: databaseReady, channel: weixinChannel,
+    activeConversationId: appRoute.section === 'chat' && !workspaceLibraryOpen ? currentConversationId : null,
+    chatBusy, onMessages: setChatMessages });
+  const weixinActive = !!weixinBot?.conversation_id && appRoute.section === 'chat' && !workspaceLibraryOpen && currentConversationId === weixinBot.conversation_id;
 
   const documentPageTitle = workspaceLibraryOpen ? "文件库｜AI 工作区" : appRoute.section === "chat"
     ? currentConversation?.title || "新对话"
@@ -992,6 +1016,46 @@ export function App({
     setNoticeMessage(`${result.attachments.length} 个文件已加入新对话，输入问题后发送`);
   }
 
+  async function editChatDocument(messageId: number) {
+    if (documentCreation.current || !currentConversationId) return;
+    const service = documentService, conversationId = currentConversationId, controller = new AbortController();
+    documentCreation.current = controller;
+    try {
+      const manifest = await fetchJson<ArtifactManifest>(`/chat/messages/${messageId}/artifacts`, { signal: controller.signal });
+      const document = await service.create({ conversation_id: conversationId, message_id: messageId, snapshot: manifest.snapshot,
+        idempotency_key: `document:${conversationId}:${messageId}:${manifest.snapshot}` }, controller.signal);
+      if (controller.signal.aborted || documentOwner.current !== service || currentConversationIdRef.current !== conversationId) return;
+      setInitialDocumentId(document.document_id); setDocumentsOpen(true);
+    } catch (caught) {
+      if (!controller.signal.aborted && documentOwner.current === service) setErrorMessage(caught instanceof Error ? caught.message : "文档打开失败，请重试");
+    } finally { if (documentCreation.current === controller) documentCreation.current = null; }
+  }
+
+  async function continueDocument(document: SavedDocument, signal: AbortSignal) {
+    if (continuingDocument.current) throw new Error("正在准备文档对话，请稍候");
+    const service = documentService, token = Symbol(); continuingDocument.current = token;
+    let intent = documentContinuation.current;
+    if (!intent || intent.service !== service || intent.documentId !== document.document_id || intent.version !== document.version) {
+      intent = { service, documentId: document.document_id, version: document.version, conversationId: null, key: crypto.randomUUID() };
+      documentContinuation.current = intent;
+    }
+    try {
+      if (!intent.conversationId) {
+        const created = await fetchJson<Conversation>("/conversations", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: `继续修改 · ${document.title}`.slice(0, 60) }) });
+        intent.conversationId = created.id;
+      }
+      if (signal.aborted || documentOwner.current !== service) return;
+      const attachment = await service.attach(document.document_id, document.version, intent.conversationId, intent.key, signal);
+      await refreshConversations();
+      if (signal.aborted || documentOwner.current !== service) return;
+      setLibraryAttachments({ conversationId: intent.conversationId, attachments: [attachment] });
+      setCurrentConversationId(intent.conversationId);
+      navigateRoute({ section: "chat", conversationId: intent.conversationId });
+      setNoticeMessage(`文档 v${document.version} 已加入新对话，输入修改要求后发送`);
+      documentContinuation.current = null;
+    } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
+  }
+
   async function analyzeHomeItem(item: HomeReadableItem) {
     if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再创建资讯分析");
@@ -1025,6 +1089,8 @@ export function App({
   const libraryModule = (
     <Suspense fallback={<PageLoading label="正在加载文件库…" />}>
       <LibraryPage
+        documentReviewService={documentReviewService}
+        onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
         initialSourceId={openLibraryResultId}
         onInitialSourceConsumed={() => setOpenLibraryResultId(null)}
         editor={libraryEditor}
@@ -1074,6 +1140,8 @@ export function App({
   );
 
   return (
+    <ExtensionPreviewProvider key={JSON.stringify([apiBase, user.id ?? user.email])} apiBase={apiBase} accessToken={accessToken}>
+    <LocalCitationProvider apiBase={apiBase} accessToken={accessToken}>
     <main className={`app-shell has-chat-dock shell-light${activeView === "chat" ? " chat-focused" : ""}${activeView === "dashboard" ? " developer-home-shell" : ""}`}>
       <AppSidebar
         collapsed={sidebarCollapsed}
@@ -1085,6 +1153,16 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
+        weixinBot={weixinBot}
+        weixinActive={weixinActive}
+        onOpenWeixin={async () => {
+          if (weixinBot?.conversation_id) {
+            try {
+              await refreshConversations();
+              navigateRoute({ section: 'chat', conversationId: weixinBot.conversation_id });
+            } catch { setErrorMessage('微信会话读取失败，请稍后重试'); }
+          } else navigateRoute({ section: 'settings', page: 'channels' });
+        }}
       />
 
       <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${topbarTitle ? "" : " is-titleless"}`}>
@@ -1126,6 +1204,8 @@ export function App({
                 />
               ) : null}
               {appRoute.page === "appearance" ? <AppearanceSettingsPage /> : null}
+              {appRoute.page === "extensions" ? <ExtensionsPage /> : null}
+              {appRoute.page === "channels" ? <WeixinSettingsPage key={`${apiBase}:${user.id}`} apiBase={apiBase} accessToken={accessToken} channel={weixinChannel} /> : null}
               {appRoute.page === "account" ? (
                 <AccountSettingsPage
                   apiBase={apiBase}
@@ -1144,6 +1224,13 @@ export function App({
                 modelSettingsReady ? (
                   <ModelSettingsPage
                     fetchJson={fetchJson}
+                    manager={modelCatalog.catalog.purpose_defaults ? advanced => <UnifiedModelManager
+                      key={userEmail} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
+                      busy={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} error={modelCatalog.error}
+                      fetchJson={fetchJson} secretWritable={savedAgentSettings.secret_storage_writable}
+                      onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
+                      onApplied={refreshDefaultModelSelection} advanced={advanced}
+                    /> : undefined}
                     error={errorMessage}
                     purposeManager={modelCatalog.catalog.purpose_defaults ? <ModelUsageRules catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} loading={modelCatalog.loading} onMutate={modelCatalog.mutate} onApplied={refreshDefaultModelSelection} /> : modelCatalog.loading ? <p role="status">正在读取使用规则…</p> : undefined}
                     routingManager={<><ModelFallbackSettings fetchJson={fetchJson} catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} /><ModelRoutingPanel key={userEmail} fetchJson={fetchJson} catalog={modelCatalog.catalog}
@@ -1213,6 +1300,11 @@ export function App({
           library={libraryModule}>
         <Suspense fallback={<PageLoading label="正在加载对话…" />}>
           <ChatWorkspace
+            documentReviewService={documentReviewService}
+            documentService={documentService}
+            onEditDocument={messageId => { void editChatDocument(messageId); }}
+            onContinueDocument={continueDocument}
+            onDocumentArchived={() => { void refreshLibrary(); }}
             density={activeView === "chat" ? "page" : "dock"}
             focused={activeView === "chat" && !workspaceLibraryOpen}
             conversationTitle={currentConversation?.title}
@@ -1236,6 +1328,8 @@ export function App({
             modelConfigured={capabilities ? capabilities.configured !== false : undefined}
             onModelProfileChange={selectConversationModel}
             messages={visibleChatMessages}
+            selectedSkillId={selectedSkillId}
+            onSelectSkill={(id) => setChatSkillSelection({ scope: skillSelectionScope, id })}
             hiddenMessageCount={hiddenMessageCount}
             chatBusy={chatBusy}
             modelUnavailable={modelUnavailable}
@@ -1265,6 +1359,12 @@ export function App({
               navigateRoute({ section: "chat", conversationId });
             }}
             onCreateConversation={() => void createNewConversation()}
+            onEnsurePresentationConversation={async () => {
+              if (currentConversationIdRef.current) return currentConversationIdRef.current;
+              const created = await createNewConversation({ onlyIfUnchanged: true });
+              if (!created) throw new Error("会话创建失败，请重试。");
+              return created.id;
+            }}
             onRenameConversation={(conversation) => setConversationDialog({ kind: "rename", conversation })}
             onArchiveConversation={(conversation) => void archiveConversation(conversation)}
             onRemoveConversation={(conversation) => setConversationDialog({ kind: "delete", conversation })}
@@ -1272,6 +1372,7 @@ export function App({
             attachmentConfig={attachmentConfig}
             onUploadAttachment={uploadChatAttachment}
             voiceInput={voiceInput}
+            onEditGeneratedImage={imageEdits.editImage}
             onLoadAttachment={loadChatAttachment}
             onLoadAttachmentThumbnail={async (attachment, signal) => {
               const response = await fetchWithTimeout(`${apiBase}/${attachment.origin === "generated" ? "chat-assets" : "attachments"}/${encodeURIComponent(attachment.id)}/thumbnail`, { signal, headers: { Authorization: `Bearer ${accessToken}` } });
@@ -1333,6 +1434,7 @@ export function App({
       {noticeMessage ? (
         <div className="feedback-banner notice-banner global-notice-toast" role="status" aria-live="polite"><CheckCircle2 size={16} /><span>{noticeMessage}</span></div>
       ) : null}
+      {documentsOpen ? <DocumentLibraryDialog key={user.id ?? user.email} initialDocumentId={initialDocumentId} service={documentService} folders={libraryFolders} onClose={() => { setDocumentsOpen(false); setInitialDocumentId(null); }} onContinue={continueDocument} onArchived={() => { void refreshLibrary(); }} /> : null}
       {conversationDialog ? (
         <ConversationDialog
           dialog={conversationDialog}
@@ -1343,5 +1445,7 @@ export function App({
         />
       ) : null}
     </main>
+    </LocalCitationProvider>
+    </ExtensionPreviewProvider>
   );
 }

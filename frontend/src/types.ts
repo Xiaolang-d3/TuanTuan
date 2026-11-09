@@ -35,6 +35,9 @@ export type LibraryCollection = { id: number; name: string; source_ids: number[]
 export type LibraryOrganization = { folder_id?: number | null; favorite?: boolean; trashed?: boolean; opened?: boolean };
 
 export type LibrarySource = {
+  source_revision?: string | null;
+  backfill_status?: "pending" | "running" | "ready" | "failed";
+  backfill_job_id?: string | null;
   id: number;
   source_kind: "upload" | "paste" | "legacy";
   title: string;
@@ -93,6 +96,17 @@ export type ViewKey =
 
 export type ModelProtocol = "auto" | "openai" | "responses" | "images" | "anthropic" | "gemini" | "ollama";
 
+export type ModelCatalogEntry = {
+  id: string;
+  display_name?: string;
+  owned_by?: string;
+  input_types?: string[];
+  output_types: ("chat" | "image" | "video")[];
+  output_types_source: "provider" | "inferred" | "configured" | "unknown";
+  context_window?: number;
+  max_output_tokens?: number;
+};
+
 export type ResolvedModelProtocol = Exclude<ModelProtocol, "auto">;
 
 export type ModelConnection = {
@@ -113,6 +127,7 @@ export type ModelProfile = {
   id: string;
   connection_id: string;
   model_name: string;
+  discovery?: ModelCatalogEntry | null;
   enabled: boolean;
   revision: number;
   parameters?: Record<string, unknown> | null;

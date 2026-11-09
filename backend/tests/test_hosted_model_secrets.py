@@ -13,11 +13,11 @@ from app.workspace import ensure_workspace, use_workspace
 
 @pytest.fixture
 def hosted(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "careerloop.db")
-    monkeypatch.setenv("CAREERLOOP_DEPLOYMENT_MODE", "hosted")
-    monkeypatch.delenv("CAREERLOOP_SECRET_BACKEND", raising=False)
-    monkeypatch.setenv("CAREERLOOP_SECRET_MASTER_KEY", Fernet.generate_key().decode())
-    monkeypatch.setenv("CAREERLOOP_MODEL_ALLOWED_HOSTS", "models.example.test")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
+    monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", "hosted")
+    monkeypatch.delenv("TUANTUAN_SECRET_BACKEND", raising=False)
+    monkeypatch.setenv("TUANTUAN_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("TUANTUAN_MODEL_ALLOWED_HOSTS", "models.example.test")
     return tmp_path
 
 
@@ -28,7 +28,7 @@ def test_users_have_persistent_isolated_encrypted_model_keys(hosted):
         with use_workspace(user_id, root):
             settings.save_agent_settings({"model_name": f"model-{user_id}", "model_base_url": "https://models.example.test/v1", "api_key": f"secret-{user_id}"})
             assert settings.get_model_connection()["api_key"] == f"secret-{user_id}"
-            with db.connect(root / "careerloop.db") as conn:
+            with db.connect(root / "tuantuan.db") as conn:
                 references.append(conn.execute("SELECT model_secret_ref FROM agent_settings").fetchone()[0])
             assert f"secret-{user_id}" not in str(settings.get_agent_settings())
             assert all(f"secret-{user_id}".encode() not in path.read_bytes() for path in (root / ".model-secrets").iterdir())
@@ -40,7 +40,7 @@ def test_users_have_persistent_isolated_encrypted_model_keys(hosted):
     with use_workspace(101, roots[0]):
         assert settings.get_model_connection()["api_key"] == "secret-101"
     result = subprocess.run(
-        [sys.executable, "-c", "import sys; from app.secret_store import get_secret; assert get_secret(sys.argv[1], sys.argv[2]) == 'secret-101'", references[0], str(roots[0] / "careerloop.db")],
+        [sys.executable, "-c", "import sys; from app.secret_store import get_secret; assert get_secret(sys.argv[1], sys.argv[2]) == 'secret-101'", references[0], str(roots[0] / "tuantuan.db")],
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -65,7 +65,7 @@ def test_wrong_master_key_fails_closed(hosted, monkeypatch):
     root = ensure_workspace(104)
     with use_workspace(104, root):
         reference = secret_store.create_model_api_key("secret", "connection")
-        monkeypatch.setenv("CAREERLOOP_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+        monkeypatch.setenv("TUANTUAN_SECRET_MASTER_KEY", Fernet.generate_key().decode())
         with pytest.raises(secret_store.SecretStoreUnavailable):
             secret_store.get_secret(reference)
 

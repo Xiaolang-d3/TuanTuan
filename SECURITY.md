@@ -6,9 +6,9 @@
 
 ## 私密报告漏洞
 
-请使用本仓库的 [GitHub 私密漏洞报告](https://github.com/Xiaolang-d3/CareerLoop/security/advisories/new)，由维护者私下接收和讨论。不要在公开 Issue、Pull Request 或评论中发布可利用细节、真实凭据或他人的资料。
+请使用本仓库的 [GitHub 私密漏洞报告](https://github.com/Xiaolang-d3/TuanTuan/security/advisories/new)，由维护者私下接收和讨论。不要在公开 Issue、Pull Request 或评论中发布可利用细节、真实凭据或他人的资料。
 
-如果私密报告入口不可用，请先[创建不含漏洞细节的联系请求](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose)，只说明“需要安全报告渠道”，待维护者提供私密联系方式后再发送报告。
+如果私密报告入口不可用，请先[创建不含漏洞细节的联系请求](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose)，只说明“需要安全报告渠道”，待维护者提供私密联系方式后再发送报告。
 
 建议包含：
 
@@ -31,4 +31,4 @@
 - 工作区、附件与数据库备份可能包含原始个人资料，应限制访问权限。
 - 分享模型错误、Agent 工具调用记录或截图前，检查其中的提示词、文件路径、外部请求与个人信息。
 
-普通功能问题和使用问题请通过 [Issue 模板](https://github.com/Xiaolang-d3/CareerLoop/issues/new/choose) 提交；第三方模型或搜索服务本身的漏洞应同时向相应服务提供方报告。
+普通功能问题和使用问题请通过 [Issue 模板](https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose) 提交；第三方模型或搜索服务本身的漏洞应同时向相应服务提供方报告。

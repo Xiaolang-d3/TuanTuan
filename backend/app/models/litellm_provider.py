@@ -254,7 +254,7 @@ class LiteLLMProvider:
             arguments["temperature"] = parameters["temperature"]
         if "max_output_tokens" in parameters:
             arguments["max_tokens"] = int(parameters["max_output_tokens"])
-        if request.response_format and "response_format" not in unsupported:
+        if request.response_format and (not request.allow_option_fallback or "response_format" not in unsupported):
             arguments["response_format"] = request.response_format
         if protocol == "responses":
             # Stateless Responses calls must ask for encrypted reasoning to replay it.
@@ -282,7 +282,7 @@ class LiteLLMProvider:
     # ------------------------------------------------------------------
     # LiteLLM calls
     # ------------------------------------------------------------------
-    async def _acompletion(self, arguments: dict[str, Any]) -> Any:
+    async def _acompletion(self, arguments: dict[str, Any], *, allow_option_fallback: bool = True) -> Any:
         litellm = get_litellm()
         options = {**self._call_options(), **arguments}
         while True:
@@ -290,7 +290,7 @@ class LiteLLMProvider:
                 return await litellm.acompletion(model=self.litellm_model, **options)
             except Exception as exc:
                 option = self._rejected_chat_option(options, exc)
-                if option is None:
+                if option is None or not allow_option_fallback:
                     raise
                 options.pop(option, None)
                 _UNSUPPORTED_CHAT_OPTIONS.setdefault((self._protocol, self._base_url, self._model), set()).add(option)
@@ -306,7 +306,7 @@ class LiteLLMProvider:
             return "response_format"
         return None
 
-    async def _aresponses(self, arguments: dict[str, Any]) -> Any:
+    async def _aresponses(self, arguments: dict[str, Any], *, allow_option_fallback: bool = True) -> Any:
         litellm = get_litellm()
         options = {**self._call_options(), **arguments}
         while True:
@@ -314,7 +314,7 @@ class LiteLLMProvider:
                 return await litellm.aresponses(model=self.litellm_model, **options)
             except Exception as exc:
                 option = _rejected_option(options, exc) if is_litellm_exception(exc) else None
-                if option is None:
+                if option is None or not allow_option_fallback:
                     raise
                 options.pop(option, None)
                 self._native._unsupported_options.add(option)
@@ -429,9 +429,9 @@ class LiteLLMProvider:
         started_at = perf_counter()
         try:
             if self._protocol == "responses":
-                result = self._response_from_responses(await self._aresponses(self._responses_arguments(request)))
+                result = self._response_from_responses(await self._aresponses(self._responses_arguments(request), allow_option_fallback=request.allow_option_fallback))
             else:
-                result = self.response_from_completion(await self._acompletion(self.chat_arguments(request)))
+                result = self.response_from_completion(await self._acompletion(self.chat_arguments(request), allow_option_fallback=request.allow_option_fallback))
         except Exception as exc:
             error = self._error(exc)
             self._record_event("generate", started_at, error=error)
@@ -467,7 +467,7 @@ class LiteLLMProvider:
     async def _stream_chat(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         arguments = self.chat_arguments(request)
         arguments.update(stream=True, stream_options={"include_usage": True})
-        stream = await self._acompletion(arguments)
+        stream = await self._acompletion(arguments, allow_option_fallback=request.allow_option_fallback)
         async for event in self.consume_chat_stream(stream):
             yield event
 
@@ -562,7 +562,7 @@ class LiteLLMProvider:
     async def _stream_responses(self, request: ModelRequest) -> AsyncIterator[ModelStreamEvent]:
         arguments = self._responses_arguments(request)
         arguments["stream"] = True
-        stream = await self._aresponses(arguments)
+        stream = await self._aresponses(arguments, allow_option_fallback=request.allow_option_fallback)
         completed = None
         try:
             async for event in stream:

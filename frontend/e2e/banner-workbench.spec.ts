@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test-fixtures";
 
 // Deliberately drawn test fixtures, not model-generated images. No paid service is used.
 async function fixturePng(page: Page, color: string, screenshot = false) {
@@ -45,10 +45,12 @@ async function mockBannerProduct(page: Page) {
     "/system/database-status": { status: "ready", schema_version: 31, required_schema_version: 31 },
     "/conversations": [{ id: 1, title: "会员活动配图", status: "active", summary: "", message_count: 0, task_status: "active", updated_at: timestamp }],
     "/agent/runs/current": { run: null },
+    "/presentations": { jobs: [], next_cursor: null },
+    "/document-reviews": { jobs: [] },
     "/agent/capabilities": { configured: true, active_model_name: "gpt-image-2", tools: [], web_research: { enabled: false, provider: "none" } },
     "/attachments/config": { storage: "local", vision_enabled: false, checks: [] }
   };
-  await page.addInitScript(() => localStorage.setItem("careerloop-auth-token", "banner-e2e-token"));
+  await page.addInitScript(() => localStorage.setItem("tuantuan-auth-token", "banner-e2e-token"));
   await page.route("http://127.0.0.1:4173/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -65,7 +67,7 @@ async function mockBannerProduct(page: Page) {
       messages.push(userMessage, assistantMessage);
       const events = [
         { type: "RUN_STARTED", threadId: body.threadId, runId: body.runId },
-        { type: "STATE_SNAPSHOT", snapshot: { careerLoop: { status: "done", userMessage, assistantMessage } } },
+        { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
         { type: "RUN_FINISHED", threadId: body.threadId, runId: body.runId }
       ];
       return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });

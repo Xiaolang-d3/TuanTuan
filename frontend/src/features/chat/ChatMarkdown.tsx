@@ -1,6 +1,9 @@
 import { Children, createContext, isValidElement, useContext, useEffect, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkLocalCitations } from "./remark-local-citations";
+import { LocalCitation, LocalCitationActionsContext } from "./LocalCitation";
+import type { LocalEvidence } from "./local-evidence";
 import { ChatWorkspaceMermaid } from "../../components/ChatWorkspaceMermaid";
 import { ChatWorkspaceMindmap } from "../../components/ChatWorkspaceMindmap";
 import { isMermaidMindmap } from "../../components/mindmap-source";
@@ -116,14 +119,25 @@ function CitationLink({
 }
 
 export type MarkdownImageLoader = (src: string, signal: AbortSignal) => Promise<Blob>;
-const MarkdownRenderContext = createContext<{ sources: WebSource[]; streaming: boolean; onOpenSource?: (index: number) => void; imageLoader?: MarkdownImageLoader }>({
+const MarkdownRenderContext = createContext<{ sources: WebSource[]; localEvidence: LocalEvidence[]; streaming: boolean; onOpenSource?: (index: number) => void; imageLoader?: MarkdownImageLoader; allowRemoteImages?: boolean }>({
   sources: [],
+  localEvidence: [],
   streaming: false
 });
 
 function MarkdownLinkRenderer({ children, href }: { children?: ReactNode; href?: string }) {
   const { sources, onOpenSource } = useContext(MarkdownRenderContext);
   return <CitationLink href={href} sources={sources} onOpenSource={onOpenSource}>{children}</CitationLink>;
+}
+
+function MarkdownSpanRenderer({ node, children, ...props }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
+  const { localEvidence, streaming } = useContext(MarkdownRenderContext);
+  const open = useContext(LocalCitationActionsContext);
+  const citationId = node?.properties?.["data-local-citation"];
+  if (typeof citationId !== "string") return <span {...props}>{children}</span>;
+  const evidence = localEvidence.find(item => item.citation_id === citationId);
+  if (evidence && open) return <LocalCitation evidence={evidence} onOpen={open} />;
+  return <span className="md-local-citation-unverified" title={evidence ? "当前页面暂不支持原文预览" : "没有与此标记对应的已核验证据"}>{evidence ? "本地来源" : streaming ? "核对来源中…" : "引用未核对"}</span>;
 }
 
 function MarkdownCodeRenderer({
@@ -172,6 +186,7 @@ function MarkdownPreRenderer({
 }
 
 const MARKDOWN_COMPONENTS: Components = {
+  span: MarkdownSpanRenderer,
   a: MarkdownLinkRenderer,
   code: MarkdownCodeRenderer,
   pre: MarkdownPreRenderer,
@@ -182,8 +197,8 @@ const MARKDOWN_COMPONENTS: Components = {
 function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
   const [localUrl, setLocalUrl] = useState("");
-  const { imageLoader } = useContext(MarkdownRenderContext);
-  const local = Boolean(src && /^assets\/[a-f0-9]{32}\.(png|jpg|webp)$/.test(src));
+  const { imageLoader, allowRemoteImages = true } = useContext(MarkdownRenderContext);
+  const local = Boolean(src && /^(?:assets|resources)\/[a-f0-9]{32}\.(png|jpg|webp)$/.test(src));
   useEffect(() => setFailed(false), [src]);
   useEffect(() => {
     setLocalUrl("");
@@ -197,6 +212,7 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
   }, [src, local, imageLoader]);
   if (local) return failed ? <span role="alert">图片读取失败</span> : localUrl ? <a className="chat-markdown-image" href={localUrl} target="_blank" rel="noopener noreferrer" title="查看原图"><img src={localUrl} alt={alt || "生成图片"} /></a> : <span role="status">正在读取图片…</span>;
+  if (!allowRemoteImages) return <span role="alert">图片不属于文档资源清单</span>;
   if (!src || !/^https?:\/\//i.test(src)) return <span>{alt || "图片地址不可用"}</span>;
   return <a className="chat-markdown-image" href={src} target="_blank" rel="noopener noreferrer" title="打开原图">
     {failed ? <span>图片加载失败，打开原图{alt ? `：${alt}` : ""}</span> : <img src={src} alt={alt || "图片"} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}
@@ -206,21 +222,25 @@ function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
 export function MarkdownContent({
   children,
   sources = [],
+  localEvidence = [],
   streaming = false,
   onOpenSource,
-  imageLoader
+  imageLoader,
+  allowRemoteImages = true
 }: {
   children: string;
   sources?: WebSource[];
+  localEvidence?: LocalEvidence[];
   streaming?: boolean;
   onOpenSource?: (index: number) => void;
   imageLoader?: MarkdownImageLoader;
+  allowRemoteImages?: boolean;
 }) {
   return (
     <div className="message-markdown">
-      <MarkdownRenderContext.Provider value={{ sources, streaming, onOpenSource, imageLoader }}>
+      <MarkdownRenderContext.Provider value={{ sources, localEvidence, streaming, onOpenSource, imageLoader, allowRemoteImages }}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkLocalCitations]}
           skipHtml
           components={MARKDOWN_COMPONENTS}
         >

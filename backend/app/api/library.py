@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, Query, Response
+from fastapi.responses import FileResponse, JSONResponse
 from ..library.repository import save_metadata
+from ..jobs.service import job_service
+from ..library.document_review import DocumentReviewInput, create_document_review, public_document_review
+from .jobs import execute as execute_job
 from ..library.knowledge import list_knowledge, merge_knowledge, propose_knowledge, review_knowledge
 from ..library.sources import (
     create_text_source,
@@ -22,6 +27,7 @@ from ..library.collections import (
     save_collection, update_collection_sources,
 )
 from ..documents import service as document_service
+from ..documents.parser import MAX_DOCUMENT_BYTES
 from .schemas import (
     LibraryKnowledgeIn,
     LibraryKnowledgeMergeIn,
@@ -34,6 +40,33 @@ from .schemas import (
 
 
 router = APIRouter()
+
+
+class SourceReindexIn(BaseModel):
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/library/sources/{source_id}/versions/{revision}/blocks/{block_id}")
+def library_source_block(source_id: int, revision: str, block_id: str) -> JSONResponse:
+    from ..documents.blocks import DocumentTarget
+    from ..library.evidence import preview_block
+    try:
+        return JSONResponse(preview_block(DocumentTarget(source_kind="library", source_id=source_id, source_revision=revision), block_id),
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/library/sources/{source_id}/reindex")
+def library_source_reindex(source_id: int, payload: SourceReindexIn) -> dict[str, Any]:
+    from ..extensions.contracts import ExtensionContext
+    from ..jobs.repository import public_job
+    from ..jobs.service import job_service
+    from ..library.source_backfill import enqueue_backfill
+    try:
+        return public_job(enqueue_backfill(source_id, ExtensionContext.current(), job_service, payload.request_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/library/collections")
@@ -92,8 +125,8 @@ async def parse_library_document(
 ) -> dict[str, Any]:
     filename = (file.filename or "document").strip()
     try:
-        content = await file.read()
-        result = document_service.parse_document_upload(filename, content, mode)
+        content = await file.read(MAX_DOCUMENT_BYTES + 1)
+        result = await asyncio.to_thread(document_service.parse_document_upload, filename, content, mode)
         return result
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -174,9 +207,9 @@ async def library_sources_import(
     for file in files:
         filename = (file.filename or "document").strip()
         try:
-            source = import_file_source(
+            source = await asyncio.to_thread(import_file_source,
                 filename=filename,
-                content_bytes=await file.read(),
+                content_bytes=await file.read(MAX_DOCUMENT_BYTES + 1),
                 mode=mode,
                 privacy_mode=privacy_mode,
                 enabled=enabled,
@@ -280,3 +313,22 @@ def library_fact_merge(
         return merge_knowledge(fact_id, payload.target_fact_id)
     except ValueError as exc:
         raise HTTPException(status_code=404 if "不存在" in str(exc) else 422, detail=str(exc)) from exc
+
+
+@router.post("/document-reviews", status_code=201)
+def document_reviews_create(payload: DocumentReviewInput, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return execute_job(lambda context: public_document_review(create_document_review(payload, context, jobs=job_service), context, jobs=job_service))
+
+
+@router.get("/document-reviews")
+def document_reviews_list(response: Response, conversation_id: int | None = Query(default=None, gt=0)):
+    response.headers["Cache-Control"] = "no-store"
+    return execute_job(lambda context: {"jobs": [public_document_review(job, context, jobs=job_service) for job in job_service.repository.list(context)
+        if job["kind"] == "document.review" and (conversation_id is None or job["request"].get("conversation_id") == conversation_id)]})
+
+
+@router.get("/document-reviews/{job_id}")
+def document_reviews_get(job_id: str, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return execute_job(lambda context: public_document_review(job_service.get(job_id, context), context, jobs=job_service))

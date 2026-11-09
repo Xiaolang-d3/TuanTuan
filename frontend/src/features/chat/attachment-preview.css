@@ -52,10 +52,12 @@
 .chat-attachment-markdown table { display: block; overflow: auto; border-collapse: collapse; }
 .chat-attachment-markdown td, .chat-attachment-markdown th { padding: 6px 10px; border: 1px solid var(--color-border); }
 .chat-attachment-markdown img { max-width: 100%; }
-.chat-attachment-dialog.is-image-preview { width: min(100%, 1280px); }
-.is-image-preview .chat-attachment-heading { padding: 14px 20px; }
-.is-image-preview .chat-attachment-title > svg { box-sizing: content-box; padding: 10px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-subtle); }
-.chat-attachment-body.is-image { overscroll-behavior: contain; background: color-mix(in srgb, var(--color-surface-subtle) 45%, var(--color-surface)); }
+.chat-attachment-backdrop.is-image-backdrop { padding: 0; background: rgba(15, 15, 18, .96); backdrop-filter: none; }
+.chat-attachment-dialog.is-image-preview { position: relative; width: 100%; height: 100dvh; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.chat-attachment-dialog .chat-image-close { position: absolute; top: 16px; right: 16px; z-index: 2; width: 36px; height: 36px; padding: 6px; border: 0; border-radius: 50%; }
+.is-image-preview .chat-attachment-empty { color: white; }
+.is-image-preview .chat-image-frame img { border-radius: 0; box-shadow: none; }
+.chat-attachment-body.is-image { overscroll-behavior: contain; background: transparent; }
 .chat-attachment-body.is-image:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
 .chat-attachment-body.is-image.can-pan { cursor: grab; }
 .chat-attachment-body.is-image.is-dragging { cursor: grabbing; user-select: none; }
@@ -78,8 +80,6 @@
   .chat-attachment-actions { gap: 4px; }
   .chat-attachment-title h2 { font-size: 13px; }
   .chat-attachment-text, .chat-attachment-markdown { padding: 20px 16px; }
-  .is-image-preview .chat-attachment-heading { padding: 12px; }
-  .is-image-preview .chat-attachment-title > svg { padding: 8px; }
   .chat-image-frame { padding: 24px 16px 88px; }
   .chat-image-controls { gap: 0; }
   .chat-image-controls .chat-image-fit { padding-inline: 8px; }

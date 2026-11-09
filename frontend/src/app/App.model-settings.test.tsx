@@ -7,7 +7,7 @@ import { App } from "./App";
 
 const api = vi.hoisted(() => ({ fetchJson: vi.fn<(path: string, options?: RequestInit) => Promise<unknown>>() }));
 
-vi.mock("../api/client", () => ({ createApiClient: () => (path: string, options?: RequestInit) => api.fetchJson(path, options), fetchWithTimeout: vi.fn() }));
+vi.mock("../api/client", async (importOriginal) => ({ ...await importOriginal<typeof import('../api/client')>(), createApiClient: () => (path: string, options?: RequestInit) => api.fetchJson(path, options), fetchWithTimeout: vi.fn() }));
 vi.mock("../page-prefetch", () => ({ createPagePrefetcher: () => ({ prefetch: vi.fn(), prefetchWhenIdle: vi.fn() }) }));
 vi.mock("../hooks/useAsyncPolling", () => ({ useAsyncPolling: vi.fn() }));
 vi.mock("../components/AppSidebar", () => ({ AppSidebar: () => null }));
@@ -149,6 +149,42 @@ afterEach(() => {
 });
 
 describe("App model settings", () => {
+  it("keeps unified model discovery and view mounted while refreshing the saved default summary", async () => {
+    mockApi(Promise.resolve({ ...savedSettings, credential_status: "saved_unverified" }));
+    const summary = deferred<AgentSettings>();
+    let changed = false;
+    const catalog = () => ({ connections: [{ id: "c1", name: "Service", model_base_url: savedSettings.model_base_url, model_protocol: "openai", enabled: true, api_key_configured: true, revision: 1 }], profiles: [
+      { id: "p1", connection_id: "c1", model_name: "gpt-5.5", enabled: true, revision: 1, supported_purposes: ["chat"], output_types: ["chat"] },
+      { id: "p2", connection_id: "c1", model_name: "gpt-4.1", enabled: true, revision: 1, supported_purposes: ["chat"], output_types: ["chat"] }
+    ], default_profile_id: changed ? "p2" : "p1", purpose_defaults: { chat: changed ? "p2" : "p1", image: null }, purpose_version: changed ? 2 : 1 });
+    replaceApi((path, options) => {
+      if (path === "/agent/model-connections") return Promise.resolve(catalog());
+      if (path === "/agent/model-defaults/chat") { changed = true; return Promise.resolve(catalog()); }
+      if (path === "/agent/settings" && changed && options?.method !== "PUT") return summary.promise;
+      return undefined;
+    });
+    renderApp();
+    await screen.findByRole("heading", { name: "模型管理" });
+    const search = screen.getByLabelText("搜索模型");
+    fireEvent.change(search, { target: { value: "gpt-4.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "使用文本" }));
+    await waitFor(() => expect(api.fetchJson.mock.calls.filter(([path]) => path === "/agent/settings").length).toBeGreaterThan(1));
+    expect(screen.getByRole("heading", { name: "模型管理" })).toBeInTheDocument();
+    expect(screen.getByLabelText("搜索模型")).toBe(search);
+    await act(async () => summary.resolve({ ...savedSettings, model_name: "gpt-4.1", config_revision: 2, credential_status: "saved_unverified" }));
+    expect(screen.getByLabelText("搜索模型")).toHaveValue("gpt-4.1");
+  });
+  it("uses unified management for modern catalogs and keeps usage diagnostics in advanced mode", async () => {
+    mockApi(Promise.resolve({ ...savedSettings, credential_status: "saved_unverified" }));
+    replaceApi(path => path === "/agent/model-connections" ? Promise.resolve({ connections: [], profiles: [], default_profile_id: null, purpose_defaults: { chat: null, image: null }, purpose_version: 1 }) : undefined);
+    renderApp();
+    expect(await screen.findByRole("heading", { name: "模型管理" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "连接第一个服务" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "模型额度" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /高级/ }));
+    expect(await screen.findByRole("heading", { name: "模型额度" })).toBeInTheDocument();
+    expect(api.fetchJson.mock.calls.some(([path]) => path.endsWith("/discover"))).toBe(false);
+  });
   it("does not silently discover models or authenticate saved keychain credentials on load", async () => {
     mockApi(Promise.resolve({ ...savedSettings, credential_status: "saved_unverified" }));
     renderApp();
@@ -526,7 +562,7 @@ describe("App model settings", () => {
   });
 
 
-  it("uses one service for new model choices while keeping old connections for history", async () => {
+  it("offers every service in unified management and saves purpose rules independently", async () => {
     mockApi();
     const catalog: ModelCatalog = {
       connections: [
@@ -548,9 +584,13 @@ describe("App model settings", () => {
       return undefined;
     });
     renderApp();
+    await screen.findByRole("heading", { name: "模型管理" });
+    expect(screen.getByRole("button", { name: "添加服务" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /历史图片连接/ }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "使用规则" }));
     await screen.findByRole("heading", { name: "使用规则" });
     expect(screen.queryByRole("button", { name: "添加连接" })).not.toBeInTheDocument();
-    expect(screen.queryByText("历史图片连接")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "更换聊天与工作模型" }));
     expect(screen.queryByRole("option", { name: /legacy-image/ })).not.toBeInTheDocument();

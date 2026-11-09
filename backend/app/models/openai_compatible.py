@@ -17,6 +17,7 @@ from openai import (
 )
 
 from .parameters import request_parameters
+from .catalog_discovery import DiscoveredModels, catalog_query, normalize_catalog, rejected_kind_parameter
 from ..redaction import remember_secret
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..agent.settings import get_agent_settings, persona_prompt
@@ -338,7 +339,13 @@ class OpenAICompatibleProvider:
     async def list_models(self) -> list[str]:
         """Return model IDs exposed by the configured API root's /models endpoint."""
         try:
-            page = await self._client.models.list()
+            query = catalog_query()
+            try:
+                page = await self._client.models.list(extra_query=query) if query else await self._client.models.list()
+            except APIStatusError as exc:
+                if not query or not rejected_kind_parameter(exc):
+                    raise
+                page = await self._client.models.list()
             items = list(getattr(page, "data", None) or [])
         except (
             AuthenticationError,
@@ -356,13 +363,7 @@ class OpenAICompatibleProvider:
                 f"模型目录 {self.models_url} 没有返回 OpenAI 兼容的模型列表，"
                 "请确认 Base URL 填写的是模型服务的 API 网关地址",
             ) from exc
-        return sorted(
-            {
-                str(item.id).strip()
-                for item in items
-                if getattr(item, "id", None) and str(item.id).strip()
-            }
-        )
+        return DiscoveredModels(normalize_catalog(items))
 
     @property
     def models_url(self) -> str:
@@ -488,6 +489,8 @@ class OpenAICompatibleProvider:
             "messages": messages,
         }
         arguments.update(request_parameters(request.parameters, "max_tokens"))
+        if request.response_format:
+            arguments["response_format"] = request.response_format
         if tools:
             arguments["tools"] = tools
             arguments["tool_choice"] = request.tool_choice

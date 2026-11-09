@@ -31,8 +31,8 @@ static int runtime_path(char *destination, size_t size) {
     const char *directory = dirname(directory_buffer);
 
     const char *candidates[] = {
-        "%s/../Resources/careerloop-runtime/careerloop-runtime",
-        "%s/../resources/careerloop-runtime/careerloop-runtime",
+        "%s/../Resources/tuantuan-runtime/tuantuan-runtime",
+        "%s/../resources/tuantuan-runtime/tuantuan-runtime",
     };
     for (size_t index = 0; index < sizeof(candidates) / sizeof(candidates[0]); index++) {
         if (snprintf(destination, size, candidates[index], directory) >= (int)size) {

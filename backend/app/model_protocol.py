@@ -53,10 +53,17 @@ def resolve_model_protocol(
     return "openai"
 
 
-def model_protocol_for_profile(model_name: str, connection_protocol: str = "auto") -> str:
+def model_protocol_for_profile(model_name: str, connection_protocol: str = "auto", capabilities: dict | None = None, base_url: str = "") -> str:
     """Select a model adapter within a shared compatibility service."""
     protocol = normalize_model_protocol(connection_protocol)
     if model_name.strip().lower().startswith("gpt-image-") and protocol in {"auto", "openai", "responses", "images"}:
+        return "images"
+    # Provider-declared image-only aliases share the service's credentials but
+    # require the existing Images action. A native Gemini/Anthropic/Ollama
+    # connection cannot acquire an unsupported action from output metadata.
+    caps = capabilities or {}
+    native_auto = protocol == "auto" and any(marker in base_url.lower() for marker in ("anthropic.com", "generativelanguage.googleapis.com", "ollama", ":11434"))
+    if caps.get("image_generation") == "supported" and caps.get("chat") == "unsupported" and protocol in {"auto", "openai", "responses", "images"} and not native_auto:
         return "images"
     return protocol
 

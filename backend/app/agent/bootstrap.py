@@ -11,6 +11,7 @@ from ..model_protocol import protocol_requires_api_key
 from ..research.search import public_search_capabilities
 from ..tools import AskUserTool, SearchPublicWebTool, ToolRegistry
 from ..tools.library import GetLibraryContextTool, SearchLibraryTool, ProposeLibraryKnowledgeTool
+from ..tools.read_library_source import ReadLibrarySourceTool
 from .runtime import AgentRuntime
 from .run_store import AgentRunStore
 from ..workspace import current_user_id
@@ -51,7 +52,7 @@ def _runtime_cache_key(connection: dict[str, Any]) -> tuple[Any, ...]:
         tuple((stage, value.get("profile_id"), value.get("profile_revision"),
                value.get("connection_id"), value.get("connection_revision"), value.get("credential_fingerprint"), value.get("selection_reason"))
               for stage, value in sorted(connection.get("stage_connections", {}).items())),
-        model_backend(), _routing_revision(),
+        model_backend(), _routing_revision(), _extension_revision(),
     )
 
 
@@ -68,8 +69,25 @@ def _build_tool_registry(settings: Any) -> ToolRegistry:
     tools.register_handler(SearchPublicWebTool(settings=settings))
     tools.register_handler(GetLibraryContextTool())
     tools.register_handler(SearchLibraryTool())
+    tools.register_handler(ReadLibrarySourceTool())
     tools.register_handler(ProposeLibraryKnowledgeTool())
+    if current_user_id() is not None:
+        from ..extensions.contracts import ExtensionContext
+        from ..extensions.skills import SkillService
+        from ..tools.load_skill import LoadSkillTool
+        context = ExtensionContext.current()
+        catalog = SkillService().list(context, enabled_only=True)
+        if any(item.get("model_invocable", True) for item in catalog):
+            tools.register_handler(LoadSkillTool(catalog, context), scope=context.user_id)
     return tools
+
+
+def _extension_revision() -> tuple:
+    if current_user_id() is None:
+        return ()
+    from ..extensions.contracts import ExtensionContext
+    from ..extensions.skills import SkillService
+    return tuple((item["id"], item["revision"]) for item in SkillService().list(ExtensionContext.current(), enabled_only=True))
 
 
 def _capabilities_payload(
@@ -243,11 +261,13 @@ def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any
             from ..chat.image_assets import image_generation_intent
             from ..model_protocol import resolve_model_protocol
             from .model_catalog import get_model_catalog
+            from ..models.selection import model_output_types
 
             image_only = resolve_model_protocol(connection["model_name"], connection.get("model_protocol"), connection.get("model_base_url", "")) == "images"
+            output_types, _ = model_output_types(connection, {"protocol": connection.get("model_protocol", "auto")})
             if image_generation_intent(user_content, image_model_selected=image_only):
                 connection = bind_image_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection, explicit_profile=profile_id is not None)
-            elif image_only:
+            elif image_only or (output_types and "chat" not in output_types) or connection.get("capabilities", {}).get("chat") == "unsupported":
                 connection = bind_text_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection)
     runtime, _ = _cached_components(connection)
     return runtime

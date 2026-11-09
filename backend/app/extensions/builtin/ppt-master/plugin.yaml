@@ -1,0 +1,15 @@
+api_version: 1
+id: ppt-master
+name: PPT Master
+version: 6.7.3
+description: 团团内置 AI 演示文稿制作，支持需求与设计确认、逐页预览和可编辑 PPTX 导出。
+minimum_app_version: 2.0.0
+platforms:
+  - windows-x86_64
+tools:
+  - adapter: ppt-master
+permissions:
+  - builtin.ppt-master.execute
+artifact_types:
+  - application/vnd.openxmlformats-officedocument.presentationml.presentation
+  - image/png
