@@ -56,6 +56,29 @@ jobs:
         env:
           EMBEDDING_BACKEND: hash
         run: python -m pytest tests -q --junitxml=pytest-report.xml
+      - name: Summarize failing backend tests
+        if: failure()
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          try:
+              root = ET.parse("pytest-report.xml").getroot()
+          except OSError:
+              print("::error::pytest-report.xml was not produced")
+              raise SystemExit(0)
+
+          for case in root.iter("testcase"):
+              problem = case.find("failure") if case.find("failure") is not None else case.find("error")
+              if problem is None:
+                  continue
+              message = (problem.get("message") or problem.text or "").strip().splitlines()
+              first = message[0][:300] if message else "no message"
+              where = case.get("file") or "tests"
+              name = f"{case.get('classname', '')}::{case.get('name', '')}"
+              print(f"::error file={where}::{name} - {first}")
+          PY
       - name: Upload backend test report
         if: always()
         uses: actions/upload-artifact@v4

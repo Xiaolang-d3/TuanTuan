@@ -86,10 +86,16 @@ for (const theme of ["light", "dark"] as const) {
         await page.mouse.move(bodyBox.x + bodyBox.width / 2, bodyBox.y + bodyBox.height / 2);
         await page.mouse.move(editBox.x + editBox.width / 2, editBox.y + editBox.height / 2, { steps: 24 });
         await expect(actions).toHaveCSS("opacity", "1");
-        expect(await edit.evaluate(element => {
+        const hit = await edit.evaluate(element => {
           const box = element.getBoundingClientRect();
-          return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
-        }), `edit action must stay clickable at ${width}px`).toBe(true);
+          const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return {
+            ok: element.contains(target),
+            coveredBy: target ? `${target.tagName.toLowerCase()}.${String(target.className || "").trim()}` : "none",
+            box: [Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height)]
+          };
+        });
+        expect(hit.ok, `edit action must stay clickable at ${width}px, got ${JSON.stringify(hit)}`).toBe(true);
       }
       await mixed.scrollIntoViewIfNeeded();
       await mixed.hover();
