@@ -3,6 +3,7 @@ import {
   Home,
   MessageCircle,
   Moon,
+  Settings,
   Sun,
   PanelLeft
 } from "lucide-react";
@@ -14,7 +15,7 @@ import { useTheme } from "../features/appearance/ThemeProvider";
 import { WeixinBotEntry } from './WeixinBotEntry';
 import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
-export type ProductNavKey = "dashboard" | "chat" | "library";
+export type ProductNavKey = "dashboard" | "chat" | "library" | "settings";
 
 type PrefetchPage = "chat" | "library" | "dashboard" | "settings";
 
@@ -65,7 +66,8 @@ export function AppSidebar({
   const primaryItems: SidebarItem[] = [
     { key: "dashboard", label: "首页", icon: <Home size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
     { key: "chat", label: "AI 工作区", icon: <MessageCircle size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("chat") },
-    { key: "library", label: "文件库", icon: <Folder size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") }
+    { key: "library", label: "文件库", icon: <Folder size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") },
+    { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
 
   function renderItem(item: SidebarItem, extraClass = "") {

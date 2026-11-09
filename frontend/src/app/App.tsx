@@ -27,6 +27,8 @@ import type { AuthUser } from "../components/AuthGate";
 import { AssistantSurface } from "../components/AssistantSurface";
 import { AIWorkspaceModules } from "../features/chat/AIWorkspaceModules";
 import { AppSidebar, type ProductNavKey } from "../components/AppSidebar";
+import { FirstRunGuide } from "../features/onboarding/FirstRunGuide";
+import { useFirstRun } from "../features/onboarding/useFirstRun";
 import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
 import { ConversationDialog } from "../components/ConversationDialog";
@@ -154,6 +156,7 @@ export function App({
   updateSession: (token: string, nextUser: AuthUser) => void;
 }) {
   const userEmail = user.email;
+  const firstRun = useFirstRun(userEmail);
   const fetchJson = useMemo(() => createApiClient(apiBase, accessToken), [apiBase, accessToken]);
   const documentReviewService = useMemo(() => createDocumentReviewService(apiBase, accessToken), [apiBase, accessToken]);
   const documentService = useMemo(() => createDocumentService(apiBase, accessToken), [apiBase, accessToken]);
@@ -1005,6 +1008,7 @@ export function App({
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
     else if (key === "chat") navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
+    else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
   }
 
   async function useLibraryForChat(sourceIds: number[]) {
@@ -1293,6 +1297,20 @@ export function App({
         ) : null}
 
       </section>
+
+      {firstRun.shouldShow && activeView === "dashboard" ? (
+        <FirstRunGuide
+          onDismiss={firstRun.complete}
+          onOpenModelSettings={() => {
+            firstRun.complete();
+            navigateRoute({ section: "settings", page: "model" });
+          }}
+          onOpenLibrary={() => {
+            firstRun.complete();
+            navigateRoute({ section: "chat", page: "library" });
+          }}
+        />
+      ) : null}
 
       <AssistantSurface page={activeView === "chat"} open={assistantOpen} busy={chatBusy} onClose={() => setAssistantOpen(false)} onExpand={() => { setAssistantOpen(false); navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined }); }}>
 
