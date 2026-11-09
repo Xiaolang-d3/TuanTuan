@@ -89,7 +89,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await edit.evaluate(element => {
           const box = element.getBoundingClientRect();
           return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
-        })).toBe(true);
+        }), `edit action must stay clickable at ${width}px`).toBe(true);
       }
       await mixed.scrollIntoViewIfNeeded();
       await mixed.hover();

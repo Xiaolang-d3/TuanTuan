@@ -16,6 +16,7 @@ const conversation = {
 async function mockCurrentProduct(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem("tuantuan-auth-token", "e2e-token");
+    window.localStorage.setItem("tuantuan-first-run:e2e@local.test", "done");
   });
   await page.route("http://127.0.0.1:4173/**", async (route) => {
     const url = new URL(route.request().url());
@@ -92,7 +93,7 @@ for (const theme of ["light", "dark"] as const) {
     for (const width of [874, 1280]) {
       await page.setViewportSize({ width, height: 770 });
       await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText([
-        "首页", "AI 工作区", "文件库"
+        "首页", "AI 工作区", "文件库", "设置"
       ]);
 
       for (const collapsed of [false, true]) {
@@ -189,7 +190,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await page.setViewportSize({ width, height: 770 });
     await page.goto("/#/chat/1");
     await expect(page.getByRole("navigation", { name: "移动端主导航" }).getByRole("button")).toHaveText([
-      "首页", "AI 工作区", "文件库"
+      "首页", "AI 工作区", "文件库", "设置"
     ]);
     await expect(page.getByRole("button", { name: /[收展][起开]侧边栏/ })).toBeHidden();
     await expect(page.locator("aside.sidebar")).toHaveClass(/collapsed/);
