@@ -63,6 +63,22 @@ class _WindowsParseJob:
             self.handle = None
 
 
+def _memory_ceiling_reached(memory_limit: int) -> bool:
+    """True when this child is already at (or past) the ceiling it was given.
+
+    pypdf reports an exhausted address space as an ordinary ValueError, so the
+    exception type alone cannot separate a corrupt file from a memory limit.
+    """
+    if os.name == "nt":
+        return False
+    try:
+        import resource
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
+    except Exception:
+        return False
+    return peak >= memory_limit * 0.9
+
+
 def _parse_worker(connection, ready, filename, content, mode, max_characters, memory_limit, directory):
     try:
         ready.wait()
@@ -88,9 +104,12 @@ def _parse_worker(connection, ready, filename, content, mode, max_characters, me
     except MemoryError:
         connection.send(("error", "文档解析超过内存资源预算", None))
     except ValueError as exc:
-        connection.send(("error", str(exc), None))
+        message = "文档解析超过内存资源预算" if _memory_ceiling_reached(memory_limit) else str(exc)
+        connection.send(("error", message, None))
     except Exception:
-        connection.send(("error", "文档解析失败，请确认文件未损坏且内容可识别", None))
+        message = ("文档解析超过内存资源预算" if _memory_ceiling_reached(memory_limit)
+                   else "文档解析失败，请确认文件未损坏且内容可识别")
+        connection.send(("error", message, None))
     finally:
         connection.close()
 

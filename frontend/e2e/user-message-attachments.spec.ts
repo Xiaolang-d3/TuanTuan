@@ -88,10 +88,13 @@ for (const theme of ["light", "dark"] as const) {
         await expect(actions).toHaveCSS("opacity", "1");
         const hit = await edit.evaluate(element => {
           const box = element.getBoundingClientRect();
-          const target = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+          const target = document.elementFromPoint(x, y);
           return {
             ok: element.contains(target),
-            coveredBy: target ? `${target.tagName.toLowerCase()}.${String(target.className || "").trim()}` : "none",
+            stack: document.elementsFromPoint(x, y).slice(0, 4)
+              .map(node => `${node.tagName.toLowerCase()}.${String(node.className || "").trim()}`),
             box: [Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height)]
           };
         });
