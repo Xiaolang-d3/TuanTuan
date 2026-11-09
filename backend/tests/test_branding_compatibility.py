@@ -135,3 +135,42 @@ def test_display_names_only_normalize_product_defaults():
     for old in ("CareerLoop", "BossCopilot", "Dengdeng", "灯灯"):
         assert branding.display_name(old) == "团团"
     assert branding.display_name("我的助手") == "我的助手"
+
+
+@pytest.mark.parametrize("prefix", ["TUANTUAN_", "CAREERLOOP_", "DENGDENG_"])
+def test_health_identity_uses_current_brand_and_compatible_instance_env(monkeypatch, prefix):
+    from app.api.system import health
+    for name in ("TUANTUAN_INSTANCE_ID", "CAREERLOOP_INSTANCE_ID", "DENGDENG_INSTANCE_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(prefix + "INSTANCE_ID", "branding-test-instance")
+    assert health()["service"] == "tuantuan"
+    assert health()["instance_id"] == "branding-test-instance"
+
+
+def test_database_adoption_does_not_overwrite_orphaned_destination_sidecars(tmp_path):
+    legacy = tmp_path / "careerloop.db"
+    legacy.write_bytes(b"legacy")
+    sidecar = tmp_path / "tuantuan.db-wal"
+    sidecar.write_bytes(b"retained-wal")
+    with pytest.raises(FileExistsError):
+        branding.adopt_database(tmp_path)
+    assert legacy.read_bytes() == b"legacy"
+    assert sidecar.read_bytes() == b"retained-wal"
+
+
+def test_database_adoption_rolls_back_if_a_sidecar_cannot_move(tmp_path, monkeypatch):
+    legacy = tmp_path / "careerloop.db"
+    legacy.write_bytes(b"legacy")
+    sidecar = tmp_path / "careerloop.db-wal"
+    sidecar.write_bytes(b"retained-wal")
+    rename = Path.rename
+    def fail_sidecar(path, target):
+        if path == sidecar:
+            raise OSError("synthetic sidecar move failure")
+        return rename(path, target)
+    monkeypatch.setattr(Path, "rename", fail_sidecar)
+    with pytest.raises(OSError, match="synthetic sidecar"):
+        branding.adopt_database(tmp_path)
+    assert legacy.read_bytes() == b"legacy"
+    assert sidecar.read_bytes() == b"retained-wal"
+    assert not (tmp_path / "tuantuan.db").exists()

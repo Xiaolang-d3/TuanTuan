@@ -1,4 +1,14 @@
 import os
+import tempfile
+
+# Never load a developer's .env or inherit product-specific credentials/options.
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+for _name in list(os.environ):
+    if _name.startswith(("TUANTUAN_", "CAREERLOOP_", "DENGDENG_")):
+        os.environ.pop(_name, None)
+
+_test_data_dir = tempfile.TemporaryDirectory(prefix="tuantuan-tests-")
+os.environ["TUANTUAN_DATA_DIR"] = _test_data_dir.name
 
 # Never load a developer's .env or inherit product-specific credentials/options.
 os.environ["PYTHON_DOTENV_DISABLED"] = "1"

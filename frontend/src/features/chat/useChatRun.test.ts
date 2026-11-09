@@ -270,7 +270,7 @@ describe("useChatRun stream reconciliation", () => {
     await act(async () => { emit("onStateSnapshotEvent", { event: { snapshot } }); finish(); await pending; });
   });
 
-  it("merges standard reasoning and the matching tuantuan event into one activity", async () => {
+  it("merges standard reasoning and the matching Tuantuan event into one activity", async () => {
     const { result, finish } = setup();
     let pending!: Promise<void | false>;
     act(() => { pending = result.current.sendChatMessage(userMessage.content); });
