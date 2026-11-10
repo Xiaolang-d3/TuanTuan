@@ -153,7 +153,8 @@ def test_url_output_rejects_unapproved_downloads_without_another_request(url):
 
 
 @pytest.mark.parametrize('addresses', [[], ['127.0.0.1'], ['10.0.0.1'], ['169.254.169.254'],
-    ['::1'], ['fc00::1'], ['224.0.0.1'], ['ff02::1'], ['8.8.8.8', '192.168.1.1']])
+    ['::1'], ['fc00::1'], ['224.0.0.1'], ['ff02::1'], ['8.8.8.8', '192.168.1.1'],
+    ['2002:7f00:1::'], ['64:ff9b::7f00:1'], ['::ffff:127.0.0.1']])
 def test_url_output_rejects_private_or_empty_dns_before_downloading(monkeypatch, addresses):
     monkeypatch.setattr(socket, 'getaddrinfo', lambda *args, **kwargs: [
         (socket.AF_INET6 if ':' in address else socket.AF_INET, socket.SOCK_STREAM, 6, '',
