@@ -1,10 +1,12 @@
-import { FormEvent, ReactNode, RefObject, useEffect, useRef, useState } from "react";
-import { ArrowRight, Eye, EyeOff, Lock } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { Eye, EyeOff, Lock } from "lucide-react";
 import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
 import { productIntroHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
+import { AuthMascot } from "./AuthMascot";
+import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
 import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/passwordPolicy";
 export type { AuthUser } from "../features/auth/session";
@@ -259,10 +261,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
     <AuthGateShell>
       <div className="auth-shell">
         <form className="auth-card" onSubmit={submit} noValidate aria-busy={busy}>
-          <div className="auth-brand">
-            <img className="auth-logo" src="/tuantuan-logo.png" alt="" draggable={false} />
-            <h1 className="auth-eyebrow">团团</h1>
-          </div>
           <div className="auth-heading">
             <h2 className="auth-form-title">{creating ? "创建本地账户" : "登录本地账户"}</h2>
             <p className="auth-subtitle">{creating ? "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
@@ -351,7 +349,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
             ) : null}
           </div>
           <label className="auth-remember"><input type="checkbox" checked={remember} disabled={busy} onChange={(event) => setRemember(event.target.checked)} />保持登录</label>
-          <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p>
           {error && !fieldErrors.password ? (
             <p className="auth-error" role="alert">
               <span>{error}</span>
@@ -361,8 +358,8 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           ) : null}
           <button className="auth-submit" type="submit" disabled={busy || cooldown > 0} aria-busy={busy}>
             <span>{cooldown ? `${cooldown} 秒后重试` : busy ? (creating ? "正在创建…" : "正在登录…") : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录"}</span>
-            {!busy && !cooldown ? <ArrowRight size={16} aria-hidden="true" /> : null}
           </button>
+          <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p>
           <p className="auth-mode-switch">
             {pendingCreation ? (
               <button type="button" onClick={() => switchMode(false)} disabled={busy}>返回登录</button>
@@ -373,45 +370,16 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
             ) : null}
           </p>
         </form>
+        <section className="auth-artwork" aria-label="团团，你的智能工作伙伴">
+          <AuthMascot />
+          <div className="auth-artwork-caption">
+            <h2>从对话开始，让工作更从容。</h2>
+            <p>团团，你的智能工作伙伴。</p>
+          </div>
+        </section>
       </div>
     </AuthGateShell>
   );
-}
-
-function prefersReducedMotion() {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-const gridCellPx = 36;
-
-function useAuthGridLinger(rootRef: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root || prefersReducedMotion()) return;
-    const grid = root.querySelector(".auth-grid");
-    if (!(grid instanceof HTMLElement)) return;
-
-    const onPointerMove = (event: PointerEvent) => {
-      const rect = grid.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
-      const cellX = Math.floor((event.clientX - rect.left) / gridCellPx) * gridCellPx;
-      const cellY = Math.floor((event.clientY - rect.top) / gridCellPx) * gridCellPx;
-      root.style.setProperty("--cell-x", `${cellX}px`);
-      root.style.setProperty("--cell-y", `${cellY}px`);
-      root.style.setProperty("--linger", "1");
-    };
-
-    const onPointerLeave = () => {
-      root.style.setProperty("--linger", "0");
-    };
-
-    root.addEventListener("pointermove", onPointerMove, { passive: true });
-    root.addEventListener("pointerleave", onPointerLeave);
-    return () => {
-      root.removeEventListener("pointermove", onPointerMove);
-      root.removeEventListener("pointerleave", onPointerLeave);
-    };
-  }, [rootRef]);
 }
 
 function isAuthFormTarget(target: EventTarget | null) {
@@ -424,29 +392,15 @@ function suppressBackgroundDoubleClick(event: { target: EventTarget | null; prev
 }
 
 function AuthGateShell({ status = false, children }: { status?: boolean; children: ReactNode }) {
-  const rootRef = useRef<HTMLElement>(null);
-  useAuthGridLinger(rootRef);
   return (
-    <main ref={rootRef} className={status ? "auth-gate auth-gate-status" : "auth-gate"} onDoubleClick={suppressBackgroundDoubleClick}>
-      <AuthAtmosphere />
+    <main className={status ? "auth-gate auth-gate-status" : "auth-gate"} onDoubleClick={suppressBackgroundDoubleClick}>
+      <h1 className="auth-wordmark">团团</h1>
       <nav className="auth-public-nav" aria-label="公共导航">
         <a href={productIntroHash}>关于 团团</a>
+        <ThemeToggleButton className="auth-theme-toggle" />
       </nav>
       {children}
     </main>
-  );
-}
-
-function AuthAtmosphere() {
-  return (
-    <div className="auth-atmosphere" aria-hidden="true" onDoubleClick={suppressBackgroundDoubleClick}>
-      <span className="auth-veil" />
-      <span className="auth-grid">
-        <span className="auth-cell" />
-      </span>
-      <span className="auth-gleam" />
-      <span className="auth-grain" />
-    </div>
   );
 }
 

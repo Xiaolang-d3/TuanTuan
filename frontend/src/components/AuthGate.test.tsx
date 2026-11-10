@@ -1,6 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderComponent, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthGate } from "./AuthGate";
+import { ThemeProvider, THEME_STORAGE_KEY } from "../features/appearance/ThemeProvider";
+
+function render(element: ReactElement) {
+  return renderComponent(element, { wrapper: ThemeProvider });
+}
 
 function authConfig(setupRequired = false) {
   return new Response(JSON.stringify({ enabled: true, setup_required: setupRequired, registration_open: true }), { status: 200 });
@@ -13,6 +19,29 @@ describe("AuthGate", () => {
     window.localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    delete document.documentElement.dataset.theme;
+    document.documentElement.style.colorScheme = "";
+  });
+
+  it.each(["light", "dark"] as const)("switches the saved %s theme from the public navigation and preserves it on remount", async initial => {
+    localStorage.setItem(THEME_STORAGE_KEY, initial);
+    vi.stubGlobal("fetch", vi.fn(async () => authConfig()));
+    render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
+    await screen.findByLabelText("邮箱");
+    const next = initial === "dark" ? "light" : "dark";
+    const label = next === "dark" ? "切换到深色主题" : "切换到浅色主题";
+    const toggle = screen.getByRole("button", { name: label });
+    expect(screen.getByRole("navigation", { name: "公共导航" })).toContainElement(toggle);
+    expect(toggle.closest("form")).toBeNull();
+    expect(toggle).toHaveAttribute("type", "button");
+    fireEvent.click(toggle);
+    expect(document.documentElement).toHaveAttribute("data-theme", next);
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(next);
+    cleanup();
+    render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
+    await screen.findByLabelText("邮箱");
+    expect(document.documentElement).toHaveAttribute("data-theme", next);
+    expect(screen.getByRole("button", { name: initial === "dark" ? "切换到深色主题" : "切换到浅色主题" })).toBeVisible();
   });
 
   it("validates an existing session without requesting sign-in configuration", async () => {
@@ -402,7 +431,7 @@ describe("AuthGate", () => {
     render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
     await screen.findByLabelText("邮箱");
     const gate = screen.getByRole("main");
-    expect(gate.querySelector(".auth-grid")).not.toBeNull();
+    expect(gate.querySelector(".auth-grid")).toBeNull();
     fireEvent.pointerMove(gate, { clientX: 200, clientY: 400 });
     expect(gate.style.getPropertyValue("--cell-x")).toBe("");
     expect(raf).not.toHaveBeenCalled();

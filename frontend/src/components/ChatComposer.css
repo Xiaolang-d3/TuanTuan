@@ -80,19 +80,19 @@
   min-height: 36px;
   padding: 2px 10px;
   border-radius: 0 0 10px 10px;
-  color: #454950;
-  background: #e5e7eb;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-subtle);
 }
 .chat-workspace .composer-tools-bar { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
 .chat-workspace .composer-tools-bar .composer-tool { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 32px; padding: 0 7px; border: 0; border-radius: 4px; color: inherit; background: transparent; font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
 .chat-workspace .composer-tools-bar .composer-tool:hover,
-.chat-workspace .composer-tools-bar .composer-tool[aria-expanded="true"] { color: #282c33; background: #d1d5db; }
+.chat-workspace .composer-tools-bar .composer-tool[aria-expanded="true"] { color: var(--color-text); background: var(--color-surface-emphasis); }
 .chat-workspace .composer-tools-bar .composer-tool:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .chat-workspace .composer-tools-bar .composer-tool > svg { flex: none; width: 14px; height: 14px; }
 .chat-workspace .composer-tools-bar .extension-skill-picker { min-width: 0; max-width: min(180px, 42vw); }
 .chat-workspace .composer-tools-bar .extension-skill-picker .composer-tool > span { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-workspace .composer-tools-bar .composer-connections-tool { flex: none; white-space: nowrap; }
-.chat-workspace .composer-footer .composer-input-hint { margin-left: auto; padding: 0; color: #454950; font-size: 13px; }
+.chat-workspace .composer-footer .composer-input-hint { margin-left: auto; padding: 0; color: var(--color-text-secondary); font-size: 13px; }
 .chat-workspace .composer-footer .composer-input-hint:not(.is-active) { display: none; }
 @media (pointer: coarse) {
   .chat-workspace .composer-keyboard-hint { display: none; }
@@ -124,7 +124,7 @@
   inset: -1.5px;
   padding: 2px;
   border-radius: inherit;
-  background: conic-gradient(from var(--composer-glow-angle), transparent 0% 12%, var(--color-brand) 24%, #55cfff 33%, var(--color-brand) 42%, transparent 54% 62%, var(--color-brand) 74%, #cb8bff 83%, var(--color-brand) 90%, transparent 100%);
+  background: conic-gradient(from var(--composer-glow-angle), transparent 0% 12%, var(--color-brand) 24%, #b9b9b9 33%, var(--color-brand) 42%, transparent 54% 62%, var(--color-brand) 74%, #a1a1a1 83%, var(--color-brand) 90%, transparent 100%);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);

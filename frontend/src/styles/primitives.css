@@ -9,8 +9,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background:
-    radial-gradient(circle at 94% 6%, rgba(23, 105, 201, .13), transparent 34%),
-    linear-gradient(135deg, #eff9ff, #fff 68%);
+    var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -40,10 +39,10 @@
 .ui-button-md { min-height: 40px; padding: 0 14px; font-size: 13px; }
 
 .ui-button-primary {
-  color: #fff;
+  color: var(--color-on-brand);
   border-color: var(--color-brand);
   background: var(--color-brand);
-  box-shadow: 0 5px 14px rgba(18, 86, 170, .18);
+  box-shadow: 0 5px 14px rgba(78, 78, 78, .18);
 }
 
 .ui-button-primary:hover:not(:disabled) {
@@ -96,7 +95,7 @@
 
 .ui-icon-button:hover:not(:disabled) {
   color: var(--color-brand);
-  border-color: #bbb4e6;
+  border-color: #b9b9b9;
 }
 
 .ui-status-badge {
@@ -180,7 +179,7 @@
   display: block;
   height: 12px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(90deg, var(--color-surface-subtle), #fafaff, var(--color-surface-subtle));
+  background: var(--color-surface);
   background-size: 200% 100%;
   animation: page-loading-shimmer 1.4s ease-in-out infinite;
 }

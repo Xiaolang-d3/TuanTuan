@@ -1,7 +1,13 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderComponent, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Bootstrap } from "./Bootstrap";
 import { resolveApiBase } from "./runtime";
+import { ThemeProvider } from "../features/appearance/ThemeProvider";
+
+function render(element: ReactElement) {
+  return renderComponent(element, { wrapper: ThemeProvider });
+}
 
 vi.mock("./runtime", () => ({ resolveApiBase: vi.fn() }));
 vi.mock("./App", () => ({ App: ({ user }: { user: { email: string } }) => <div>当前账户：{user.email}</div> }));
