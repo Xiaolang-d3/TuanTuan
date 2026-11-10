@@ -95,6 +95,42 @@ def test_darwin_parent_monitors_child_and_fails_closed(monkeypatch, samples, res
     assert "terminate" in calls and "join" in calls and "close" in calls
 
 
+def test_darwin_sample_race_accepts_completed_result(monkeypatch):
+    from app.documents import limits
+
+    calls = []
+    class Monitor:
+        def resident_bytes(self, pid):
+            calls.append("sample")
+            if calls.count("sample") == 1:
+                return 50
+            raise limits.DocumentLimitError("无法读取文档解析的内存监控")
+    class Child:
+        pid = 123
+        alive = iter([True, False, False])
+        def start(self): pass
+        def is_alive(self): return next(self.alive, False)
+        def join(self, timeout): pass
+        def close(self): pass
+    class Receiver:
+        def poll(self, timeout): return True
+        def recv(self): return ("ok", "parsed", 80)
+        def close(self): pass
+    class Directory:
+        def __enter__(self): return "unused"
+        def __exit__(self, *args): return False
+    child = Child()
+    ctx = SimpleNamespace(Pipe=lambda **_: (Receiver(), SimpleNamespace(close=lambda: None)),
+                          Event=lambda: SimpleNamespace(set=lambda: None),
+                          Process=lambda *args, **kwargs: child)
+    monkeypatch.setattr(limits, "_is_darwin", lambda: True)
+    monkeypatch.setattr(limits, "_DarwinMemoryMonitor", Monitor)
+    monkeypatch.setattr(limits, "FAST_PARSE_MEMORY_BYTES", 100)
+    monkeypatch.setattr(limits.tempfile, "TemporaryDirectory", lambda **_: Directory())
+    monkeypatch.setattr(limits.multiprocessing, "get_context", lambda _: ctx)
+    assert limits._run_document_parser("note.txt", b"x", "fast", max_characters=1000, metrics=None) == "parsed"
+
+
 @pytest.fixture
 def run_worker_error(monkeypatch):
     """Exercise worker exception routing without spawning or imposing host limits."""

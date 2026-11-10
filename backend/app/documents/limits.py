@@ -204,7 +204,15 @@ def _run_document_parser(filename, content, mode, *, max_characters, metrics):
                 if remaining <= 0:
                     raise DocumentLimitError("文档解析超过处理时限，请拆分资料或使用快速解析；原文件保留")
                 if monitor is not None and process.is_alive():
-                    peak = max(peak or 0, monitor.resident_bytes(process.pid))
+                    try:
+                        peak = max(peak or 0, monitor.resident_bytes(process.pid))
+                    except DocumentLimitError:
+                        # The child can exit after sending its result but between
+                        # is_alive() and libproc's sample. Only accept its result
+                        # if the process has exited and a response is available;
+                        # otherwise monitoring failure remains fail-closed.
+                        if process.is_alive() or not receive.poll(min(0.05, remaining)):
+                            raise
                     if peak > memory_limit:
                         raise DocumentLimitError("文档解析超过内存资源预算")
                 if receive.poll(min(0.05, remaining)):
