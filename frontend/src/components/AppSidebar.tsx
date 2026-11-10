@@ -2,16 +2,14 @@ import {
   Folder,
   Home,
   MessageCircle,
-  Moon,
   Settings,
-  Sun,
   PanelLeft
 } from "lucide-react";
 import { type ReactNode } from "react";
 import { sidebarHighlightForView, type SidebarHighlight } from "../constants";
 import type { ViewKey } from "../types";
 import type { SettingsPage } from "../routing";
-import { useTheme } from "../features/appearance/ThemeProvider";
+import { ThemeToggleButton } from "./ThemeToggleButton";
 import { WeixinBotEntry } from './WeixinBotEntry';
 import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
@@ -57,9 +55,6 @@ export function AppSidebar({
   weixinActive = false,
   onOpenWeixin
 }: AppSidebarProps) {
-  const { resolved, setPreference } = useTheme();
-  const nextTheme = resolved === "dark" ? "light" : "dark";
-  const themeLabel = nextTheme === "light" ? "切换到浅色主题" : "切换到深色主题";
   const highlighted = sidebarHighlightForView(activeView, { settingsPage, libraryOpen });
   const isActive = (key: SidebarHighlight) => highlighted === key;
 
@@ -128,15 +123,7 @@ export function AppSidebar({
       <div className="sidebar-identity-slot">
         {identity}
         {weixinBot?.connected && onOpenWeixin && <WeixinBotEntry active={weixinActive} unreadCount={weixinBot.unread_count} enabled={weixinBot.enabled} error={weixinBot.error} onOpen={onOpenWeixin} />}
-        <button
-          className="sidebar-theme-toggle"
-          type="button"
-          onClick={() => setPreference(nextTheme)}
-          aria-label={themeLabel}
-          title={themeLabel}
-        >
-          {nextTheme === "light" ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
-        </button>
+        <ThemeToggleButton className="sidebar-theme-toggle" />
       </div>
     </aside>
   );

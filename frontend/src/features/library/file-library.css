@@ -12,14 +12,14 @@
   width: 100%;
 }
 .file-library {
-  --fl-brand: #1769c9;
-  --fl-soft: #f0edfc;
-  --fl-line: #e8e7ef;
-  --fl-panel: #fff;
-  --fl-subtle: #f6f6f8;
-  --fl-text: #292936;
-  --fl-secondary: #626272;
-  --fl-muted: #80808f;
+  --fl-brand: var(--color-brand);
+  --fl-soft: var(--color-brand-soft);
+  --fl-line: var(--color-border);
+  --fl-panel: var(--color-surface);
+  --fl-subtle: var(--color-surface-subtle);
+  --fl-text: var(--color-text);
+  --fl-secondary: var(--color-text-secondary);
+  --fl-muted: var(--color-text-muted);
   --fl-header-h: 52px;
   color: var(--fl-text);
   background: var(--fl-subtle);
@@ -96,8 +96,8 @@
   padding: 0 10px;
   border: 1px solid var(--fl-line);
   border-radius: 8px;
-  background: var(--fl-subtle, #faf9fe);
-  color: var(--fl-muted, #696880);
+  background: var(--fl-subtle, #fafafa);
+  color: var(--fl-muted, #6a6a6a);
 }
 .fl-search input {
   flex: 1;
@@ -159,12 +159,12 @@
   border: 1px solid var(--fl-line);
   border-radius: 8px;
   background: var(--fl-panel, #fff);
-  color: var(--fl-secondary, #50516a);
+  color: var(--fl-secondary, #535353);
   font-size: 14px;
   white-space: nowrap;
 }
 .file-library .fl-button.primary {
-  color: #fff;
+  color: var(--color-on-brand);
   background: var(--fl-brand);
   border-color: var(--fl-brand);
 }
@@ -174,10 +174,10 @@
   border-color: var(--fl-danger, #ad4058);
 }
 .file-library .fl-button:hover:not(:disabled) {
-  background: var(--fl-subtle, #f5f3ff);
+  background: var(--fl-subtle, #f4f4f4);
 }
 .file-library .fl-button.primary:hover:not(:disabled) {
-  background: #5748ca;
+  background: var(--color-brand-strong);
 }
 .file-library .fl-icon-button {
   display: inline-flex;
@@ -187,7 +187,7 @@
   height: 34px;
   padding: 6px;
   border-radius: 7px;
-  color: var(--fl-muted, #6b6982);
+  color: var(--fl-muted, #6b6b6b);
 }
 .fl-icon-button:hover,
 .fl-icon-button.active {
@@ -270,7 +270,7 @@
   font-size: 16px;
   white-space: nowrap;
   padding: 0 1px;
-  color: var(--fl-secondary, #595871);
+  color: var(--fl-secondary, #5a5a5a);
 }
 .fl-viewer-tabs button.active {
   color: var(--fl-brand);
@@ -339,7 +339,7 @@
 .fl-file-context > small,
 .fl-breadcrumb > span {
   font-size: 12px;
-  color: var(--fl-muted, #808094);
+  color: var(--fl-muted, #818181);
 }
 .fl-sort {
   display: flex;
@@ -425,7 +425,7 @@
   height: 34px;
   border-bottom: 1px solid var(--fl-line);
   background: transparent;
-  color: var(--fl-muted, #747286);
+  color: var(--fl-muted, #747474);
 }
 .fl-table th {
   font-weight: 500;
@@ -445,11 +445,11 @@
 }
 .fl-table .fl-size {
   width: 84px;
-  color: var(--fl-muted, #77768c);
+  color: var(--fl-muted, #787878);
 }
 .fl-table .fl-date {
   width: 90px;
-  color: var(--fl-muted, #77768c);
+  color: var(--fl-muted, #787878);
 }
 .fl-table .fl-actions {
   width: 46px;
@@ -462,7 +462,7 @@
   cursor: pointer;
 }
 .fl-table tbody tr:hover {
-  background: var(--fl-subtle, #fbfaff);
+  background: var(--fl-subtle, #fbfbfb);
 }
 .fl-table tbody tr.selected {
   background: var(--fl-soft);
@@ -505,7 +505,7 @@
 }
 .fl-filename small {
   font-size: 11px;
-  color: var(--fl-muted, #7b798f);
+  color: var(--fl-muted, #7b7b7b);
   display: block;
   margin-top: 4px;
   white-space: nowrap;
@@ -525,19 +525,19 @@
   flex: none;
 }
 .fl-file-icon.pdf {
-  color: var(--color-danger, #bf4d58);
-  background: color-mix(in srgb, var(--color-danger, #bf4d58) 10%, var(--fl-panel));
+  color: var(--color-danger, #666666);
+  background: color-mix(in srgb, var(--color-danger, #666666) 10%, var(--fl-panel));
 }
 .fl-file-icon.word {
-  color: var(--color-info, #487ee5);
-  background: color-mix(in srgb, var(--color-info, #487ee5) 10%, var(--fl-panel));
+  color: var(--color-info, #7a7a7a);
+  background: color-mix(in srgb, var(--color-info, #7a7a7a) 10%, var(--fl-panel));
 }
 .fl-file-icon.image {
   background: var(--fl-soft);
   color: var(--fl-brand);
 }
 .fl-favorite {
-  color: #bc9138;
+  color: #949494;
 }
 .fl-browser-footer {
   display: flex;
@@ -545,7 +545,7 @@
   justify-content: space-between;
   gap: 16px;
   font-size: 11px;
-  color: var(--fl-muted, #818094);
+  color: var(--fl-muted, #828282);
   margin-top: auto;
   padding-top: 24px;
   flex-wrap: wrap;
@@ -564,14 +564,14 @@
   justify-content: center;
   text-align: center;
   gap: 17px;
-  color: var(--fl-muted, #787589);
+  color: var(--fl-muted, #777777);
 }
 .fl-browser > .fl-empty {
   flex: 1;
 }
 .fl-empty h3 {
   font-size: 18px;
-  color: var(--fl-secondary, #50516a);
+  color: var(--fl-secondary, #535353);
   font-weight: 500;
 }
 .fl-empty p {
@@ -639,7 +639,7 @@
 .fl-viewer-header small {
   display: block;
   font-size: 12px;
-  color: var(--fl-muted, #838095);
+  color: var(--fl-muted, #828282);
   margin-top: 7px;
 }
 .fl-viewer-tabs {
@@ -656,14 +656,14 @@
   gap: 7px;
   margin-left: auto;
   font-size: 12px;
-  color: var(--fl-muted, #818094);
+  color: var(--fl-muted, #828282);
 }
 .fl-preview-scroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
   margin-top: 15px;
-  background: var(--fl-subtle, #f8f7fb);
+  background: var(--fl-subtle, #f8f8f8);
 }
 .fl-pdf {
   border: 0;
@@ -688,7 +688,7 @@
 }
 .fl-text-page small {
   font-size: 12px;
-  color: var(--fl-muted, #79778b);
+  color: var(--fl-muted, #797979);
 }
 .fl-text-page pre {
   white-space: pre-wrap;
@@ -730,7 +730,7 @@
 .fl-viewer-footer details {
   font-size: 12px;
   position: relative;
-  color: var(--fl-muted, #79768e);
+  color: var(--fl-muted, #787878);
 }
 .fl-viewer-footer summary {
   cursor: pointer;
@@ -756,7 +756,7 @@
 .fl-original-note {
   font-size: 11px;
   margin-top: 8px;
-  color: var(--fl-muted, #79768e);
+  color: var(--fl-muted, #787878);
 }
 .fl-reader {
   height: 100dvh;
@@ -819,13 +819,13 @@
 .fl-dialog {
   width: min(100%, 490px);
   background: var(--fl-panel, white);
-  border: 1px solid #e2dfed;
+  border: 1px solid #e1e1e1;
   border-radius: 14px;
   padding: 25px;
   max-height: 90dvh;
   overflow: auto;
   box-shadow: 0 24px 70px #20213a24;
-  color: var(--fl-text, #20213a);
+  color: var(--fl-text, #232323);
 }
 .fl-dialog > header {
   display: flex;
@@ -860,7 +860,7 @@
   font: inherit;
   width: 100%;
   background: var(--fl-panel, white);
-  border: 1px solid #ded9ec;
+  border: 1px solid #dbdbdb;
   padding: 10px 12px;
   border-radius: 8px;
 }
@@ -1032,6 +1032,14 @@
   .file-library {
     --fl-header-h: 48px;
     min-height: calc(100dvh - 62px);
+    --fl-brand: var(--color-brand);
+    --fl-soft: var(--color-brand-soft);
+    --fl-line: var(--color-border);
+    --fl-panel: var(--color-surface);
+    --fl-subtle: var(--color-surface-subtle);
+    --fl-text: var(--color-text);
+    --fl-secondary: var(--color-text-secondary);
+    --fl-muted: var(--color-text-muted);
   }
   .app-shell .content.library-content {
     padding: 0;

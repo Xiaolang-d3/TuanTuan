@@ -3,31 +3,32 @@
   color-scheme: dark;
   color: var(--color-text);
   background: var(--color-bg);
-  --color-bg: #172633;
-  --color-surface: #203442;
-  --color-surface-subtle: #2a4150;
-  --color-surface-emphasis: #29495e;
-  --color-text: #ededf4;
-  --color-text-secondary: #c4d0db;
-  --color-text-muted: #aebdca;
-  --color-border: #3a5363;
-  --color-border-strong: #60798a;
-  --color-brand: #8bc8ff;
-  --color-brand-strong: #b6e7ff;
-  --color-brand-soft: #183650;
+  --color-bg: #111111;
+  --color-surface: #191919;
+  --color-surface-subtle: #242424;
+  --color-surface-emphasis: #2e2e2e;
+  --color-text: #f5f5f5;
+  --color-text-secondary: #d4d4d4;
+  --color-text-muted: #a3a3a3;
+  --color-border: #383838;
+  --color-border-strong: #737373;
+  --color-brand: #ededed;
+  --color-brand-strong: #ffffff;
+  --color-brand-soft: #2e2e2e;
   --color-success: #76d5b5;
   --color-success-soft: #18392f;
   --color-warning: #f0c375;
   --color-warning-soft: #3c2e18;
   --color-danger: #f6a2b3;
   --color-danger-soft: #432330;
-  --color-info: #a3b6ff;
-  --color-info-soft: #252e49;
+  --color-info: #d4d4d4;
+  --color-info-soft: #242424;
   --shadow-sm: 0 2px 12px rgba(0,0,0,.18);
   --shadow-md: 0 18px 48px rgba(0,0,0,.4);
-  --focus-ring: 0 0 0 3px rgba(102, 190, 244, .24);
+  --focus-ring: 0 0 0 3px rgb(237 237 237 / 24%);
   --surface: var(--color-surface);
   --shadow: var(--shadow-md);
+  --color-on-brand: #171717;
 }
 /* Shared shell, overlays, and forms use semantic surfaces in every module. */
 :root[data-theme="dark"] body { background: var(--color-bg); }
@@ -40,8 +41,8 @@
 :root[data-theme="dark"] :is(.app-identity-menu button, .sidebar-identity-menu button, .sidebar-identity, .account-avatar-actions button) { color: var(--color-text-secondary); }
 :root[data-theme="dark"] :is(.account-settings-page, .model-settings-page, .settings-workspace, .conversation-dialog, .auth-form-panel) :is(input:not([type="radio"]):not([type="checkbox"]), textarea, select) { color: var(--color-text); background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
 :root[data-theme="dark"] :is(.sidebar .sidebar-toggle, .account-avatar-actions button, .model-settings-card, .model-monitor-card, .agent-window-switch button.active) { background: var(--color-surface); border-color: var(--color-border); }
-:root[data-theme="dark"] :is(.ui-button-primary, .account-primary-button, .file-library .fl-button.primary) { color: #fff; background: #1769c9; border-color: #1769c9; }
-:root[data-theme="dark"] :is(.ui-button-primary, .account-primary-button, .file-library .fl-button.primary):hover:not(:disabled) { background: #237bdd; border-color: #237bdd; }
+:root[data-theme="dark"] :is(.ui-button-primary, .account-primary-button, .file-library .fl-button.primary) { color: var(--color-on-brand); background: var(--color-brand); border-color: var(--color-brand); }
+:root[data-theme="dark"] :is(.ui-button-primary, .account-primary-button, .file-library .fl-button.primary):hover:not(:disabled) { background: var(--color-brand-strong); border-color: var(--color-brand-strong); }
 :root[data-theme="dark"] .model-settings-notice { background: var(--color-warning-soft); border-color: var(--color-warning); color: var(--color-warning); }
 :root[data-theme="dark"] .global-notice-toast { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
 :root[data-theme="dark"] .error-banner { background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger); }
@@ -51,9 +52,6 @@
 :root[data-theme="dark"] .ui-button-ghost { color: var(--color-brand-strong); background: transparent; }
 :root[data-theme="dark"] .ui-button-ghost:hover:not(:disabled) { background: var(--color-brand-soft); }
 :root[data-theme="dark"] .ui-button-danger { color: var(--color-danger); background: var(--color-danger-soft); border-color: var(--color-danger); }
-/* 登录页固定亮色：深色主题下只把页面底色统一为亮色，卡片沿用自身样式。 */
-:root[data-theme="dark"]:has(.auth-gate) { background: #f7f6fb; }
-
 /* Conversation panels retain the same palette as the shell, including popups. */
 :root[data-theme="dark"] .chat-workspace :is(.research-panel, .conversation-history-panel, .research-process-list > li:has(button[aria-expanded="true"]), .research-source-detail, .research-source-list > button.is-active, .research-source-list > button:hover, .research-source-list > button:focus-visible) { background: var(--color-surface); border-color: var(--color-border); }
 :root[data-theme="dark"] .chat-workspace :is(.research-empty-state, .composer-shortcuts button, .research-process-list button:hover, .research-process-list button:focus-visible) { background: var(--color-surface-subtle); border-color: var(--color-border); color: var(--color-text-secondary); }
@@ -69,8 +67,8 @@
 :root[data-theme="dark"] .chat-workspace .chat-retry-prompt button { background: var(--color-surface); color: var(--color-warning); border-color: var(--color-warning); }
 :root[data-theme="dark"] .chat-workspace .chat-composer .composer-input { background: var(--color-surface) !important; border-color: var(--color-border) !important; }
 :root[data-theme="dark"] .chat-workspace .composer-input textarea { color: var(--color-text); }
-:root[data-theme="dark"] .chat-workspace .chat-composer .send-button { color: #fff; background: #1769c9; }
-:root[data-theme="dark"] .chat-workspace .chat-composer .send-button:hover { background: #237bdd; }
+:root[data-theme="dark"] .chat-workspace .chat-composer .send-button { color: var(--color-on-brand); background: var(--color-brand); }
+:root[data-theme="dark"] .chat-workspace .chat-composer .send-button:hover { background: var(--color-brand-strong); }
 :root[data-theme="dark"] .chat-workspace .message-markdown :is(pre, code, th) { background: var(--color-surface-subtle); color: var(--color-text); border-color: var(--color-border); }
 :root[data-theme="dark"] .chat-workspace .message-markdown :is(td, th) { border-color: var(--color-border); }
 :root[data-theme="dark"] .assistant-popup .chat-workspace :is(.chat-composer, .chat-session-header),
@@ -109,13 +107,14 @@
   --think-accent: var(--color-brand);
 }
 :root[data-theme="light"] .chat-workspace .thinking-process {
-  --think-bg: #f3faff;
-  --think-bg-hover: #e8f5ff;
-  --think-border: #d6e9f6;
-  --think-text: #6a6490;
-  --think-body: #4f4b68;
+  --think-bg: var(--color-surface-subtle);
+  --think-bg-hover: var(--color-brand-soft);
+  --think-border: var(--color-border);
+  --think-text: var(--color-text-secondary);
+  --think-body: var(--color-text);
+  --think-accent: var(--color-brand);
 }
 :root[data-theme="dark"] .file-library :is(.fl-search, .fl-button, .fl-dialog, .fl-dialog input, .fl-dialog textarea) { border-color: var(--fl-line); }
-:root[data-theme="dark"] .file-library .fl-button.primary { border-color: #1769c9; }
+:root[data-theme="dark"] .file-library .fl-button.primary { border-color: var(--color-brand); }
 :root[data-theme="dark"] .file-library .fl-table :is(td, th) { border-color: var(--fl-line); }
 :root[data-theme="dark"] .file-library .fl-table th { color: var(--fl-muted) !important; }

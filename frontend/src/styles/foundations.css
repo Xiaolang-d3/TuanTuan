@@ -1,32 +1,32 @@
 :root {
-  color: #20213a;
-  background: #f7f6fb;
+  color: var(--color-text);
+  background: var(--color-bg);
   --font-sans: "Manrope", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Instrument Serif", "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  --color-bg: #f7f6fb;
+  --color-bg: #fafafa;
   --color-surface: #ffffff;
-  --color-surface-subtle: #f0eff8;
-  --color-surface-emphasis: #e8f4ff;
-  --color-text: #20213a;
-  --color-text-secondary: #50516a;
-  --color-text-muted: #84859a;
-  --color-border: #e4e2ef;
-  --color-border-strong: #d3d0e3;
-  --color-brand: #1769c9;
-  --color-brand-strong: #1256aa;
-  --color-brand-soft: #e8f4ff;
+  --color-surface-subtle: #f4f4f4;
+  --color-surface-emphasis: #ededed;
+  --color-text: #171717;
+  --color-text-secondary: #525252;
+  --color-text-muted: #737373;
+  --color-border: #e5e5e5;
+  --color-border-strong: #a3a3a3;
+  --color-brand: #262626;
+  --color-brand-strong: #0a0a0a;
+  --color-brand-soft: #ededed;
   --color-success: #157b67;
   --color-success-soft: #e4f6ef;
   --color-warning: #a56a19;
   --color-warning-soft: #fff3da;
   --color-danger: #b34d65;
   --color-danger-soft: #fff0f3;
-  --color-info: #536cc5;
-  --color-info-soft: #edf0ff;
+  --color-info: #525252;
+  --color-info-soft: #f4f4f4;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -43,9 +43,9 @@
   --radius-xl: 20px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(34, 28, 72, .03), 0 8px 24px rgba(34, 28, 72, .05);
-  --shadow-md: 0 18px 48px rgba(37, 28, 80, .09);
-  --focus-ring: 0 0 0 3px rgba(23, 105, 201, .16);
+  --shadow-sm: 0 1px 2px rgba(32, 32, 32, .03), 0 8px 24px rgba(32, 32, 32, .05);
+  --shadow-md: 0 18px 48px rgba(34, 34, 34, .09);
+  --focus-ring: 0 0 0 3px rgb(38 38 38 / 16%);
 
   /* Compatibility aliases while feature styles are migrated. */
   --ink: var(--color-text);
@@ -54,8 +54,9 @@
   --green: var(--color-brand);
   --green-strong: var(--color-brand-strong);
   --green-soft: var(--color-brand-soft);
-  --surface: rgba(255, 255, 255, .96);
+  --surface: var(--color-surface);
   --shadow: var(--shadow-md);
+  --color-on-brand: #ffffff;
 }
 
 * { box-sizing: border-box; }
@@ -68,8 +69,6 @@ body {
   min-height: 100vh;
   color: var(--color-text);
   background:
-    radial-gradient(70rem 36rem at 104% -12%, rgba(186, 175, 255, .34), transparent 55%),
-    radial-gradient(44rem 28rem at -8% 102%, rgba(255, 204, 176, .25), transparent 57%),
     var(--color-bg);
 }
 

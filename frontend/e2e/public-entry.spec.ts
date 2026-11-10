@@ -2,9 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test } from "./test-fixtures";
 
-test("a centered sign-in card links to a public product page on desktop and mobile", async ({ page }) => {
+test("a minimal split sign-in page links to a public product page on desktop and mobile", async ({ page }) => {
   await page.route("**/auth/config", (route) => route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } }));
-  const evidenceDir = resolve("..", "..", "output", "playwright");
+  const evidenceDir = resolve(import.meta.dirname, "../../output/playwright");
   await mkdir(evidenceDir, { recursive: true });
   await page.goto("/");
 
@@ -12,13 +12,26 @@ test("a centered sign-in card links to a public product page on desktop and mobi
     await page.setViewportSize(viewport);
     await expect(page.getByRole("heading", { name: "登录本地账户" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "团团", exact: true })).toBeVisible();
-    await expect(page.locator(".auth-logo")).toHaveJSProperty("complete", true);
-    await expect(page.locator(".auth-logo")).toHaveJSProperty("naturalWidth", 940);
+    await expect(page.locator('img[src="/tuantuan-logo.png"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { name: /理解你的想法/ })).toHaveCount(0);
     const card = await page.locator(".auth-card").boundingBox();
     expect(card).not.toBeNull();
-    expect(card!.x + card!.width / 2).toBeCloseTo(viewport.width / 2, 0);
-    expect(Math.abs(card!.y + card!.height / 2 - viewport.height / 2)).toBeLessThanOrEqual(4);
+    if (viewport.width > 860) {
+      const artwork = page.locator(".auth-artwork");
+      await expect(artwork).toBeVisible();
+      await expect(artwork.locator("img")).toHaveJSProperty("naturalWidth", 1448);
+      const artworkBounds = await artwork.boundingBox();
+      const sceneBounds = (await artwork.locator(".auth-mascot-scene").boundingBox())!;
+      const captionBounds = (await artwork.locator(".auth-artwork-caption").boundingBox())!;
+      expect(captionBounds.y).toBeGreaterThanOrEqual(sceneBounds.y + sceneBounds.height + 12);
+      expect(captionBounds.x + captionBounds.width / 2).toBeCloseTo(artworkBounds!.x + artworkBounds!.width / 2, 0);
+      expect(await artwork.locator(".auth-artwork-caption").evaluate(el => getComputedStyle(el).textAlign)).toBe("center");
+      expect(card!.x + card!.width).toBeLessThan(artworkBounds!.x);
+      expect(Math.abs(artworkBounds!.y + artworkBounds!.height / 2 - card!.y - card!.height / 2)).toBeLessThanOrEqual(4);
+    } else {
+      await expect(page.locator(".auth-artwork")).toBeHidden();
+      expect(card!.x + card!.width / 2).toBeCloseTo(viewport.width / 2, 0);
+    }
     expect(card!.width).toBeLessThanOrEqual(420);
     await page.screenshot({ path: resolve(evidenceDir, `login-only-${viewport.width}.png`), animations: "disabled" });
     const aboutLink = page.getByRole("link", { name: "关于 团团" });
@@ -37,7 +50,7 @@ test("a centered sign-in card links to a public product page on desktop and mobi
     await expect(page.getByRole("heading", { name: "登录本地账户" })).toBeVisible();
   }
 
-  await page.route("**/auth/**", (route) => route.abort());
+  await page.route(/\/auth\/(?:config|login|register|me|logout)(?:[/?]|$)/, (route) => route.abort());
   await page.goto("/#/about");
   await page.reload();
   await expect(page.getByRole("heading", { name: /理解你的想法/ })).toBeVisible();
