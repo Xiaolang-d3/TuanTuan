@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "desktop/**"
+      - "backend/app/desktop_server.py"
       - "backend/requirements*.txt"
       - "backend/scripts/install_deps.sh"
       - "backend/scripts/scan_pth.py"

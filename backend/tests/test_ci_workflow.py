@@ -176,6 +176,7 @@ def test_windows_desktop_scripts_run_on_windows_with_node24():
 
 @pytest.mark.parametrize("path", [
     "desktop/scripts/package-sidecar.py",
+    "backend/app/desktop_server.py",
     "desktop/scripts/dev.mjs",
     "desktop/src-tauri/src/main.rs",
     "backend/requirements-lock.txt",
