@@ -14,14 +14,94 @@ from app.library.sources import get_source_file, import_file_source
 from document_fixtures import pdf_bytes
 
 
+@pytest.mark.parametrize("soft,hard,expected", [(-1, -1, 512), (256, 1024, 256), (1024, 256, 256), (1024, 1024, 512)])
+def test_posix_limit_never_raises_existing_bounds(monkeypatch, soft, hard, expected):
+    from app.documents import limits
+    calls = []
+    resource = SimpleNamespace(RLIMIT_AS=0, getrlimit=lambda _: (soft, hard),
+                               setrlimit=lambda *args: calls.append(args))
+    monkeypatch.setitem(sys.modules, "resource", resource)
+    limits._set_posix_memory_limit(512)
+    assert calls == [(0, (expected, expected))]
+
+
+def test_posix_limit_failure_is_not_silently_ignored(monkeypatch):
+    from app.documents import limits
+    def fail(*_):
+        raise ValueError("unsupported")
+    monkeypatch.setitem(sys.modules, "resource", SimpleNamespace(RLIMIT_AS=0, getrlimit=lambda _: (-1, -1), setrlimit=fail))
+    with pytest.raises(limits.DocumentLimitError, match="资源边界"):
+        limits._set_posix_memory_limit(512)
+
+
+def test_darwin_worker_does_not_attempt_rlimit(monkeypatch, run_worker_error):
+    from app.documents import limits
+    monkeypatch.setattr(limits, "_is_darwin", lambda: True)
+    monkeypatch.setattr(limits, "_set_posix_memory_limit", lambda *_: pytest.fail("Darwin must use parent monitoring"))
+    assert run_worker_error(limits.DocumentLimitError("明确的限制")) == "明确的限制"
+
+
+@pytest.mark.parametrize("samples,response,expected,ready", [
+    ([50, 100], ("ok", "parsed", 90), "parsed", True),
+    ([101], None, "内存资源预算", False),
+    ([50, 101], None, "内存资源预算", True),
+    ([50, 60], ("ok", "parsed", 101), "内存资源预算", True),
+    ([50, 60], ("error", "malformed", None), "malformed", True),
+    ([None], None, "内存监控", False),
+    ([50, None], None, "内存监控", True),
+])
+def test_darwin_parent_monitors_child_and_fails_closed(monkeypatch, samples, response, expected, ready):
+    from app.documents import limits
+
+    calls = []
+    remaining = iter(samples)
+    class Monitor:
+        def resident_bytes(self, pid):
+            assert pid == 123
+            value = next(remaining)
+            if value is None:
+                raise limits.DocumentLimitError("无法读取文档解析的内存监控")
+            return value
+    class Child:
+        pid = 123
+        def start(self): calls.append("start")
+        def is_alive(self): return True
+        def terminate(self): calls.append("terminate")
+        def join(self, timeout): calls.append("join")
+        def kill(self): calls.append("kill")
+        def close(self): calls.append("close")
+    class _FakeTemporaryDirectory:
+        def __enter__(self): return "unused"
+        def __exit__(self, *args): return False
+    class Receiver:
+        def poll(self, timeout): return response is not None
+        def recv(self): return response
+        def close(self): calls.append("receive.close")
+    child = Child()
+    ctx = SimpleNamespace(Pipe=lambda **_: (Receiver(), SimpleNamespace(close=lambda: None)),
+                          Event=lambda: SimpleNamespace(set=lambda: calls.append("ready")),
+                          Process=lambda *args, **kwargs: child)
+    monkeypatch.setattr(limits, "_is_darwin", lambda: True)
+    monkeypatch.setattr(limits, "_DarwinMemoryMonitor", Monitor)
+    monkeypatch.setattr(limits, "FAST_PARSE_MEMORY_BYTES", 100)
+    monkeypatch.setattr(limits.tempfile, "TemporaryDirectory", lambda **_: _FakeTemporaryDirectory())
+    monkeypatch.setattr(limits.multiprocessing, "get_context", lambda _: ctx)
+    if response and response[0] == "ok" and expected == "parsed":
+        assert limits._run_document_parser("note.txt", b"x", "fast", max_characters=1000, metrics=None) == "parsed"
+    else:
+        with pytest.raises(limits.DocumentLimitError, match=expected):
+            limits._run_document_parser("note.txt", b"x", "fast", max_characters=1000, metrics=None)
+    assert ("ready" in calls) is ready
+    assert "terminate" in calls and "join" in calls and "close" in calls
+
+
 @pytest.fixture
 def run_worker_error(monkeypatch):
     """Exercise worker exception routing without spawning or imposing host limits."""
     from app.documents import limits, parser
     import pypdf.filters as filters
 
-    resource = SimpleNamespace(RLIMIT_AS=0, setrlimit=lambda *_: None)
-    monkeypatch.setitem(sys.modules, "resource", resource)
+    monkeypatch.setattr(limits, "_set_posix_memory_limit", lambda *_: None)
     monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
     for name in ("ZLIB_MAX_OUTPUT_LENGTH", "LZW_MAX_OUTPUT_LENGTH", "RUN_LENGTH_MAX_OUTPUT_LENGTH", "JBIG2_MAX_OUTPUT_LENGTH"):
         monkeypatch.setattr(filters, name, getattr(filters, name, None), raising=False)

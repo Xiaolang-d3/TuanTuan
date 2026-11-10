@@ -63,6 +63,59 @@ class _WindowsParseJob:
             self.handle = None
 
 
+def _is_darwin():
+    return sys.platform == "darwin"
+
+
+class _DarwinMemoryMonitor:
+    """Sample child RSS through libproc; Darwin has no usable RLIMIT_AS cap.
+
+    This is a parent-enforced RSS budget, not an allocation-time address-space
+    limit: a child may transiently exceed it between the 50 ms samples. Failure
+    to read memory stops parsing rather than silently disabling supervision.
+    """
+
+    def __init__(self):
+        import ctypes as c
+
+        # Apple's sys/proc_info.h: six uint64_t fields followed by twelve int32_t.
+        class TaskInfo(c.Structure):
+            _fields_ = [(name, c.c_uint64) for name in (
+                "virtual_size", "resident_size", "total_user", "total_system",
+                "threads_user", "threads_system",
+            )] + [("counters", c.c_int32 * 12)]
+
+        self.ctypes, self.info_type = c, TaskInfo
+        try:
+            self.api = c.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            self.api.proc_pidinfo.argtypes = [c.c_int, c.c_int, c.c_uint64, c.c_void_p, c.c_int]
+            self.api.proc_pidinfo.restype = c.c_int
+        except (OSError, AttributeError) as exc:
+            raise DocumentLimitError("无法配置文档解析的内存监控") from exc
+
+    def resident_bytes(self, pid):
+        info = self.info_type()
+        size = self.ctypes.sizeof(info)
+        # PROC_PIDTASKINFO = 4; a partial result cannot be trusted.
+        read = self.api.proc_pidinfo(pid, 4, 0, self.ctypes.byref(info), size)
+        if read != size:
+            raise DocumentLimitError("无法读取文档解析的内存监控")
+        return int(info.resident_size)
+
+
+def _set_posix_memory_limit(memory_limit):
+    import resource
+
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        # Preserve stricter inherited bounds; unprivileged children cannot raise
+        # hard limits and must not weaken an operator's existing soft limit.
+        ceiling = min([memory_limit] + [limit for limit in (soft, hard) if limit >= 0])
+        resource.setrlimit(resource.RLIMIT_AS, (ceiling, ceiling))
+    except (OSError, ValueError) as exc:
+        raise DocumentLimitError("无法应用文档解析资源边界") from exc
+
+
 def _memory_ceiling_reached(memory_limit: int) -> bool:
     """True when this child is already at (or past) the ceiling it was given.
 
@@ -82,9 +135,8 @@ def _memory_ceiling_reached(memory_limit: int) -> bool:
 def _parse_worker(connection, ready, filename, content, mode, max_characters, memory_limit, directory):
     try:
         ready.wait()
-        if os.name != "nt":
-            import resource
-            resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+        if os.name != "nt" and not _is_darwin():
+            _set_posix_memory_limit(memory_limit)
         tempfile.tempdir = directory
         # pypdf already supports bounded decoding; keep each stream well below
         # the process limit, including less common compression filters.
@@ -132,26 +184,39 @@ def _run_document_parser(filename, content, mode, *, max_characters, metrics):
     receive, send = context.Pipe(duplex=False)
     ready = context.Event()
     started, job, peak = monotonic(), None, None
+    monitor = _DarwinMemoryMonitor() if _is_darwin() else None
     with tempfile.TemporaryDirectory(prefix="tuantuan-parse-") as directory:
         process = context.Process(target=_parse_worker, args=(send, ready, filename, content, mode, max_characters, memory_limit, directory))
         try:
             process.start()
             send.close()
-            if os.name == "nt":
+            if monitor is None and os.name == "nt":
                 job = _WindowsParseJob(memory_limit)
                 job.assign(process)
+            if monitor is not None:
+                # Prove supervision works before allowing untrusted extraction.
+                peak = monitor.resident_bytes(process.pid)
+                if peak > memory_limit:
+                    raise DocumentLimitError("文档解析超过内存资源预算")
             ready.set()
             while True:
                 remaining = seconds - (monotonic() - started)
                 if remaining <= 0:
                     raise DocumentLimitError("文档解析超过处理时限，请拆分资料或使用快速解析；原文件保留")
+                if monitor is not None and process.is_alive():
+                    peak = max(peak or 0, monitor.resident_bytes(process.pid))
+                    if peak > memory_limit:
+                        raise DocumentLimitError("文档解析超过内存资源预算")
                 if receive.poll(min(0.05, remaining)):
                     try:
-                        status, result, peak = receive.recv()
+                        status, result, worker_peak = receive.recv()
+                        peak = max(peak or 0, worker_peak or 0) or None
                     except (EOFError, OSError):
                         raise DocumentLimitError("文档解析进程资源不足或异常退出；原文件保留") from None
                     if status != "ok":
                         raise DocumentLimitError(result)
+                    if monitor is not None and peak is not None and peak > memory_limit:
+                        raise DocumentLimitError("文档解析超过内存资源预算")
                     return result
                 if not process.is_alive():
                     raise DocumentLimitError("文档解析进程资源不足或异常退出；原文件保留")
