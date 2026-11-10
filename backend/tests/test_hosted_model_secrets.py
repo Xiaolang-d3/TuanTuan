@@ -70,13 +70,14 @@ def test_wrong_master_key_fails_closed(hosted, monkeypatch):
             secret_store.get_secret(reference)
 
 
-@pytest.mark.parametrize("url", ["http://models.example.test/v1", "https://127.0.0.1/v1", "https://unapproved.example.test/v1"])
-def test_hosted_model_urls_require_authorized_https_hosts(hosted, url):
+@pytest.mark.parametrize("url", ["http://models.example.test/v1", "https://127.0.0.1/v1", "https://192.168.0.1/v1"])
+def test_hosted_model_urls_require_public_https_addresses(hosted, url):
     with pytest.raises(ValueError, match="托管模式"):
         normalize_api_root(url)
 
 
-def test_authorized_host_is_accepted(hosted):
+def test_new_https_host_is_accepted_without_allowlisting(hosted, monkeypatch):
+    monkeypatch.delenv("TUANTUAN_MODEL_ALLOWED_HOSTS", raising=False)
     assert normalize_api_root("https://models.example.test/v1") == "https://models.example.test/v1"
 
 

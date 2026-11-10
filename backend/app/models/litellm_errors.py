@@ -157,7 +157,9 @@ def map_litellm_error(exc: BaseException, protocol: str = "openai", secrets: tup
     """Map a LiteLLM exception; ``secrets`` (the connection's API keys) are masked in the message."""
     if isinstance(exc, ModelProviderError):
         return exc.redact(*secrets)
-    return _map_litellm_error(exc, protocol, secrets).redact(*secrets)
+    from ..model_network import model_address_error
+
+    return (model_address_error(exc) or _map_litellm_error(exc, protocol, secrets)).redact(*secrets)
 
 
 def _map_litellm_error(exc: BaseException, protocol: str, secrets: tuple[str | None, ...]) -> ModelProviderError:

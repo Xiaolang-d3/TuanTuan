@@ -22,6 +22,7 @@ from time import perf_counter
 from typing import Any
 
 from ..redaction import remember_secret
+from ..model_network import hosted_models, PublicModelTransport
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..observability.model_monitor import record_model_service_event
@@ -172,6 +173,22 @@ class LiteLLMProvider:
         self._configured_base_url = (base_url or "").rstrip("/") or None
         self._timeout = timeout_seconds
         self._prices = (price_per_million_input, price_per_million_output)
+        self._hosted_client = None
+
+    def hosted_client(self):
+        """The exact client type LiteLLM expects for this route's dialect."""
+        if not hosted_models():
+            return None
+        if self._protocol == "openai":
+            return self._native._client
+        if self._hosted_client is None:
+            get_litellm()
+            from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+            self._hosted_client = AsyncHTTPHandler(
+                timeout=self._timeout, transport=PublicModelTransport(), follow_redirects=False,
+            )
+        return self._hosted_client
 
     # ------------------------------------------------------------------
     # Identity
@@ -207,6 +224,8 @@ class LiteLLMProvider:
         options = self.litellm_params()
         options.pop("model")
         options["num_retries"] = 0
+        if hosted_models():
+            options["client"] = self.hosted_client()
         return options
 
     # ------------------------------------------------------------------
