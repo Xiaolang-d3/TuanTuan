@@ -31,6 +31,16 @@ function report(overrides: Partial<ProfileCapabilityReport["capabilities"]> = {}
 }
 
 describe("ModelProfileCapabilities", () => {
+  it("reports an in-flight override until it finishes", async () => {
+    let finish!: (value: ProfileCapabilityReport) => void;
+    const fetchJson = vi.fn().mockResolvedValueOnce(report()).mockImplementationOnce(() => new Promise<ProfileCapabilityReport>(resolve => { finish = resolve; }));
+    const onSavingChange = vi.fn();
+    render(<ModelProfileCapabilities profileId="p1" modelName="m" fetchJson={fetchJson as unknown as Client} disabled={false} onSavingChange={onSavingChange} />);
+    fireEvent.change(await screen.findByLabelText("m 工具 能力"), { target: { value: "unsupported" } });
+    expect(onSavingChange).toHaveBeenLastCalledWith(true);
+    finish(report());
+    await waitFor(() => expect(onSavingChange).toHaveBeenLastCalledWith(false));
+  });
   it("shows capability tags with their source and the context window", async () => {
     const fetchJson = vi.fn().mockResolvedValue(report());
     render(<ModelProfileCapabilities profileId="p1" modelName="claude-sonnet-4-5" fetchJson={fetchJson as unknown as Client} disabled={false} />);

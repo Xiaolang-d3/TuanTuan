@@ -5,7 +5,6 @@ import type { ServiceModelCatalog } from "./types";
 
 const CATALOG_TTL_MS = 5 * 60_000;
 const RETRY_COOLDOWN_MS = 30_000;
-
 type DiscoveryState = { models: string[]; entries: ModelCatalogEntry[]; busy: boolean; error: string; suggestedProtocol?: "responses" };
 
 function catalogEntries(values: ModelCatalogEntry[] | undefined, models: string[]): ModelCatalogEntry[] {
@@ -26,54 +25,50 @@ export function useComposerModelDiscovery({ fetchJson, scope, connection, connec
 }) {
   const targets = connections ?? (connection ? [connection] : []);
   const signature = JSON.stringify(targets.map(item => [item.id, item.revision, item.enabled, item.name]));
-  const owner = useMemo(() => ({ active: true, request: 0, controller: null as AbortController | null, attempts: {} as Record<string, { at: number; ok: boolean }>, connections: targets.filter(item => item.enabled) }), [fetchJson, scope, signature]);
+  const owner = useMemo(() => ({ active: true, controllers: new Map<string, AbortController>(), attempts: {} as Record<string, { at: number; ok: boolean }>, connections: targets.filter(item => item.enabled) }), [fetchJson, scope, signature]);
   const ownerRef = useRef(owner);
   ownerRef.current = owner;
   const [snapshot, setSnapshot] = useState<{ owner: typeof owner; catalogs: Record<string, DiscoveryState> } | null>(null);
-
   useEffect(() => {
     owner.active = true;
-    return () => { owner.active = false; owner.controller?.abort(); };
+    return () => { owner.active = false; for (const controller of owner.controllers.values()) controller.abort(); };
   }, [owner]);
 
-  const discover = useCallback(async (refresh = false) => {
-    if (!owner.connections.length || !owner.active || ownerRef.current !== owner) return;
-    if (!refresh && owner.controller) return;
+  const discover = useCallback(async (refresh = false, connectionId?: string) => {
+    if (!owner.active || ownerRef.current !== owner) return;
     const now = Date.now();
     const due = owner.connections.filter(item => {
+      if (connectionId && item.id !== connectionId) return false;
+      if (!refresh && owner.controllers.has(item.id)) return false;
       const attempt = owner.attempts[item.id];
       return refresh || !attempt || now - attempt.at >= (attempt.ok ? CATALOG_TTL_MS : RETRY_COOLDOWN_MS);
     });
-    if (!due.length) return;
-    owner.controller?.abort();
-    const controller = new AbortController();
-    owner.controller = controller;
-    const request = ++owner.request;
-    const current = () => owner.active && ownerRef.current === owner && owner.request === request && !controller.signal.aborted;
-    setSnapshot(previous => ({ owner, catalogs: { ...(previous?.owner === owner ? previous.catalogs : {}), ...Object.fromEntries(due.map(item => [item.id, {
-      models: previous?.owner === owner ? previous.catalogs[item.id]?.models ?? [] : [], entries: previous?.owner === owner ? previous.catalogs[item.id]?.entries ?? [] : [], busy: true, error: ""
-    }])) } }));
-    try {
-      await Promise.all(due.map(async item => {
-        try {
-          const result = await fetchJson<{ models: string[]; entries?: ModelCatalogEntry[] }>(`/agent/model-connections/${encodeURIComponent(item.id)}/discover`, { method: "POST", signal: controller.signal });
-          const models = Array.from(new Set(result.models.filter((name): name is string => typeof name === "string").map(name => name.trim()).filter(name => name && name.length <= 120)));
-          if (current()) {
-            owner.attempts[item.id] = { at: Date.now(), ok: true };
-            setSnapshot(previous => ({ owner, catalogs: { ...previous?.catalogs, [item.id]: { models, entries: catalogEntries(result.entries, models), busy: false, error: "" } } }));
-          }
-        } catch (reason) {
-          if (current()) {
-            owner.attempts[item.id] = { at: Date.now(), ok: false };
-            setSnapshot(previous => ({ owner, catalogs: { ...previous?.catalogs, [item.id]: {
-              models: previous?.owner === owner ? previous.catalogs[item.id]?.models ?? [] : [], entries: previous?.owner === owner ? previous.catalogs[item.id]?.entries ?? [] : [], busy: false,
-              error: reason instanceof Error ? reason.message : "读取服务模型失败",
-              suggestedProtocol: reason instanceof ApiError && reason.details?.suggested_protocol === "responses" ? "responses" : undefined
-            } } }));
-          }
+    await Promise.all(due.map(async item => {
+      owner.controllers.get(item.id)?.abort();
+      const controller = new AbortController();
+      owner.controllers.set(item.id, controller);
+      const current = () => owner.active && ownerRef.current === owner && owner.controllers.get(item.id) === controller && !controller.signal.aborted;
+      setSnapshot(previous => ({ owner, catalogs: { ...(previous?.owner === owner ? previous.catalogs : {}), [item.id]: {
+        models: previous?.owner === owner ? previous.catalogs[item.id]?.models ?? [] : [], entries: previous?.owner === owner ? previous.catalogs[item.id]?.entries ?? [] : [], busy: true, error: ""
+      } } }));
+      try {
+        const result = await fetchJson<{ models: string[]; entries?: ModelCatalogEntry[] }>(`/agent/model-connections/${encodeURIComponent(item.id)}/discover`, { method: "POST", signal: controller.signal });
+        const models = Array.from(new Set(result.models.filter((name): name is string => typeof name === "string").map(name => name.trim()).filter(name => name && name.length <= 120)));
+        if (current()) {
+          owner.attempts[item.id] = { at: Date.now(), ok: true };
+          setSnapshot(previous => ({ owner, catalogs: { ...(previous?.owner === owner ? previous.catalogs : {}), [item.id]: { models, entries: catalogEntries(result.entries, models), busy: false, error: "" } } }));
         }
-      }));
-    } finally { if (owner.controller === controller) owner.controller = null; }
+      } catch (reason) {
+        if (current()) {
+          owner.attempts[item.id] = { at: Date.now(), ok: false };
+          setSnapshot(previous => ({ owner, catalogs: { ...(previous?.owner === owner ? previous.catalogs : {}), [item.id]: {
+            models: previous?.owner === owner ? previous.catalogs[item.id]?.models ?? [] : [], entries: previous?.owner === owner ? previous.catalogs[item.id]?.entries ?? [] : [], busy: false,
+            error: reason instanceof Error ? reason.message : "读取服务模型失败",
+            suggestedProtocol: reason instanceof ApiError && reason.details?.suggested_protocol === "responses" ? "responses" : undefined
+          } } }));
+        }
+      } finally { if (owner.controllers.get(item.id) === controller) owner.controllers.delete(item.id); }
+    }));
   }, [owner, fetchJson]);
 
   const state = snapshot?.owner === owner ? snapshot : null;

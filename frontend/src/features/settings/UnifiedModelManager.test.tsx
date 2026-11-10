@@ -93,7 +93,7 @@ describe("UnifiedModelManager", () => {
   it("uses the exact service profile for a direct default with optimistic version", async () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
     const row = screen.getAllByRole("row", { name: /gpt-4.1/ })[1];
-    fireEvent.click(within(row).getByRole("button", { name: "使用文本" }));
+    fireEvent.click(within(row).getByRole("button", { name: "设为文本默认" }));
     await waitFor(() => expect(p.onMutate).toHaveBeenCalledWith("/agent/model-defaults/chat", "POST", { profile_id: "p2", expected_version: 7 }));
     expect(p.onEnsureProfile).not.toHaveBeenCalled();
     expect(p.onApplied).toHaveBeenCalled();
@@ -102,7 +102,7 @@ describe("UnifiedModelManager", () => {
   it("discovers explicitly across services and preserves unknown raw IDs", async () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
     expect(p.fetchJson).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     await screen.findAllByText("gateway/custom-id");
     expect(p.fetchJson).toHaveBeenCalledWith("/agent/model-connections/one/discover", expect.objectContaining({ method: "POST" }));
     expect(p.fetchJson).toHaveBeenCalledWith("/agent/model-connections/two/discover", expect.objectContaining({ method: "POST" }));
@@ -121,7 +121,7 @@ describe("UnifiedModelManager", () => {
     let resolve!: (v: unknown) => void;
     const fetchJson = vi.fn(() => new Promise(r => { resolve = r; }));
     const p = props({ fetchJson }); const view = render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     view.rerender(<UnifiedModelManager {...p} fetchJson={vi.fn()} />);
     resolve({ models: ["stale-private-model"] });
     await waitFor(() => expect(screen.queryByText("stale-private-model")).not.toBeInTheDocument());
@@ -130,9 +130,9 @@ describe("UnifiedModelManager", () => {
     let resolve!: (id: string) => void;
     const p = props({ catalog: { ...catalog, profiles: [] }, onEnsureProfile: vi.fn(() => new Promise<string>(r => { resolve = r; })) });
     const view = render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     const row = (await screen.findAllByRole("row", { name: /gpt-4.1/ }))[0];
-    fireEvent.click(within(row).getByRole("button", { name: "使用文本" }));
+    fireEvent.click(within(row).getByRole("button", { name: "设为文本默认" }));
     view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, profiles: [], connections: catalog.connections.map(item => ({ ...item, revision: item.revision + 1 })) }} />);
     resolve("late-profile");
     await waitFor(() => expect(screen.getByRole("button", { name: "添加服务" })).toBeEnabled());
@@ -165,16 +165,17 @@ describe("UnifiedModelManager", () => {
     expect(screen.getByRole("button", { name: "全部服务" })).toHaveAttribute("aria-pressed", "true");
     view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, connections: [...catalog.connections, { ...catalog.connections[0], id: "three", name: "第三服务", model_base_url: "https://third.test/v1" }] }} />);
     await waitFor(() => expect(p.fetchJson).toHaveBeenCalledWith("/agent/model-connections/three/discover", expect.anything()));
+    expect(p.fetchJson).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: /第三服务.*已保存配置/ })).toHaveAttribute("aria-pressed", "true");
   });
-  it("reports invalid addresses without sending secrets and clears the attempted key", () => {
+  it("reports invalid addresses without sending secrets and preserves the key for correction", () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "添加服务" }));
     fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "bad-address" } });
     fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "private-test-key" } });
     fireEvent.click(screen.getByRole("button", { name: "保存并获取模型" }));
     expect(screen.getByRole("alert")).toHaveTextContent("完整的 http:// 或 https:// 地址");
-    expect(screen.getByLabelText("API Key")).toHaveValue("");
+    expect(screen.getByLabelText("API Key")).toHaveValue("private-test-key");
     expect(p.onMutate).not.toHaveBeenCalled();
   });
   it("enables a model independently from setting its default purpose", async () => {
@@ -190,10 +191,10 @@ describe("UnifiedModelManager", () => {
   it("shows provider display names while keeping raw model identity for selection", async () => {
     const p = props({ fetchJson: vi.fn().mockResolvedValue({ models: ["vendor/paint-alias"], entries: [{ id: "vendor/paint-alias", display_name: "画图模型", output_types: ["image"], output_types_source: "provider" }] }) });
     render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     const row = (await screen.findAllByRole("row", { name: /画图模型/ }))[1];
     expect(within(row).getByText("vendor/paint-alias")).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole("button", { name: "使用图片" }));
+    fireEvent.click(within(row).getByRole("button", { name: "设为图片默认" }));
     await waitFor(() => expect(p.onEnsureProfile).toHaveBeenCalledWith("two", "vendor/paint-alias", 3));
   });
   it.each([
@@ -205,14 +206,59 @@ describe("UnifiedModelManager", () => {
   ] as const)("does not offer an unimplemented image action for %s %s %s", async (protocol, baseUrl, outputs) => {
     const p = props({ catalog: { ...catalog, profiles: [], connections: [{ ...catalog.connections[0], model_protocol: protocol, model_base_url: baseUrl }] }, fetchJson: vi.fn().mockResolvedValue({ models: ["opaque-alias"], entries: [{ id: "opaque-alias", output_types: outputs, output_types_source: "provider" }] }) });
     render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     const row = await screen.findByRole("row", { name: /opaque-alias/ });
-    expect(within(row).queryByRole("button", { name: "使用图片" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "设为图片默认" })).not.toBeInTheDocument();
   });
   it("requires trusted image-only metadata before switching an inferred alias to Images", async () => {
     render(<UnifiedModelManager {...props({ catalog: { ...catalog, profiles: [] }, fetchJson: vi.fn().mockResolvedValue({ models: ["flux-inferred-only"] }) })} />);
-    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
     const row = (await screen.findAllByRole("row", { name: /flux-inferred-only/ }))[0];
-    expect(within(row).queryByRole("button", { name: "使用图片" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "设为图片默认" })).not.toBeInTheDocument();
   });
+  it("views disabled models without enabling and previews unsaved entries without writes", async () => {
+    const p = props({ catalog: { ...catalog, profiles: catalog.profiles.map(item => item.id === "p2" ? { ...item, enabled: false } : item) } });
+    render(<UnifiedModelManager {...p} />);
+    fireEvent.click(within(screen.getAllByRole("row", { name: /gpt-4.1/ })[1]).getByRole("button", { name: "参数" }));
+    expect(screen.getByRole("region", { name: "gpt-4.1 参数设置" })).toHaveTextContent("只读预览");
+    expect(p.onMutate).not.toHaveBeenCalled();
+    expect(p.onEnsureProfile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新全部服务模型" }));
+    const unknown = (await screen.findAllByRole("row", { name: /gateway\/custom-id/ }))[0];
+    expect(unknown).toHaveTextContent("输出能力待确认");
+    fireEvent.click(within(unknown).getByRole("button", { name: "确认输出能力" }));
+    expect(screen.getByText("高级能力与上下文").parentElement).toHaveAttribute("open");
+    expect(p.onEnsureProfile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "启用并编辑参数" }));
+    await waitFor(() => expect(p.onEnsureProfile).toHaveBeenCalledWith("one", "gateway/custom-id", 2));
+  });
+  it("refreshes only the selected service", async () => {
+    const p = props(); render(<UnifiedModelManager {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: /服务乙.*已保存配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新此服务模型" }));
+    await screen.findByText("gateway/custom-id");
+    expect(p.fetchJson).toHaveBeenCalledTimes(1);
+    expect(p.fetchJson).toHaveBeenCalledWith("/agent/model-connections/two/discover", expect.anything());
+  });
+  it("protects request drafts when closing or changing models and restores trigger focus", async () => {
+    const p = props(); render(<UnifiedModelManager {...p} />);
+    const trigger = within(screen.getAllByRole("row", { name: /gpt-4.1/ })[0]).getByRole("button", { name: "参数" });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByText("请求参数（可选）"));
+    fireEvent.click(screen.getByRole("button", { name: "编辑请求参数" }));
+    fireEvent.change(screen.getByLabelText("温度"), { target: { value: "0.7" } });
+    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("参数有未保存");
+    fireEvent.click(screen.getByRole("button", { name: "继续编辑" }));
+    expect(screen.getByLabelText("温度")).toHaveValue("0.7");
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "模型与服务" }));
+    expect(screen.getByLabelText("温度")).toHaveValue("0.7");
+    fireEvent.click(screen.getByRole("button", { name: "收起参数" }));
+    fireEvent.click(screen.getByRole("button", { name: "放弃参数修改并继续" }));
+    expect(screen.queryByRole("region", { name: "gpt-4.1 参数设置" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
 });

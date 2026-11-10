@@ -9,6 +9,19 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("useComposerModelDiscovery", () => {
+  it("refreshes services independently without aborting another service request", async () => {
+    const first = deferred<{ models: string[] }>();
+    const client = vi.fn((path: string, _options?: { signal: AbortSignal }) => path.includes("service-b") ? Promise.resolve({ models: ["image"] }) : first.promise);
+    const { result } = renderHook(() => useComposerModelDiscovery({ fetchJson: client as ReturnType<typeof createApiClient>, scope: "user-a", connections: [connection, { ...connection, id: "service-b" }] }));
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.discover(true, "service-a"); });
+    await act(() => result.current.discover(true, "service-b"));
+    expect(client).toHaveBeenCalledTimes(2);
+    expect(client.mock.calls[0][1]?.signal.aborted).toBe(false);
+    expect(result.current.catalogs.find(item => item.connection_id === "service-b")?.models).toEqual(["image"]);
+    await act(async () => { first.resolve({ models: ["chat"] }); await pending; });
+    expect(result.current.catalogs.find(item => item.connection_id === "service-a")?.models).toEqual(["chat"]);
+  });
   it("keeps provider output evidence per service and never confuses vision with generation", async () => {
     const entry = { id: "gateway/shared", display_name: "Vision group", input_types: ["image"], output_types: ["chat"], output_types_source: "provider" };
     const client = vi.fn().mockResolvedValue({ models: ["gateway/shared"], entries: [entry] });

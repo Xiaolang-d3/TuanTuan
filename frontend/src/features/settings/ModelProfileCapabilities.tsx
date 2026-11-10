@@ -10,9 +10,10 @@ type Override = "" | "supported" | "unsupported";
 const STATUS_LABELS = { supported: "支持", unsupported: "不支持", unknown: "未知" } as const;
 
 /** Capability tags (视觉/推理/工具/结构化输出/PDF/缓存 + 上下文) with source and manual overrides. */
-export function ModelProfileCapabilities({ profileId, modelName, fetchJson, disabled, onReport }: {
+export function ModelProfileCapabilities({ profileId, modelName, fetchJson, disabled, onReport, onSavingChange }: {
   profileId: string; modelName: string; fetchJson: Client; disabled: boolean;
   onReport?: (report: ProfileCapabilityReport | null) => void;
+  onSavingChange?: (saving: boolean) => void;
 }) {
   const [report, setReport] = useState<ProfileCapabilityReport | null>(null);
   const [error, setError] = useState("");
@@ -27,12 +28,13 @@ export function ModelProfileCapabilities({ profileId, modelName, fetchJson, disa
     onReport?.(value);
     setError(value?.probe_error ?? "");
   }
-  async function run(task: () => Promise<ProfileCapabilityReport | undefined>, failure: string) {
+  async function run(task: () => Promise<ProfileCapabilityReport | undefined>, failure: string, mutation = false) {
     const id = ++generation.current;
+    if (mutation) onSavingChange?.(true);
     setWorking(true);
     try { accept(await task(), id); }
     catch (reason) { if (generation.current === id) setError(reason instanceof Error ? reason.message : failure); }
-    finally { if (generation.current === id) setWorking(false); }
+    finally { if (generation.current === id) { setWorking(false); if (mutation) onSavingChange?.(false); } }
   }
   useEffect(() => {
     void run(() => fetchJson<ProfileCapabilityReport>(path), "读取模型能力失败");
@@ -43,10 +45,10 @@ export function ModelProfileCapabilities({ profileId, modelName, fetchJson, disa
     void run(() => fetchJson<ProfileCapabilityReport>(path, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ overrides: { [capability]: value || null } })
-    }), "保存能力设置失败");
+    }), "保存能力设置失败", true);
   }
   function probe() {
-    void run(() => fetchJson<ProfileCapabilityReport>(`${path}/probe`, { method: "POST" }), "图片输入检测失败");
+    void run(() => fetchJson<ProfileCapabilityReport>(`${path}/probe`, { method: "POST" }), "图片输入检测失败", true);
   }
 
   return <div className="model-profile-capabilities" aria-label={`${modelName} 能力`}>
