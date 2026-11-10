@@ -103,6 +103,57 @@ def static_asset_cache_control(path: str) -> str | None:
     """Return the safe long-lived cache policy for Vite's content-hashed assets."""
     return _STATIC_ASSET_CACHE_CONTROL if path.startswith("/assets/") else None
 
+# Baseline hardening for every response. The app renders model-authored Markdown
+# and Mermaid in the same origin, so script execution stays local: only bundled
+# chunks plus WebAssembly (pdf.js ships quickjs-eval.wasm for JBIG2/OpenJPEG).
+# Google Fonts are linked from index.html; blob:/data: cover URL.createObjectURL
+# previews; remote https images stay allowed because feed covers and Markdown
+# images are third-party content that cannot execute script.
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'wasm-unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "img-src 'self' data: blob: https:; "
+    "connect-src 'self'; "
+    "worker-src 'self' blob:; "
+    "frame-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+# Swagger UI and ReDoc load their bundles from a CDN and bootstrap with an inline
+# script, so the strict policy above blanks them. They are loopback-only developer
+# tooling (API_DOCS_ENABLED is off for non-loopback binds), so they get a narrower
+# exception instead of weakening the policy the product UI runs under.
+_DOCS_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+    "img-src 'self' data: https://fastapi.tiangolo.com; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "connect-src 'self'; "
+    "worker-src 'self' blob:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": _CONTENT_SECURITY_POLICY,
+}
+
+_DOCS_SECURITY_HEADERS = {
+    **_SECURITY_HEADERS,
+    "Content-Security-Policy": _DOCS_CONTENT_SECURITY_POLICY,
+}
+
 @app.middleware("http")
 async def require_login(request: Request, call_next: Any) -> Any:
     path = request.url.path
@@ -169,6 +220,22 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Retry-After"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next: Any) -> Any:
+    """Attach hardening headers to every response, including rejected requests.
+
+    Registered after CORSMiddleware, so Starlette builds it as the outermost
+    user middleware: responses produced without calling a handler (maintenance
+    503, login 401/403, CORS preflight) still pass through here. Handlers keep
+    priority, so the PPT confirmation surface retains its narrower CSP and its
+    deliberate SAMEORIGIN framing policy.
+    """
+    response = await call_next(request)
+    headers = _DOCS_SECURITY_HEADERS if request.url.path in _DOC_PATHS else _SECURITY_HEADERS
+    for name, value in headers.items():
+        response.headers.setdefault(name, value)
+    return response
 
 app.include_router(api_router)
 
