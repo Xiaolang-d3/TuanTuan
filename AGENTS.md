@@ -23,4 +23,4 @@ Python 使用四空格和 `snake_case`；TypeScript 使用两空格、`camelCase
 
 ## 提交
 
-使用中文 Conventional Commit（详见 `CONTRIBUTING.md`），例如 `feat(agent): 增加工具调用`。CI 以 `scripts/check-docs-sync.sh` 检查 `docs/` 未被跟踪。智能体、资料库、数据库等变更同步已有的本地 `docs/agent.md`，模型层与依赖变更同步已有的本地 `docs/model-layer.md`，但不要提交这些文档。不要提交 `.env`、令牌、个人资料、SQLite 数据、日志或构建产物。PR 说明目的、验证方式及配置/迁移影响；UI 变更附截图。Sites 版本在它自己的仓库里提交。
+使用中文 Conventional Commit（详见 `CONTRIBUTING.md`），例如 `feat(agent): 增加工具调用`。PR 的 `ci-gate` 要求 Linux 后端回归、前端单测/类型检查/构建及 `scripts/check-docs-sync.sh` 检查 `docs/` 未被跟踪；main 和 Release 另须同次产物的 Linux Chromium 核心验收。Windows/macOS/桌面专项按相关变更或发布需要运行，完整浏览器回归可在 CI 手动选择 `e2e_suite=full`。智能体、资料库、数据库等变更同步已有的本地 `docs/agent.md`，模型层与依赖变更同步已有的本地 `docs/model-layer.md`，但不要提交这些文档。不要提交 `.env`、令牌、个人资料、SQLite 数据、日志或构建产物。PR 说明目的、验证方式及配置/迁移影响；UI 变更附截图。Sites 版本在它自己的仓库里提交。

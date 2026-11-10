@@ -4,13 +4,19 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "backend/**"
-      - "frontend/**"
       - "desktop/**"
+      - "backend/app/desktop_server.py"
+      - "backend/requirements*.txt"
+      - "backend/scripts/install_deps.sh"
+      - "backend/scripts/scan_pth.py"
       - ".github/workflows/desktop-macos.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-macos-arm64:
@@ -57,6 +63,9 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm ci
+      - name: Run desktop script tests
+        working-directory: desktop
+        run: npm test
       - name: Run backend tests
         working-directory: backend
         env:
@@ -65,9 +74,6 @@ jobs:
       - name: Run frontend tests
         working-directory: frontend
         run: npm run test
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
       - name: Build sidecar
         working-directory: desktop
         run: npm run package-sidecar

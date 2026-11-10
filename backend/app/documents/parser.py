@@ -55,6 +55,7 @@ def parse_document_result(filename: str, content: bytes, mode: str = "fast") -> 
 
 
 def _parse_document_result(filename: str, content: bytes, mode: str = "fast", *, max_characters=None) -> DocumentParseResult:
+    from .limits import DocumentLimitError
     max_characters = MAX_DOCUMENT_CHARACTERS if max_characters is None else max_characters
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
@@ -72,17 +73,17 @@ def _parse_document_result(filename: str, content: bytes, mode: str = "fast", *,
         with ZipFile(BytesIO(content)) as archive:
             files = archive.infolist()
             if len(files) > 10000 or sum(item.file_size for item in files) > 32 * 1024 * 1024 or any(item.file_size > 16 * 1024 * 1024 for item in files):
-                raise ValueError("Word 文件展开超过安全处理范围；请拆分资料，原文件保留")
+                raise DocumentLimitError("Word 文件展开超过安全处理范围；请拆分资料，原文件保留")
 
     cumulative = 0
     def segment(value, locator):
         nonlocal cumulative
         if len(value) > max_characters * 2 + 8192:
-            raise ValueError(f"资料展开超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
+            raise DocumentLimitError(f"资料展开超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
         normalized = normalize_document_text(value)
         cumulative += len(normalized) + (1 if cumulative and normalized else 0)
         if cumulative > max_characters:
-            raise ValueError(f"资料超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
+            raise DocumentLimitError(f"资料超过 {max_characters} 字符处理范围；请拆分资料，原文件保留")
         return normalized, locator
 
     warnings: list[str] = []
@@ -108,7 +109,7 @@ def _parse_document_result(filename: str, content: bytes, mode: str = "fast", *,
             segments = []
             reader = PdfReader(BytesIO(content))
             if len(reader.pages) > MAX_DOCUMENT_PAGES:
-                raise ValueError("PDF 页数超过处理范围；请拆分资料，原文件保留")
+                raise DocumentLimitError("PDF 页数超过处理范围；请拆分资料，原文件保留")
             for page_number, page in enumerate(reader.pages, 1):
                 item = segment(page.extract_text() or "", {"kind": "pdf_page", "page": page_number, "precise": True})
                 normalized_page = item[0]

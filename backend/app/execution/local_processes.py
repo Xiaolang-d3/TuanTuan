@@ -2,12 +2,71 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import os
 import signal
+import sys
+
+
+class _DarwinBsdInfo(ctypes.Structure):
+    # Apple's sys/proc_info.h: MAXCOMLEN=16 and fixed-width uid/gid fields.
+    _fields_ = [(name, ctypes.c_uint32) for name in (
+        "flags", "status", "xstatus", "pid", "ppid", "uid", "gid", "ruid",
+        "rgid", "svuid", "svgid", "reserved",
+    )] + [("comm", ctypes.c_char * 16), ("name", ctypes.c_char * 32)] + [
+        (name, ctypes.c_uint32) for name in ("nfiles", "pgid", "pjobc", "tdev", "tpgid")
+    ] + [("nice", ctypes.c_int32), ("start_sec", ctypes.c_uint64), ("start_usec", ctypes.c_uint64)]
+
+
+def _darwin_identity(pid: int, lib=None) -> dict | None:
+    if ctypes.sizeof(_DarwinBsdInfo) != 136 or _DarwinBsdInfo.start_sec.offset != 120:
+        raise OSError(errno.EIO, "Unexpected macOS proc_bsdinfo layout")
+    if lib is None:
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+        lib.proc_pidinfo.restype = ctypes.c_int
+        lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        lib.proc_pidpath.restype = ctypes.c_int
+
+    def info():
+        data = _DarwinBsdInfo()
+        ctypes.set_errno(0)
+        count = lib.proc_pidinfo(pid, 3, 0, ctypes.byref(data), ctypes.sizeof(data))
+        if count == 0:
+            error = ctypes.get_errno()
+            if error == errno.ESRCH:
+                return None
+            raise OSError(error or errno.EIO, "Cannot read macOS process identity")
+        if count != ctypes.sizeof(data) or data.pid != pid or not data.start_sec or data.start_usec >= 1_000_000:
+            raise OSError(errno.EIO, "Incomplete macOS process identity")
+        return data.start_sec, data.start_usec
+
+    before = info()
+    if before is None:
+        return None
+    # PROC_PIDPATHINFO_MAXSIZE is 4 * MAXPATHLEN, with MAXPATHLEN=1024.
+    path = ctypes.create_string_buffer(4096)
+    ctypes.set_errno(0)
+    length = lib.proc_pidpath(pid, path, len(path))
+    if length <= 0:
+        error = ctypes.get_errno()
+        if error == errno.ESRCH:
+            return None
+        raise OSError(error or errno.EIO, "Cannot read macOS process executable")
+    if length >= len(path) or len(path.value) != length or not path.value.startswith(b"/"):
+        raise OSError(errno.EIO, "Incomplete macOS process executable path")
+    after = info()
+    if after is None:
+        return None
+    if before != after:
+        raise OSError(errno.ESRCH, "Process identity changed while being read")
+    return {"pid": pid, "created": str(before[0] * 1_000_000 + before[1]), "executable": os.fsdecode(path.value)}
 
 
 def process_identity(pid: int) -> dict | None:
     """Read OS creation identity; never signal a process identified only by PID."""
+    if sys.platform == "darwin":
+        return _darwin_identity(pid)
     if os.name == "nt":
         from ctypes import wintypes
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)

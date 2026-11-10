@@ -165,7 +165,7 @@ def test_all_ci_checkouts_use_optional_ref_and_guard_is_required():
             if step.get("uses", "").startswith("actions/checkout@"):
                 assert step["with"]["ref"] == "${{ inputs.ref || '' }}"
                 assert step["with"]["persist-credentials"] == "false"
-    for name in ["docs-sync", "backend-tests", "backend-windows-documents", "frontend-unit"]:
+    for name in ["docs-sync", "backend-tests", "frontend-unit"]:
         assert ci["jobs"][name]["needs"] == "validate-ref"
     gate = ci["jobs"]["ci-gate"]
     assert "validate-ref" in gate["needs"]

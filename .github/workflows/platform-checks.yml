@@ -1,0 +1,102 @@
+name: Platform Checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # Platform-specific regressions, not a second full CI for every backend edit.
+    paths:
+      - "backend/app/documents/**"
+      - "backend/app/library/**"
+      - "backend/app/attachments/**"
+      - "backend/app/artifacts/**"
+      - "backend/app/chat/artifacts.py"
+      - "backend/app/workspace.py"
+      - "backend/app/db.py"
+      - "backend/app/database_lifecycle.py"
+      - "backend/app/persistence/**"
+      - "backend/app/api/library.py"
+      - "backend/app/api/artifacts.py"
+      - "backend/app/api/attachments.py"
+      - "backend/requirements*.txt"
+      - "backend/scripts/install_deps.sh"
+      - "backend/scripts/scan_pth.py"
+      - "backend/tests/test_library_sources.py"
+      - "backend/tests/test_chat_artifacts.py"
+      - "backend/tests/test_file_permissions_windows.py"
+      - "backend/tests/test_document_blocks.py"
+      - "backend/tests/test_source_versions.py"
+      - "backend/tests/test_source_backfill.py"
+      - "backend/tests/test_library_citations.py"
+      - "backend/tests/conftest.py"
+      - "backend/tests/test_ci_workflow.py"
+      - "desktop/package.json"
+      - "desktop/package-lock.json"
+      - "desktop/scripts/dev.mjs"
+      - "desktop/scripts/*.test.mjs"
+      - ".github/workflows/platform-checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-windows-documents:
+    name: backend-windows-documents
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev-lock.txt
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes --no-deps --only-binary :all: -r requirements-dev-lock.txt
+      - name: Scan for executable .pth files
+        run: python -I -S backend/scripts/scan_pth.py --python python
+      - name: Test native Windows locale and ACL
+        working-directory: backend
+        env:
+          EMBEDDING_BACKEND: hash
+          PYTHONUTF8: "0"
+        run: python -m pytest tests/test_library_sources.py tests/test_chat_artifacts.py tests/test_file_permissions_windows.py tests/test_document_blocks.py tests/test_source_versions.py tests/test_source_backfill.py tests/test_library_citations.py -q --junitxml=platform-default.xml
+      - name: Compare UTF-8 mode
+        working-directory: backend
+        env:
+          EMBEDDING_BACKEND: hash
+        run: python -X utf8 -m pytest tests/test_library_sources.py tests/test_chat_artifacts.py tests/test_file_permissions_windows.py -q --junitxml=platform-utf8.xml
+      - name: Upload Windows document reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-windows-document-reports
+          path: backend/platform-*.xml
+          if-no-files-found: ignore
+
+  desktop-windows-scripts:
+    name: desktop-windows-scripts
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Test Windows desktop launcher and process cleanup
+        working-directory: desktop
+        run: npm test
