@@ -315,3 +315,33 @@ def test_generation_blocks_private_dns_with_clear_nonretryable_reason(hosted, mo
 
     asyncio.run(exercise())
     assert connections == []
+
+
+@pytest.mark.parametrize("address", ["8.8.8.8", "10.0.0.1"])
+def test_automatic_gpt54_tools_responses_bridge_keeps_public_policy(hosted, monkeypatch, model_db, address):
+    from fake_llm_server import responses_json
+    from app.domain import AgentMessage, ModelRequest
+    from app.models.base import ModelProviderError
+    from app.models.litellm_provider import LiteLLMProvider
+
+    connections, streams, _ = setup_network(monkeypatch, [address], wire_response(responses_json()))
+    provider = LiteLLMProvider("fixture-key", "gpt-5.4", "https://api.openai.com/v1", protocol="openai")
+    from app.domain import ToolDefinition
+    request = ModelRequest(messages=[AgentMessage(role="user", content="hello")], reasoning_effort="high",
+        tools=[ToolDefinition(name="lookup", description="Lookup", input_schema={"type": "object", "properties": {}})])
+
+    async def exercise():
+        if address == "10.0.0.1":
+            with pytest.raises(ModelProviderError) as error:
+                await provider.generate(request)
+            assert error.value.code == "unsafe_model_address"
+            assert not error.value.retryable
+        else:
+            assert (await provider.generate(request)).content
+
+    asyncio.run(exercise())
+    if address == "10.0.0.1":
+        assert connections == []
+    else:
+        assert connections == [("8.8.8.8", 443)]
+        assert b"POST /v1/responses " in b"".join(streams[0].writes)

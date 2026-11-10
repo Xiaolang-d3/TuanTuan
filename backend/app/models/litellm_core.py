@@ -174,6 +174,15 @@ def _configure_network_policy(module: Any) -> None:
             module.callbacks.append(policy)
 
 
+def hosted_http_handler(timeout_seconds: float):
+    """Keep all direct LiteLLM imports inside this SDK boundary."""
+    get_litellm()
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+    from ..model_network import PublicModelTransport
+
+    return AsyncHTTPHandler(timeout=timeout_seconds, transport=PublicModelTransport(), follow_redirects=False)
+
+
 def litellm_loaded() -> bool:
     return _module is not None
 

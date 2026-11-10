@@ -22,14 +22,14 @@ from time import perf_counter
 from typing import Any
 
 from ..redaction import remember_secret
-from ..model_network import hosted_models, PublicModelTransport
+from ..model_network import hosted_models
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..observability.model_monitor import record_model_service_event
 from .anthropic_messages import AnthropicMessagesProvider
 from .base import ModelProviderError
 from .gemini_generate_content import GeminiGenerateContentProvider
-from .litellm_core import api_base_for, estimate_cost_usd, get_litellm, model_string
+from .litellm_core import api_base_for, estimate_cost_usd, get_litellm, model_string, hosted_http_handler
 from .litellm_errors import is_litellm_exception, litellm_error_detail, map_litellm_error
 from .ollama_chat import OllamaChatProvider
 from .openai_compatible import SYSTEM_PROMPT, _TINY_PNG_DATA_URL, OpenAICompatibleProvider, _looks_like_vision_rejection
@@ -182,12 +182,7 @@ class LiteLLMProvider:
         if self._protocol == "openai":
             return self._native._client
         if self._hosted_client is None:
-            get_litellm()
-            from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
-
-            self._hosted_client = AsyncHTTPHandler(
-                timeout=self._timeout, transport=PublicModelTransport(), follow_redirects=False,
-            )
+            self._hosted_client = hosted_http_handler(self._timeout)
         return self._hosted_client
 
     # ------------------------------------------------------------------
