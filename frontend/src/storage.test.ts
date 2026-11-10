@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearStoredToken, isPersistentSession, readStoredToken } from "./features/auth/session";
+import { clearStoredToken, readStoredToken, writeStoredToken } from "./features/auth/session";
 import { readConversationFolders, readIdList, readStringMap } from "./features/chat/localChatPreferences";
 import { readStorageItem } from "./storage";
 
@@ -10,23 +10,39 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("storage namespace migration", () => {
-  it.each(["localStorage", "sessionStorage"] as const)("preserves an existing login in %s and clears both namespaces on logout", (storageName) => {
-    window[storageName].setItem("careerloop-auth-token", "saved-token");
+  it("migrates a legacy login kept for this browser session and clears both namespaces on logout", () => {
+    window.sessionStorage.setItem("careerloop-auth-token", "saved-token");
     expect(readStoredToken()).toBe("saved-token");
-    expect(isPersistentSession()).toBe(storageName === "localStorage");
-    expect(window[storageName].getItem("tuantuan-auth-token")).toBe("saved-token");
-    expect(window[storageName].getItem("careerloop-auth-token")).toBeNull();
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBe("saved-token");
+    expect(window.sessionStorage.getItem("careerloop-auth-token")).toBeNull();
     // An unread legacy token in the other store must not restore a signed-out session.
-    window[storageName === "localStorage" ? "sessionStorage" : "localStorage"].setItem("careerloop-auth-token", "stale-token");
+    window.localStorage.setItem("careerloop-auth-token", "stale-token");
     clearStoredToken();
     expect(readStoredToken()).toBeNull();
+    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBeNull();
   });
 
-  it("keeps the session token ahead of a persistent legacy login", () => {
-    sessionStorage.setItem("careerloop-auth-token", "temporary");
-    localStorage.setItem("careerloop-auth-token", "persistent");
+  it("never persists the login to localStorage", () => {
+    writeStoredToken("session-token");
+    expect(window.sessionStorage.getItem("tuantuan-auth-token")).toBe("session-token");
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("purges a token persisted by an older build instead of restoring it", () => {
+    window.localStorage.setItem("tuantuan-auth-token", "persisted-token");
+    window.localStorage.setItem("careerloop-auth-token", "legacy-persisted-token");
+    expect(readStoredToken()).toBeNull();
+    expect(window.localStorage.getItem("tuantuan-auth-token")).toBeNull();
+    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
+  });
+
+  it("keeps the session token ahead of a persistent legacy login and purges it", () => {
+    window.sessionStorage.setItem("careerloop-auth-token", "temporary");
+    window.localStorage.setItem("careerloop-auth-token", "persistent");
     expect(readStoredToken()).toBe("temporary");
-    expect(isPersistentSession()).toBe(false);
+    expect(window.localStorage.getItem("careerloop-auth-token")).toBeNull();
   });
 
   it("migrates theme, scoped preferences and structured drafts only when read", () => {

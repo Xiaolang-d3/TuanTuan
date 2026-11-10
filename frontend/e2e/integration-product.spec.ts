@@ -10,14 +10,19 @@ test("new account imports, corrects and reviews knowledge through the real backe
   await page.getByRole("button", { name: "创建账号", exact: true }).click();
   await expect(page.getByRole("heading", { name: /reader/ })).toBeVisible();
   await page.goto("/#/settings");
-  const token = await page.evaluate(() => localStorage.getItem("tuantuan-auth-token"));
+  // 安全修复后令牌只写 sessionStorage：初次登录后同一标签页内的应用内跳转必须保住它，
+  // 而 localStorage 作为可被脚本长期读取的持久层不得再出现令牌。
+  const token = await page.evaluate(() => sessionStorage.getItem("tuantuan-auth-token"));
+  expect(token).toBeTruthy();
+  expect(await page.evaluate(() => localStorage.getItem("tuantuan-auth-token"))).toBeNull();
   await page.getByRole("link", { name: "了解 团团" }).click();
   await expect(page).toHaveURL(/#\/about$/);
   await expect(page.getByRole("heading", { name: /理解你的想法/ })).toBeVisible();
   await page.getByRole("link", { name: "返回应用", exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   await expect(page.getByRole("button", { name: /账号与安全/ })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("tuantuan-auth-token"))).toBe(token);
+  expect(await page.evaluate(() => sessionStorage.getItem("tuantuan-auth-token"))).toBe(token);
+  expect(await page.evaluate(() => localStorage.getItem("tuantuan-auth-token"))).toBeNull();
   await page.goto("/#/library");
   await page.getByLabel("选择上传文件").setInputFiles([
     { name: "reading.md", mimeType: "text/markdown", buffer: Buffer.from("阅读结论：每周整理问题，联系 reader@example.test。") },

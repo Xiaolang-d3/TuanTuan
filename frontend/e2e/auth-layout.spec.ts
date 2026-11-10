@@ -66,7 +66,7 @@ test("connection status remains centered and does not create document scroll", a
 
 test("expired-session and validation messages fit on a regular phone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
-  await page.addInitScript(() => localStorage.setItem("tuantuan-auth-token", "expired-layout-fixture"));
+  await page.addInitScript(() => sessionStorage.setItem("tuantuan-auth-token", "expired-layout-fixture"));
   await page.route("**/auth/me", route => route.fulfill({ status: 401, json: { detail: "expired" } }));
   await page.goto("/");
   await expect(page.getByText("登录状态已失效，请重新登录")).toBeVisible();

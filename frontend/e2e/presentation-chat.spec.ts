@@ -9,7 +9,7 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
   // consume the budget for two confirmations and several page reloads.
   await page.route(/https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, route => route.fulfill({ contentType: "text/css", body: "" }));
   await page.addInitScript(() => {
-    localStorage.setItem("tuantuan-auth-token", "ppt-chat-fixture-token");
+    sessionStorage.setItem("tuantuan-auth-token", "ppt-chat-fixture-token");
     localStorage.setItem("tuantuan-theme", "light");
   });
   const jobs: Array<Record<string, any>> = [];

@@ -197,9 +197,6 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 .auth-show-password:hover, .auth-show-password[aria-pressed="true"] { color: var(--color-brand-strong); background: var(--color-brand-soft); }
 .auth-show-password:disabled { opacity: .6; cursor: wait; }
 .auth-show-password:focus-visible, .auth-submit:focus-visible, .auth-status-retry:focus-visible, .auth-mode-switch button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
-.auth-remember { display: flex; align-items: center; gap: 8px; width: fit-content; min-height: 22px; margin: 0; cursor: pointer; }
-.auth-remember input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-brand); cursor: pointer; }
-.auth-remember input:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 .auth-submit {
   display: inline-flex;
   justify-content: center;

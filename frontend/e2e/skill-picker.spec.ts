@@ -6,7 +6,7 @@ import { defaultAgentSettings } from "../src/constants";
 for (const theme of ["light", "dark"] as const) {
   test(`compact skill picker remains usable across breakpoints in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("tuantuan-auth-token", "skill-picker-e2e-token");
+      sessionStorage.setItem("tuantuan-auth-token", "skill-picker-e2e-token");
       localStorage.setItem("tuantuan-theme", value);
     }, theme);
     const skill = { id: "weekly", kind: "skill", name: "周报助手", description: "归纳每周工作并整理行动项", source: "user", enabled: true, permissions: [], user_invocable: true };

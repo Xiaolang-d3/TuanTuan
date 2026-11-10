@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, createApiClient, SESSION_EXPIRED_EVENT } from "../../api/client";
 import {
-  AuthSession, AuthUser, clearStoredToken, isPersistentSession, readStoredToken,
+  AuthSession, AuthUser, clearStoredToken, readStoredToken,
   tokenExpiresAt, tokenStorageKey, validateSession, writeStoredToken
 } from "./session";
 
@@ -16,7 +16,6 @@ export function useAuthSession(apiBase: string) {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const logoutPending = useRef(false);
-  const persistent = useRef(isPersistentSession());
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const authenticated = verified?.access_token === token && verified?.apiBase === apiBase ? verified : null;
@@ -69,10 +68,8 @@ export function useAuthSession(apiBase: string) {
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key !== tokenStorageKey && event.key !== null) return;
-      if (!persistent.current && tokenRef.current) return;
       const next = readStoredToken();
       if (next === tokenRef.current) return;
-      persistent.current = isPersistentSession();
       tokenRef.current = next;
       setToken(next);
       setVerified(null);
@@ -99,10 +96,9 @@ export function useAuthSession(apiBase: string) {
     return () => { window.clearTimeout(timer); window.removeEventListener("focus", onFocus); };
   }, [authenticated, token, reset]);
 
-  function acceptSession(session: AuthSession, remember = persistent.current) {
+  function acceptSession(session: AuthSession) {
     validateSession(session);
-    persistent.current = remember;
-    writeStoredToken(session.access_token, remember);
+    writeStoredToken(session.access_token);
     tokenRef.current = session.access_token;
     setToken(session.access_token);
     setVerified({ ...session, apiBase });

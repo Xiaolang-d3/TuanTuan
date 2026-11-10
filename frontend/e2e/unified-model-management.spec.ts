@@ -42,7 +42,7 @@ test("manages services and cross-service model defaults through the real setting
     "/agent/model-fallbacks": { enabled: false, fallback_profile_ids: [], context_window_profile_ids: [], content_policy_profile_ids: [], retry_policy: { timeout: 0, rate_limit: 0, server_error: 0 }, allowed_fails: 1, cooldown_seconds: 30, revision: 1, backend: "native" },
     "/agent/model-routing": { roles: {}, strict_capabilities: false, version: 1 }
   };
-  await page.addInitScript(() => { localStorage.setItem("tuantuan-auth-token", "synthetic-model-manager-token"); localStorage.setItem("tuantuan-theme", "light"); });
+  await page.addInitScript(() => { sessionStorage.setItem("tuantuan-auth-token", "synthetic-model-manager-token"); localStorage.setItem("tuantuan-theme", "light"); });
   page.on("pageerror", error => errors.push(error.message));
   page.on("requestfailed", request => { if (request.failure()?.errorText !== "net::ERR_ABORTED") errors.push(`${request.method()} ${new URL(request.url()).pathname}: ${request.failure()?.errorText}`); });
   page.on("response", response => {

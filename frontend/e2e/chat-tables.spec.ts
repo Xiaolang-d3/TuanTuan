@@ -5,7 +5,7 @@ import { expect, test } from "./test-fixtures";
 for (const theme of ["light", "dark"] as const) {
   test(`message tables stay readable and keyboard-scrollable in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("tuantuan-auth-token", "table-e2e-token");
+      sessionStorage.setItem("tuantuan-auth-token", "table-e2e-token");
       localStorage.setItem("tuantuan-theme", value);
     }, theme);
     const content = [

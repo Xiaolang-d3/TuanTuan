@@ -50,7 +50,7 @@ async function mockBannerProduct(page: Page) {
     "/agent/capabilities": { configured: true, active_model_name: "gpt-image-2", tools: [], web_research: { enabled: false, provider: "none" } },
     "/attachments/config": { storage: "local", vision_enabled: false, checks: [] }
   };
-  await page.addInitScript(() => localStorage.setItem("tuantuan-auth-token", "banner-e2e-token"));
+  await page.addInitScript(() => sessionStorage.setItem("tuantuan-auth-token", "banner-e2e-token"));
   await page.route("http://127.0.0.1:4173/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;

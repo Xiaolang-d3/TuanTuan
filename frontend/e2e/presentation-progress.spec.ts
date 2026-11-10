@@ -8,7 +8,7 @@ test("chat shows truthful request waiting and preserves pages after a connection
   const output = resolve("..", "output", "ppt-flow-research", "screenshots");
   await mkdir(output, { recursive: true });
   await page.addInitScript(() => {
-    localStorage.setItem("tuantuan-auth-token", "offline-ppt-progress-fixture");
+    sessionStorage.setItem("tuantuan-auth-token", "offline-ppt-progress-fixture");
     if (!localStorage.getItem("tuantuan-theme")) localStorage.setItem("tuantuan-theme", "light");
   });
   const job = { id: "c".repeat(32), topic: "季度产品复盘：进展、问题与下一步计划", page_count: 8, conversation_id: 1, model_name: "会话文本模型", status: "running", stage: "page_3_ready", revision: 1, confirmation_required: false, generation_available: true, cancel_requested: false,

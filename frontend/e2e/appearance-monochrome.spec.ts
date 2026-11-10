@@ -8,7 +8,7 @@ test.beforeEach(async () => { await mkdir(evidenceDir, { recursive: true }); });
 async function mockWorkspace(page: Page, theme: "light" | "dark", signedIn = true) {
   await page.addInitScript(({ theme, signedIn }) => {
     if (!localStorage.getItem("tuantuan-theme")) localStorage.setItem("tuantuan-theme", theme);
-    if (signedIn) localStorage.setItem("tuantuan-auth-token", "monochrome-test");
+    if (signedIn) sessionStorage.setItem("tuantuan-auth-token", "monochrome-test");
     localStorage.setItem("tuantuan-first-run:theme@local.test", "done");
   }, { theme, signedIn });
   await page.route(/^http:\/\/127\.0\.0\.1:\d+\//, async route => {

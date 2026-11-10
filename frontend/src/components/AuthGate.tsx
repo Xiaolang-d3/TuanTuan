@@ -85,7 +85,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   const [bootNonce, setBootNonce] = useState(0);
   const [error, setError] = useState("");
   const [errorKind, setErrorKind] = useState<LoginIssue["kind"] | "">("");
-  const [remember, setRemember] = useState(true);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now);
   const cooldown = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
@@ -212,7 +211,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
       chosenMode.current = true;
       setRegistering(false);
       setPendingCreation(false);
-      session.acceptSession(next, remember);
+      session.acceptSession(next);
     } catch (reason) {
       if (controller.signal.aborted) return;
       const issue = classifyLoginError(reason, creating);
@@ -348,7 +347,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               </div>
             ) : null}
           </div>
-          <label className="auth-remember"><input type="checkbox" checked={remember} disabled={busy} onChange={(event) => setRemember(event.target.checked)} />保持登录</label>
           {error && !fieldErrors.password ? (
             <p className="auth-error" role="alert">
               <span>{error}</span>

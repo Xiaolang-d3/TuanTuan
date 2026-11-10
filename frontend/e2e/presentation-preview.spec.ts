@@ -8,7 +8,7 @@ test("finished deck supports lazy thumbnails, cover entry and remembered navigat
   const output = resolve("..", "output", "ppt-preview-navigation");
   await mkdir(output, { recursive: true });
   await page.addInitScript(() => {
-    localStorage.setItem("tuantuan-auth-token", "offline-preview-fixture");
+    sessionStorage.setItem("tuantuan-auth-token", "offline-preview-fixture");
     if (!localStorage.getItem("tuantuan-theme")) localStorage.setItem("tuantuan-theme", "light");
   });
   const topic = "AI 智能体架构分享\n面向研发团队，介绍规划、工具调用与记忆。\n用架构示意解释工作循环，最后给出实践建议。";

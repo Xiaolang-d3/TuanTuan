@@ -19,7 +19,7 @@ const evidenceDir = resolve("..", "..", "output", "file-library-redesign");
 
 async function mockLibrary(page: Page, theme: "light" | "dark") {
   await page.addInitScript((value) => {
-    localStorage.setItem("tuantuan-auth-token", "file-library-e2e-token");
+    sessionStorage.setItem("tuantuan-auth-token", "file-library-e2e-token");
     localStorage.setItem("tuantuan-theme", value);
   }, theme);
   await page.route("http://127.0.0.1:4173/**", async (route) => {

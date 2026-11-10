@@ -7,7 +7,7 @@ for (const theme of ['light', 'dark']) {
   test(`Weixin bot keeps its status icon beside the account and acknowledges the opened snapshot in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.addInitScript(value => {
-      localStorage.setItem('tuantuan-auth-token', 'bot-test-session');
+      sessionStorage.setItem('tuantuan-auth-token', 'bot-test-session');
       localStorage.setItem('tuantuan-theme', value);
     }, theme);
     let state = { connected: true, enabled: true, error: '', conversation_id: 6, unread_count: 3,

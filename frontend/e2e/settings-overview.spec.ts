@@ -6,7 +6,7 @@ import { defaultAgentSettings } from "../src/constants";
 for (const theme of ["light", "dark"] as const) {
   test(`settings entries remain aligned and reachable across breakpoints in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => {
-      localStorage.setItem("tuantuan-auth-token", "settings-e2e-token");
+      sessionStorage.setItem("tuantuan-auth-token", "settings-e2e-token");
       localStorage.setItem("tuantuan-theme", value);
     }, theme);
     const responses: Record<string, unknown> = {

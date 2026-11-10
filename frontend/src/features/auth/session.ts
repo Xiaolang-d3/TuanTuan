@@ -8,18 +8,17 @@ function readStorage(storage: "localStorage" | "sessionStorage") {
   return readStorageItem(tokenStorageKey, storage);
 }
 
+/** Read the token of this browser session; tokens persisted by older builds are purged, never restored. */
 export function readStoredToken() {
-  return readStorage("sessionStorage") || readStorage("localStorage");
+  const token = readStorage("sessionStorage");
+  removeStorageItem(tokenStorageKey, "localStorage");
+  return token;
 }
 
-export function isPersistentSession() {
-  return !readStorage("sessionStorage") && Boolean(readStorage("localStorage"));
-}
-
-export function writeStoredToken(token: string, persistent: boolean) {
+export function writeStoredToken(token: string) {
   clearStoredToken();
   try {
-    window[persistent ? "localStorage" : "sessionStorage"].setItem(tokenStorageKey, token);
+    window.sessionStorage.setItem(tokenStorageKey, token);
   } catch {
     // Restricted storage still permits the current in-memory session.
   }

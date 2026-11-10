@@ -6,7 +6,7 @@ import { defaultAgentSettings } from "../src/constants";
 test("mocked production workbench is usable on desktop and narrow screens", async ({ page }) => {
   await page.route(/https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, route => route.fulfill({ contentType: "text/css", body: "" }));
   await page.addInitScript(() => {
-    localStorage.setItem("tuantuan-auth-token", "ppt-production-e2e-token");
+    sessionStorage.setItem("tuantuan-auth-token", "ppt-production-e2e-token");
     localStorage.setItem("tuantuan-theme", "light");
   });
   const job = { id: "a".repeat(32), kind: "ppt.generate", status: "waiting_user", revision: 1, stage: "stage1_recommended", prompt: "请审核需求后提交", confirmation_required: true, generation_available: true, cancel_requested: false };

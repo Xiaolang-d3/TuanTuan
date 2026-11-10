@@ -15,7 +15,7 @@ const conversation = {
 
 async function mockCurrentProduct(page: Page) {
   await page.addInitScript(() => {
-    window.localStorage.setItem("tuantuan-auth-token", "e2e-token");
+    window.sessionStorage.setItem("tuantuan-auth-token", "e2e-token");
     window.localStorage.setItem("tuantuan-first-run:e2e@local.test", "done");
   });
   await page.route("http://127.0.0.1:4173/**", async (route) => {
