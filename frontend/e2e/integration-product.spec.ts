@@ -83,7 +83,10 @@ test("new account imports, corrects and reviews knowledge through the real backe
   await page.getByRole("combobox", { name: "文件范围", exact: true }).selectOption("all");
   await expect(list.locator("tbody tr")).toHaveCount(2);
   await page.getByRole("checkbox", { name: "选择 notes", exact: true }).check();
-  await page.getByRole("button", { name: "用于对话", exact: true }).click();
+  // 勾选后按钮要等选择结果回填才可用，慢速 runner 上不能假设点击当下就绪。
+  const forChat = page.getByRole("button", { name: "用于对话", exact: true });
+  await expect(forChat).toBeEnabled();
+  await forChat.click();
   await page.getByRole("button", { name: "创建对话", exact: true }).click();
   await expect(page).toHaveURL(/#\/chat\/\d+$/);
   await expect(page.getByRole("button", { name: "移除 notes.txt" })).toBeVisible();

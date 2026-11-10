@@ -53,9 +53,12 @@ def test_parser_wall_time_limit_terminates_and_joins_child(monkeypatch):
 
 def test_parser_memory_limit_is_enforced_in_an_isolated_child(monkeypatch):
     from app.documents import limits
+    from app.documents.limits import DocumentLimitError
     previous = {process.pid for process in multiprocessing.active_children()}
     monkeypatch.setattr(limits, "FAST_PARSE_MEMORY_BYTES", 1024 * 1024)
-    with pytest.raises(ValueError, match="资源|内存"):
+    # A 1 MiB ceiling kills the child before it can always name the reason, and
+    # that wording differs by platform. The contract is the limit error itself.
+    with pytest.raises(DocumentLimitError):
         parse_document_result("limited.pdf", pdf_bytes("small"))
     assert {process.pid for process in multiprocessing.active_children()} == previous
 
