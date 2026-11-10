@@ -46,6 +46,31 @@ describe("ComposerModelParameters", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
   });
 
+  it("retains failed thinking choices across revision refresh and retries with the latest revision", async () => {
+    const onSave = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const onDirtyChange = vi.fn();
+    const onSavingChange = vi.fn();
+    const { settings, rerender } = setup({ onSave });
+    rerender(<ComposerModelParameters settings={settings} disabled={false} onDirtyChange={onDirtyChange} onSavingChange={onSavingChange} />);
+    fireEvent.change(screen.getByLabelText("思考程度"), { target: { value: "high" } });
+    await screen.findByRole("alert");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    expect(onSavingChange).toHaveBeenLastCalledWith(false);
+    rerender(<ComposerModelParameters settings={{ ...settings, profile: { ...settings.profile, revision: 5, reasoning_effort: "low" } }} disabled={false} onDirtyChange={onDirtyChange} onSavingChange={onSavingChange} />);
+    expect(screen.getByLabelText("思考程度")).toHaveValue("high");
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(onSave).toHaveBeenLastCalledWith("p1", 5, { reasoning_effort: "high" }));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+  });
+
+  it("refreshes clean thinking choices and supports read-only preview", () => {
+    const { settings, rerender } = setup();
+    rerender(<ComposerModelParameters settings={{ ...settings, profile: { ...settings.profile, revision: 5, reasoning_effort: "low" } }} disabled={false} readOnly />);
+    expect(screen.getByLabelText("思考程度")).toHaveValue("low");
+    expect(screen.getByLabelText("思考程度")).toBeDisabled();
+    expect(settings.onSave).not.toHaveBeenCalled();
+  });
+
   it("disables unsupported reasoning levels but allows clearing an old value", async () => {
     setup({ fetchJson: vi.fn().mockResolvedValue({ ...report, capabilities: { reasoning: { status: "unsupported" } } }) as unknown as ReturnType<typeof createApiClient> });
     await screen.findByText(/此模型仅支持自动/);

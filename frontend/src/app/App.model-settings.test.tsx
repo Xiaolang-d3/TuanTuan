@@ -167,7 +167,7 @@ describe("App model settings", () => {
     await screen.findByRole("heading", { name: "模型管理" });
     const search = screen.getByLabelText("搜索模型");
     fireEvent.change(search, { target: { value: "gpt-4.1" } });
-    fireEvent.click(screen.getByRole("button", { name: "使用文本" }));
+    fireEvent.click(screen.getByRole("button", { name: "设为文本默认" }));
     await waitFor(() => expect(api.fetchJson.mock.calls.filter(([path]) => path === "/agent/settings").length).toBeGreaterThan(1));
     expect(screen.getByRole("heading", { name: "模型管理" })).toBeInTheDocument();
     expect(screen.getByLabelText("搜索模型")).toBe(search);
