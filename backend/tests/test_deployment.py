@@ -308,7 +308,8 @@ def test_production_policy_cannot_be_weakened_by_operator_environment(tmp_path, 
     assert secret_backend_name() == "keyring"
     assert not production_enabled()
     assert normalize_api_root("https://api.openai.com/v1") == "https://api.openai.com/v1"
-    for base in ("http://127.0.0.1:11434", "https://untrusted.test/v1", "http://api.openai.com/v1"):
+    assert normalize_api_root("https://new-gateway.example.com/v1") == "https://new-gateway.example.com/v1"
+    for base in ("http://127.0.0.1:11434", "https://127.0.0.1/v1", "http://api.openai.com/v1"):
         with pytest.raises(ValueError, match="托管模式"):
             normalize_api_root(base)
 

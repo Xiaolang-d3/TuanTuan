@@ -22,13 +22,14 @@ from time import perf_counter
 from typing import Any
 
 from ..redaction import remember_secret
+from ..model_network import hosted_models
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..observability.model_monitor import record_model_service_event
 from .anthropic_messages import AnthropicMessagesProvider
 from .base import ModelProviderError
 from .gemini_generate_content import GeminiGenerateContentProvider
-from .litellm_core import api_base_for, estimate_cost_usd, get_litellm, model_string
+from .litellm_core import api_base_for, estimate_cost_usd, get_litellm, model_string, hosted_http_handler
 from .litellm_errors import is_litellm_exception, litellm_error_detail, map_litellm_error
 from .ollama_chat import OllamaChatProvider
 from .openai_compatible import SYSTEM_PROMPT, _TINY_PNG_DATA_URL, OpenAICompatibleProvider, _looks_like_vision_rejection
@@ -172,6 +173,17 @@ class LiteLLMProvider:
         self._configured_base_url = (base_url or "").rstrip("/") or None
         self._timeout = timeout_seconds
         self._prices = (price_per_million_input, price_per_million_output)
+        self._hosted_client = None
+
+    def hosted_client(self):
+        """The exact client type LiteLLM expects for this route's dialect."""
+        if not hosted_models():
+            return None
+        if self._protocol == "openai":
+            return self._native._client
+        if self._hosted_client is None:
+            self._hosted_client = hosted_http_handler(self._timeout)
+        return self._hosted_client
 
     # ------------------------------------------------------------------
     # Identity
@@ -207,6 +219,8 @@ class LiteLLMProvider:
         options = self.litellm_params()
         options.pop("model")
         options["num_retries"] = 0
+        if hosted_models():
+            options["client"] = self.hosted_client()
         return options
 
     # ------------------------------------------------------------------

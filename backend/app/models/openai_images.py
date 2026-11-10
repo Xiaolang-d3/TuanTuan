@@ -16,6 +16,7 @@ from openai import APIError, APIStatusError
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage
 from ..domain.agent import ModelImageOutput
 from ..model_connection import normalize_api_root
+from ..model_network import is_public_model_ip
 from .base import ModelProviderError
 from .openai_compatible import OpenAICompatibleProvider
 
@@ -151,8 +152,7 @@ class OpenAIImagesProvider(OpenAICompatibleProvider):
                             raise ValueError('Public DNS resolution failed')
                         addresses = [ipaddress.ip_address(record['data'])
                                      for record in records.get('Answer', []) if record.get('type') == 1]
-            if not addresses or any(not address.is_global or address.is_multicast or address.is_reserved
-                                    for address in addresses):
+            if not addresses or any(not is_public_model_ip(str(address)) for address in addresses):
                 raise ValueError("Image URL must resolve only to public addresses")
             download_url = source_url.copy_with(host=str(addresses[0]))
         except (ValueError, TypeError, KeyError, AttributeError):

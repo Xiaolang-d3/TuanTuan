@@ -19,6 +19,7 @@ from openai import (
 from .parameters import request_parameters
 from .catalog_discovery import DiscoveredModels, catalog_query, normalize_catalog, rejected_kind_parameter
 from ..redaction import remember_secret
+from ..model_network import hosted_models, model_http_client, model_address_error
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..agent.progress import TASK_PROGRESS_GUIDANCE
@@ -105,6 +106,7 @@ class OpenAICompatibleProvider:
             base_url=self._base_url,
             timeout=timeout_seconds,
             max_retries=0,
+            **({"http_client": model_http_client(timeout=timeout_seconds)} if hosted_models() else {}),
         )
 
     @staticmethod
@@ -376,6 +378,9 @@ class OpenAICompatibleProvider:
 
     @staticmethod
     def _map_provider_error(exc: Exception) -> ModelProviderError:
+        policy_error = model_address_error(exc)
+        if policy_error:
+            return policy_error
         if isinstance(exc, AuthenticationError):
             return ModelProviderError(
                 "authentication_failed",

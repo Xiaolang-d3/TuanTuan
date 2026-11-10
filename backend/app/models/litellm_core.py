@@ -115,6 +115,7 @@ def get_litellm() -> Any:
     """Import and configure LiteLLM once, offline."""
     global _module, _import_seconds
     if _module is not None:
+        _configure_network_policy(_module)
         return _module
     with _lock:
         if _module is None:
@@ -135,7 +136,51 @@ def get_litellm() -> Any:
             _configure(litellm)
             _import_seconds = perf_counter() - started
             _module = litellm
+    _configure_network_policy(_module)
     return _module
+
+
+def _configure_network_policy(module: Any) -> None:
+    """Use the SDK's deployment hook even for its nested Responses bridge.
+
+    LiteLLM 1.104's async chat→Responses bridge drops the caller's client.
+    A deployment hook runs again at the actual aresponses boundary, so the
+    safety policy does not depend on that forwarding or on SDK cache keys.
+    """
+    from ..model_network import hosted_models, PublicModelTransport
+
+    if not hosted_models():
+        return
+    with _lock:
+        policy = getattr(module, "_tuantuan_network_policy", None)
+        if policy is None:
+            from litellm.integrations.custom_logger import CustomLogger
+            from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+            class HostedResponsesPolicy(CustomLogger):
+                def __init__(self):
+                    super().__init__(turn_off_message_logging=True)
+                    self.handler = AsyncHTTPHandler(transport=PublicModelTransport(), follow_redirects=False)
+
+                async def async_pre_call_deployment_hook(self, kwargs, call_type):
+                    if hosted_models() and getattr(call_type, "value", call_type) == "aresponses":
+                        kwargs["client"] = self.handler
+                    return kwargs
+
+            policy = module._tuantuan_network_policy = HostedResponsesPolicy()
+        if policy not in module.callbacks:
+            # This is an in-process request policy, with no logging or external
+            # integrations. Prompt/response logging remains disabled.
+            module.callbacks.append(policy)
+
+
+def hosted_http_handler(timeout_seconds: float):
+    """Keep all direct LiteLLM imports inside this SDK boundary."""
+    get_litellm()
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+    from ..model_network import PublicModelTransport
+
+    return AsyncHTTPHandler(timeout=timeout_seconds, transport=PublicModelTransport(), follow_redirects=False)
 
 
 def litellm_loaded() -> bool:

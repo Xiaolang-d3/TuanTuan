@@ -20,6 +20,7 @@ from time import perf_counter
 from typing import Any
 
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent
+from ..model_network import hosted_models
 from ..observability.model_monitor import record_model_service_event
 from .base import ModelProviderError
 from .litellm_core import get_litellm, retry_policy_class
@@ -91,7 +92,19 @@ def build_router(primary: RouteTarget, fallbacks: dict[str, list[RouteTarget]], 
         "AuthenticationErrorRetries": 0,
         "ContentPolicyViolationErrorRetries": 0,
     }
-    return litellm.Router(
+    router_class = litellm.Router
+    if hosted_models():
+        # Router otherwise replaces the per-call client with its cached SDK
+        # client. Bind every deployment (including cross-protocol fallbacks)
+        # to its own guarded client, key and origin instead.
+        guarded = {PRIMARY_GROUP: primary, **targets}
+
+        class HostedRouter(litellm.Router):
+            def _get_async_openai_model_client(self, deployment, kwargs):
+                return guarded[deployment["model_info"]["id"]].provider.hosted_client()
+
+        router_class = HostedRouter
+    return router_class(
         model_list=model_list,
         fallbacks=chain("general"),
         context_window_fallbacks=chain("context_window"),

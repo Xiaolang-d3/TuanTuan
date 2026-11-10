@@ -11,6 +11,7 @@ import httpx
 
 from .parameters import request_parameters
 from ..redaction import remember_secret
+from ..model_network import model_http_client, model_address_error
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..observability.model_monitor import record_model_service_event
@@ -41,7 +42,7 @@ class GeminiGenerateContentProvider:
         self._secret = api_key  # masked in error messages
         remember_secret(api_key)  # masked verbatim in logs
         self._base_url = self._normalize_base_url(base_url)
-        self._client = httpx.AsyncClient(
+        self._client = model_http_client(
             headers={
                 "x-goog-api-key": api_key,
                 "content-type": "application/json",
@@ -365,6 +366,9 @@ class GeminiGenerateContentProvider:
 
     @staticmethod
     def _map_provider_error(exc: Exception) -> ModelProviderError:
+        policy_error = model_address_error(exc)
+        if policy_error:
+            return policy_error
         if isinstance(exc, httpx.TimeoutException):
             return ModelProviderError("request_timeout", "模型服务响应超时，请稍后重试", retryable=True)
         if isinstance(exc, httpx.RequestError):

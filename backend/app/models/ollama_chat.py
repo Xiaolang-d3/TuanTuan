@@ -10,6 +10,7 @@ import httpx
 
 from .parameters import request_parameters
 from ..redaction import remember_secret
+from ..model_network import model_http_client, model_address_error
 from ..agent.settings import get_agent_settings, persona_prompt
 from ..domain import ModelRequest, ModelResponse, ModelStreamEvent, ModelUsage, ToolCall
 from ..observability.model_monitor import record_model_service_event
@@ -35,7 +36,7 @@ class OllamaChatProvider:
         headers = {"content-type": "application/json"}
         if api_key:
             headers["authorization"] = f"Bearer {api_key}"
-        self._client = httpx.AsyncClient(headers=headers, timeout=timeout_seconds)
+        self._client = model_http_client(headers=headers, timeout=timeout_seconds)
 
     @property
     def chat_url(self) -> str:
@@ -306,6 +307,9 @@ class OllamaChatProvider:
 
     @staticmethod
     def _map_provider_error(exc: Exception) -> ModelProviderError:
+        policy_error = model_address_error(exc)
+        if policy_error:
+            return policy_error
         if isinstance(exc, httpx.TimeoutException):
             return ModelProviderError("request_timeout", "模型服务响应超时，请稍后重试", retryable=True)
         if isinstance(exc, httpx.RequestError):
