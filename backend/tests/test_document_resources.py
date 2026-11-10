@@ -21,7 +21,7 @@ def test_docx_expansion_is_rejected_and_original_is_preserved(tmp_path):
     init_db(path)
     source = import_file_source(filename="expanded.docx", content_bytes=data, enabled=True, db_path=path)
     assert source["parse_status"] == "failed" and not source["enabled"]
-    assert any("展开" in warning for warning in source["metadata"]["warnings"])
+    assert any("展开" in warning for warning in source["metadata"]["warnings"]), source["metadata"]["warnings"]
     assert get_source_file(source["id"], path)[0].read_bytes() == data
 
 
@@ -38,7 +38,7 @@ def test_pdf_stream_expansion_reports_processing_limit_and_preserves_original(tm
     init_db(path)
     source = import_file_source(filename="expanded.pdf", content_bytes=data, enabled=True, db_path=path)
     assert source["parse_status"] == "failed" and not source["enabled"]
-    assert any("展开" in warning or "解压" in warning for warning in source["metadata"]["warnings"])
+    assert any("展开" in warning or "解压" in warning for warning in source["metadata"]["warnings"]), source["metadata"]["warnings"]
     assert get_source_file(source["id"], path)[0].read_bytes() == data
 
 

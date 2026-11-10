@@ -126,10 +126,10 @@ jobs:
               if problem is None:
                   continue
               message = (problem.get("message") or problem.text or "").strip().splitlines()
-              first = message[0][:300] if message else "no message"
+              detail = " ".join(line.strip() for line in message[:3] if line.strip())[:400] or "no message"
               where = case.get("file") or "tests"
               name = f"{case.get('classname', '')}::{case.get('name', '')}"
-              print(f"::error file={where}::{name} - {first}")
+              print(f"::error file={where}::{name} - {detail}")
           PY
       - name: Upload backend test report
         if: always()

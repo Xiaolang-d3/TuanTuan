@@ -82,10 +82,12 @@ test("new account imports, corrects and reviews knowledge through the real backe
   await expect(page.getByText("回收站是空的")).toBeVisible();
   await page.getByRole("combobox", { name: "文件范围", exact: true }).selectOption("all");
   await expect(list.locator("tbody tr")).toHaveCount(2);
+  // 真实后端导入与解析在 macOS runner 上明显更慢，给足等待时间。
+  test.setTimeout(120_000);
   await page.getByRole("checkbox", { name: "选择 notes", exact: true }).check();
   // 勾选后按钮要等选择结果回填才可用，慢速 runner 上不能假设点击当下就绪。
   const forChat = page.getByRole("button", { name: "用于对话", exact: true });
-  await expect(forChat).toBeEnabled();
+  await expect(forChat).toBeEnabled({ timeout: 60_000 });
   await forChat.click();
   await page.getByRole("button", { name: "创建对话", exact: true }).click();
   await expect(page).toHaveURL(/#\/chat\/\d+$/);
