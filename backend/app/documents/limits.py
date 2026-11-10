@@ -103,6 +103,8 @@ def _parse_worker(connection, ready, filename, content, mode, max_characters, me
         connection.send(("ok", result, peak))
     except MemoryError:
         connection.send(("error", "文档解析超过内存资源预算", None))
+    except DocumentLimitError as exc:
+        connection.send(("error", str(exc), None))
     except ValueError as exc:
         message = "文档解析超过内存资源预算" if _memory_ceiling_reached(memory_limit) else str(exc)
         connection.send(("error", message, None))

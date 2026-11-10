@@ -2,6 +2,9 @@
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 import multiprocessing
+import sys
+import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +12,78 @@ from app.db import init_db
 from app.documents.parser import parse_document_result
 from app.library.sources import get_source_file, import_file_source
 from document_fixtures import pdf_bytes
+
+
+@pytest.fixture
+def run_worker_error(monkeypatch):
+    """Exercise worker exception routing without spawning or imposing host limits."""
+    from app.documents import limits, parser
+    import pypdf.filters as filters
+
+    resource = SimpleNamespace(RLIMIT_AS=0, setrlimit=lambda *_: None)
+    monkeypatch.setitem(sys.modules, "resource", resource)
+    monkeypatch.setattr(tempfile, "tempdir", tempfile.tempdir)
+    for name in ("ZLIB_MAX_OUTPUT_LENGTH", "LZW_MAX_OUTPUT_LENGTH", "RUN_LENGTH_MAX_OUTPUT_LENGTH", "JBIG2_MAX_OUTPUT_LENGTH"):
+        monkeypatch.setattr(filters, name, getattr(filters, name, None), raising=False)
+    monkeypatch.setattr(limits, "_memory_ceiling_reached", lambda _: True)
+
+    def run(error):
+        messages = []
+        closed = []
+        ready = []
+        connection = SimpleNamespace(send=messages.append, close=lambda: closed.append(True))
+
+        def fail(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(parser, "_parse_document_result", fail)
+        limits._parse_worker(connection, SimpleNamespace(wait=lambda: ready.append(True)),
+                             "limited.pdf", b"fixture", "fast", 1000, 512, "unused")
+        assert ready == [True] and closed == [True]
+        assert len(messages) == 1 and messages[0][0] == "error"
+        return messages[0][1]
+
+    return run
+
+
+def test_worker_preserves_explicit_limit_error_even_at_memory_ceiling(run_worker_error):
+    from app.documents.limits import DocumentLimitError
+    message = "明确的处理范围错误；原文件保留"
+    assert run_worker_error(DocumentLimitError(message)) == message
+
+
+@pytest.mark.parametrize("message", [
+    "Word 文件展开超过安全处理范围；请拆分资料，原文件保留",
+    "资料展开超过 1000 字符处理范围；请拆分资料，原文件保留",
+    "资料超过 1000 字符处理范围；请拆分资料，原文件保留",
+    "PDF 页数超过处理范围；请拆分资料，原文件保留",
+])
+def test_worker_preserves_known_parser_limit_errors(run_worker_error, message):
+    from app.documents.limits import DocumentLimitError
+    assert run_worker_error(DocumentLimitError(message)) == message
+
+
+def test_worker_preserves_pdf_filter_expansion_limit(run_worker_error):
+    from pypdf.filters import LimitReachedError
+    assert run_worker_error(LimitReachedError("decode limit")) == "PDF 解压展开超过处理范围；原文件保留"
+
+
+@pytest.mark.parametrize("error", [ValueError("cannot reshape array"), MemoryError()])
+def test_worker_still_reports_unknown_allocation_failures_as_memory(run_worker_error, error):
+    assert run_worker_error(error) == "文档解析超过内存资源预算"
+
+
+def test_worker_keeps_unknown_value_error_below_memory_ceiling(run_worker_error, monkeypatch):
+    from app.documents import limits
+    monkeypatch.setattr(limits, "_memory_ceiling_reached", lambda _: False)
+    assert run_worker_error(ValueError("corrupt PDF")) == "corrupt PDF"
+
+
+def test_parser_character_limit_has_an_explicit_error_type():
+    from app.documents.limits import DocumentLimitError
+    from app.documents.parser import _parse_document_result
+    with pytest.raises(DocumentLimitError, match="处理范围"):
+        _parse_document_result("identity.txt", ("x" * 995 + "13800138000").encode(), max_characters=1000)
 
 
 def test_docx_expansion_is_rejected_and_original_is_preserved(tmp_path):
