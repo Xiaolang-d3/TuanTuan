@@ -131,6 +131,44 @@ def test_only_content_hashed_frontend_assets_receive_immutable_cache_policy() ->
     assert static_asset_cache_control("/auth/login") is None
 
 
+def test_missing_frontend_chunk_cannot_be_cached_after_deployment(tmp_path) -> None:
+    static_app = FastAPI()
+    static_app.middleware("http")(require_login)
+    static_app.mount("/", StaticFiles(directory=tmp_path), name="frontend")
+    client = TestClient(static_app)
+    path = "/assets/workspace-abc123.js"
+
+    missing = client.get(path)
+    assert missing.status_code == 404
+    assert "no-store" in missing.headers.get("cache-control", "")
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "workspace-abc123.js").write_text("export default 1;", encoding="utf-8")
+    available = client.get(path)
+    assert available.status_code == 200
+    assert available.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    revalidated = client.get(path, headers={"If-None-Match": available.headers["etag"]})
+    assert revalidated.status_code == 304
+    assert revalidated.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_frontend_entry_is_not_cached_across_deployments(tmp_path) -> None:
+    (tmp_path / "index.html").write_text("<html>first version</html>", encoding="utf-8")
+    static_app = FastAPI()
+    static_app.middleware("http")(require_login)
+    static_app.mount("/", StaticFiles(directory=tmp_path, html=True), name="frontend")
+    client = TestClient(static_app)
+
+    entry = client.get("/")
+    assert entry.status_code == 200
+    assert entry.headers["cache-control"] == "no-store"
+
+    revalidated = client.get("/", headers={"If-None-Match": entry.headers["etag"]})
+    assert revalidated.status_code == 304
+    assert revalidated.headers["cache-control"] == "no-store"
+
+
 def test_public_brand_asset_path_bypasses_login() -> None:
     client = TestClient(app)
 

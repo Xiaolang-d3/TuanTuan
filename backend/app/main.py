@@ -170,8 +170,17 @@ async def require_login(request: Request, call_next: Any) -> Any:
         if path.startswith("/auth/"):
             response.headers["Cache-Control"] = "no-store"
         cache_control = static_asset_cache_control(path)
-        if cache_control and response.status_code == 200:
-            response.headers["Cache-Control"] = cache_control
+        if request.method in {"GET", "HEAD"}:
+            if path == "/":
+                # Never cache the entry document: CDNs can otherwise apply a
+                # default TTL and keep references to a previous deployment.
+                response.headers["Cache-Control"] = "no-store"
+            elif cache_control:
+                # A CDN can otherwise cache a transient missing chunk and make
+                # it unavailable even after the deployment has completed.
+                response.headers["Cache-Control"] = (
+                    cache_control if response.status_code in {200, 206, 304} else "no-store"
+                )
         return response
     from .api.presentations import (
         confirmation_request_scope, is_confirmation_bootstrap, is_confirmation_landing, is_confirmation_request,
