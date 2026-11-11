@@ -795,7 +795,55 @@ describe("ChatWorkspace", () => {
     expect(writeText).toHaveBeenCalledWith(message.content);
     writeText.mockRejectedValueOnce(new Error("denied"));
     fireEvent.click(screen.getByRole("button", { name: "复制消息" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "复制消息" })).toHaveAttribute("title", "复制失败，请重试"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "复制消息" })).toHaveAttribute("title", "复制失败，请检查权限或手动选择复制"));
+    expect(screen.getByText("复制失败，请检查权限或手动选择复制")).toBeVisible();
+  });
+
+  it("shows progress until the answer is actually copied", async () => {
+    let resolveCopy!: () => void;
+    const writeText = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const answer = "第一行回答\n第二行回答";
+    renderChat([message, assistantMessage(answer)]);
+    const copy = screen.getByRole("button", { name: "复制回答" });
+    fireEvent.click(copy);
+    expect(copy).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("正在复制")).toBeVisible();
+    fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(answer);
+    await act(async () => resolveCopy());
+    expect(copy).not.toHaveAttribute("aria-disabled");
+    expect(screen.getByText("已复制")).toBeVisible();
+  });
+
+  it("asks the user to retry instead of overlapping two message copies", async () => {
+    let resolveCopy!: () => void;
+    const writeText = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    renderChat([message, assistantMessage("助手回答")]);
+    fireEvent.click(screen.getByRole("button", { name: "复制消息" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
+    expect(await screen.findByText("正在复制其他消息，请稍后重试")).toBeVisible();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await act(async () => resolveCopy());
+    writeText.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("助手回答"));
+    expect(await screen.findAllByText("已复制")).toHaveLength(2);
+  });
+
+  it("does not show an old copy result after the message changes", async () => {
+    let resolveCopy!: () => void;
+    const writeText = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { view, ...props } = renderChat([message]);
+    fireEvent.click(screen.getByRole("button", { name: "复制消息" }));
+    expect(screen.getByText("正在复制")).toBeVisible();
+    view.rerender(<ChatWorkspace {...props} messages={[{ ...message, content: "修改后的消息" }]} />);
+    await act(async () => resolveCopy());
+    expect(screen.queryByText("已复制")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制消息" })).toHaveAttribute("title", "复制消息");
   });
 
   it("explains editing impact and preserves a long replacement without sending on cancel", async () => {
