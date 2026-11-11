@@ -34,7 +34,7 @@ MAX_ARCHIVE_BYTES = 300 * 1024**2
 MAX_EXTRACTED_BYTES = 1024**3
 REVISION = re.compile(r"[0-9a-f]{40}")
 LOCAL_HTTP = build_opener(ProxyHandler({}))
-PUBLIC_FILES = ("tuantuan-logo.png", "tuantuan-favicon.png")
+PUBLIC_FILES = ("tuantuan-logo.png", "tuantuan-favicon.png", "auth-companion-cutout.webp")
 DATABASE_READY_CODE = """
 from app.workspace import auth_db_path, existing_workspace_roots, workspace_db_path
 from app.database_lifecycle import database_status
@@ -206,6 +206,20 @@ def wait_healthy(port: int, revision: str) -> None:
     raise RuntimeError("Application health check failed")
 
 
+def check_frontend_assets(release: Path, port: int) -> None:
+    """Download every bundled module, including chunks loaded only after login."""
+    dist = release / "frontend" / "dist"
+    files = [dist / name for name in PUBLIC_FILES]
+    files.extend(sorted(path for path in (dist / "assets").rglob("*")
+                        if path.is_file() and path.suffix in {".js", ".css"}))
+    files.extend(sorted((dist / "avatars").glob("*.svg")))
+    for file in files:
+        path = "/" + file.relative_to(dist).as_posix()
+        with LOCAL_HTTP.open(f"http://127.0.0.1:{port}{path}", timeout=5) as response:
+            if response.status != 200 or response.read() != file.read_bytes():
+                raise RuntimeError(f"Public asset smoke check failed: {path}")
+
+
 def smoke(release: Path, root: Path, config: dict, revision: str) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -219,10 +233,11 @@ def smoke(release: Path, root: Path, config: dict, revision: str) -> None:
                 cwd=release / "backend", env=env, stdout=log, stderr=log)
             try:
                 wait_healthy(port, revision)
-                for path in ("/", "/auth/config", *(f"/{name}" for name in PUBLIC_FILES)):
+                for path in ("/", "/auth/config"):
                     with LOCAL_HTTP.open(f"http://127.0.0.1:{port}{path}", timeout=5) as response:
                         if response.status != 200:
                             raise RuntimeError("Public page/asset smoke check failed")
+                check_frontend_assets(release, port)
                 try:
                     LOCAL_HTTP.open(f"http://127.0.0.1:{port}/library", timeout=5)
                 except HTTPError as error:

@@ -186,6 +186,7 @@ def test_public_brand_asset_path_bypasses_login() -> None:
     "tuantuan-legacy-mark-v1.png",
     "tuantuan-legacy-favicon-v1.png",
     "intro-surface-v1.webp",
+    "auth-companion-cutout.webp",
 ])
 def test_current_public_images_load_without_authorization(tmp_path, filename: str) -> None:
     # Exercise the production middleware and a real static mount even when CI
