@@ -365,7 +365,7 @@ class OpenAICompatibleProvider:
                 f"模型目录 {self.models_url} 没有返回 OpenAI 兼容的模型列表，"
                 "请确认 Base URL 填写的是模型服务的 API 网关地址",
             ) from exc
-        return DiscoveredModels(normalize_catalog(items))
+        return DiscoveredModels(normalize_catalog(items, api_key=self._secret))
 
     @property
     def models_url(self) -> str:

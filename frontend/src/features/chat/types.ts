@@ -160,7 +160,19 @@ export type ChatComposerDraft = {
   content: string;
 };
 
-export type ServiceModelCatalog = { connection_id: string; connection_name: string; revision: number; model_protocol?: ModelProtocol; models: string[]; entries?: ModelCatalogEntry[]; busy: boolean; error: string };
+export type ServiceModelCatalog = {
+  connection_id: string;
+  connection_name: string;
+  revision: number;
+  model_protocol?: ModelProtocol;
+  models: string[];
+  entries?: ModelCatalogEntry[];
+  busy: boolean;
+  error: string;
+  source?: "cache" | "live";
+  savedOnly?: string[];
+  discoveredAt?: string;
+};
 
 export type ChatWorkspaceProps = ResultServices & {
   documentReviewService?: import("./document-review-service").DocumentReviewService;
@@ -173,7 +185,7 @@ export type ChatWorkspaceProps = ResultServices & {
   modelSettings?: ComposerModelSettings;
   serviceModels?: ServiceModelCatalog;
   additionalServiceModels?: ServiceModelCatalog[];
-  onDiscoverServiceModels?: (refresh?: boolean) => Promise<void>;
+  onDiscoverServiceModels?: (refresh?: boolean, connectionId?: string) => Promise<void>;
   onServiceModelChange?: (modelName: string, connectionId?: string) => Promise<void>;
   selectedModelProfileId?: string | null;
   defaultModelName?: string;

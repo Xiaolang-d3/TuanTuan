@@ -21,6 +21,11 @@ const openMenu = () => fireEvent.click(screen.getByRole("button", { name: /切�
 afterEach(cleanup);
 
 describe("ComposerModelPicker", () => {
+  it("keeps cached models selectable when legacy metadata has no output types", () => {
+    setup({ serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: ["gpt-5.5"], entries: [{ id: "gpt-5.5", output_types: [], output_types_source: "unknown" }], source: "cache", busy: false, error: "" } });
+    openMenu();
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAttribute("aria-selected", "true");
+  });
   it("uses provider output metadata for opaque IDs and leaves video disabled", () => {
     const onServiceChange = vi.fn();
     setup({ onServiceChange, additionalServiceModels: [{ connection_id: "gateway", connection_name: "Gateway", revision: 1, busy: false, error: "", models: ["vendor/paint-alias", "vendor/movie-alias"], entries: [
@@ -178,7 +183,130 @@ describe("ComposerModelPicker", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("服务暂时不可用");
     expect(screen.getByRole("option", { name: "gpt-5.5" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(props.onDiscover).toHaveBeenLastCalledWith(true);
+    expect(props.onDiscover).toHaveBeenLastCalledWith(true, "service-a");
+  });
+
+  it("shows persisted cache state while refreshing and retains options on failure", () => {
+    const onDiscover = vi.fn().mockResolvedValue(undefined);
+    const service = { connection_id: "service-a", connection_name: "主连接", revision: 1, models: ["gpt-5.5", "fresh-model"], source: "cache" as const, discoveredAt: "2026-01-02T03:04:05Z", busy: false, error: "" };
+    const { view, ...props } = setup({ serviceModels: service, onDiscover });
+    openMenu();
+    expect(onDiscover).toHaveBeenCalledOnce();
+    expect(onDiscover).toHaveBeenCalledWith();
+    expect(screen.getByText("上次获取，可能不是最新")).toHaveAttribute("title", "获取时间：2026-01-02T03:04:05Z");
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型列表" }));
+    expect(onDiscover).toHaveBeenLastCalledWith(true);
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, busy: true }} />);
+    expect(screen.getByRole("status")).toHaveTextContent("正在更新模型列表");
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "fresh-model" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "刷新模型列表" })).toBeDisabled();
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, error: "连接超时" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("更新失败，显示上次读取的模型。 连接超时");
+    expect(screen.getByText("上次获取，可能不是最新")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "fresh-model" })).toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows only supplied saved-only models before a directory is read and retains them on failure", () => {
+    const onDiscover = vi.fn().mockResolvedValue(undefined);
+    const service = { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: ["gpt-5.5"], busy: false, error: "" };
+    const { view, ...props } = setup({ serviceModels: service, onDiscover });
+    openMenu();
+    const current = screen.getByRole("option", { name: "gpt-5.5" });
+    expect(current).toHaveAttribute("aria-selected", "true");
+    expect(current).toHaveAccessibleDescription("已保存");
+    expect(screen.getByText("显示已保存模型，尚未读取服务目录")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "claude-x" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/当前选择服务未返回/)).not.toBeInTheDocument();
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, busy: true }} />);
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("正在更新模型列表");
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, error: "连接超时" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("读取失败，显示已保存模型。 连接超时");
+    expect(screen.getByText("显示已保存模型，尚未读取服务目录")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onDiscover).toHaveBeenLastCalledWith(true, "service-a");
+  });
+
+  it("selects a supplied saved-only profile rather than creating a service model", () => {
+    const onServiceChange = vi.fn().mockResolvedValue(undefined);
+    const props = setup({
+      serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: ["gpt-5.5", "claude-x"], busy: false, error: "" },
+      onServiceChange
+    });
+    openMenu();
+    expect(screen.getByRole("option", { name: "claude-x" })).toHaveAccessibleDescription("已保存");
+    fireEvent.click(screen.getByRole("option", { name: "claude-x" }));
+    expect(props.onChange).toHaveBeenCalledWith("p2");
+    expect(onServiceChange).not.toHaveBeenCalled();
+  });
+
+  it("marks the current saved choice missing from a live catalog without duplicating returned names", () => {
+    setup({ serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: ["claude-x"], savedOnly: ["gpt-5.5", "claude-x", "gpt-5.5"], source: "live", busy: false, error: "" } });
+    openMenu();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAccessibleDescription("已保存 · 当前选择服务未返回");
+    expect(screen.getByRole("option", { name: "claude-x" })).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByText("上次获取，可能不是最新")).not.toBeInTheDocument();
+  });
+
+  it("reports a missing directory even when there are no saved options", () => {
+    setup({ serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: [], busy: false, error: "" } });
+    openMenu();
+    expect(screen.getByText("尚未读取服务目录")).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+
+  it("keeps a saved current choice when a known catalog is empty", () => {
+    setup({ serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: ["gpt-5.5"], source: "cache", busy: false, error: "" } });
+    openMenu();
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAccessibleDescription("已保存 · 当前选择服务未返回");
+    expect(screen.getByText("上次获取，可能不是最新")).toBeInTheDocument();
+    expect(screen.queryByText("显示已保存模型，尚未读取服务目录")).not.toBeInTheDocument();
+  });
+
+  it("retries only the failing service while the footer refreshes all services", () => {
+    const onDiscover = vi.fn().mockResolvedValue(undefined);
+    setup({ onDiscover, additionalServiceModels: [
+      { connection_id: "service-b", connection_name: "备用连接", revision: 1, models: ["b-model"], source: "cache", busy: false, error: "备用服务超时" },
+      { connection_id: "service-c", connection_name: "第三连接", revision: 1, models: [], busy: true, error: "第三服务超时" }
+    ] });
+    openMenu();
+    const failedService = within(screen.getByRole("group", { name: "备用连接" }));
+    expect(failedService.getByRole("alert")).toHaveTextContent("备用服务超时");
+    expect(failedService.getByRole("option", { name: "b-model" })).toBeEnabled();
+    fireEvent.click(failedService.getByRole("button", { name: "重试" }));
+    expect(onDiscover).toHaveBeenLastCalledWith(true, "service-b");
+    expect(within(screen.getByRole("group", { name: "第三连接" })).getByRole("button", { name: "重试" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "刷新模型列表" })).toBeDisabled();
+  });
+
+  it("shows the active service in the trigger name and tooltip, including after switching", () => {
+    const backup = { id: "backup", model_name: "gpt-5.5", connection_id: "service-b", connection_name: "备用连接" };
+    const backupService = { connection_id: "service-b", connection_name: "备用连接", revision: 1, models: ["gpt-5.5"], busy: false, error: "" };
+    const { view, ...props } = setup({ profiles: [...profiles, backup], additionalServiceModels: [backupService] });
+    expect(screen.getByRole("button", { name: /切换模型，当前 gpt-5.5，服务 主连接/ })).toHaveAttribute("title", "当前模型：gpt-5.5；当前服务：主连接");
+    view.rerender(<ComposerModelPicker {...props} currentModelName="gpt-5.5" selectedProfileId="backup" serviceModels={backupService} />);
+    expect(screen.getByRole("button", { name: /切换模型，当前 gpt-5.5，服务 备用连接/ })).toHaveAttribute("title", "当前模型：gpt-5.5；当前服务：备用连接");
+    view.rerender(<ComposerModelPicker {...props} currentModelName="fresh-model" selectedProfileId={null} serviceModels={backupService} />);
+    expect(screen.getByRole("button", { name: /服务 备用连接/ })).toHaveAttribute("title", "当前模型：fresh-model；当前服务：备用连接");
+  });
+
+  it("does not invent a disabled model option during discovery or retry", () => {
+    const onDiscover = vi.fn().mockResolvedValue(undefined);
+    const service = { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: ["claude-x"], busy: false, error: "" };
+    const { view, ...props } = setup({ currentModelName: "disabled-model", selectedProfileId: "disabled", profileDisabled: true, serviceModels: service, onDiscover });
+    openMenu();
+    expect(screen.queryByRole("option", { name: "disabled-model" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "claude-x" })).toBeEnabled();
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, busy: true }} />);
+    view.rerender(<ComposerModelPicker {...props} serviceModels={{ ...service, error: "连接超时" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onDiscover).toHaveBeenLastCalledWith(true, "service-a");
+    expect(screen.queryByRole("option", { name: "disabled-model" })).not.toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
   });
 
   it("marks the current unsaved service model as selected", () => {
@@ -187,12 +315,19 @@ describe("ComposerModelPicker", () => {
     expect(screen.getByRole("option", { name: "fresh-model" })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("marks a saved-only current model with no selected profile", () => {
+    setup({ selectedProfileId: null, currentModelName: "gpt-5.5", serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], savedOnly: ["gpt-5.5"], source: "live", busy: false, error: "" } });
+    openMenu();
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "gpt-5.5" })).toHaveAccessibleDescription("已保存 · 当前选择服务未返回");
+  });
+
   it("does not fall back to saved models after the first query fails and exposes a retry", () => {
     const props = setup({ serviceModels: { connection_id: "service-a", connection_name: "主连接", revision: 1, models: [], busy: false, error: "服务暂时不可用" }, onDiscover: vi.fn().mockResolvedValue(undefined) });
     openMenu();
     expect(screen.getByRole("alert")).toHaveTextContent("服务暂时不可用");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(props.onDiscover).toHaveBeenCalledWith(true);
+    expect(props.onDiscover).toHaveBeenCalledWith(true, "service-a");
     expect(screen.queryAllByRole("option")).toHaveLength(0);
     expect(props.onChange).not.toHaveBeenCalled();
   });

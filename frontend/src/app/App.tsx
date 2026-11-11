@@ -14,6 +14,7 @@ import { DocumentLibraryDialog } from "../features/chat/DocumentLibraryDialog";
 import { PageLoading } from "../components/PageLoading";
 import { downloadConversationMarkdown } from "../features/chat/conversationActions";
 import { composerModelSources } from "./model-sources";
+import { composerCatalogsWithSavedModels } from "./composer-catalogs";
 import { readConversationFolders, readIdList, readStringMap, writeConversationFolders, writeIdList, writeStringMap, type ConversationFolder } from "../features/chat/localChatPreferences";
 import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
@@ -315,8 +316,9 @@ export function App({
   const currentModelName = selectedModelProfile?.model_name || defaultModelProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
   const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
-  const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections });
-  const composerServiceCatalogs = composerDiscovery.catalogs.map(service => ({ ...service, models: service.models.filter(name => !modelCatalog.catalog.profiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name && !profile.enabled) || activeModelProfiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name)) }));
+  const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections, restoreCached: true });
+  const currentPickerProfile = selectedModelProfile || defaultModelProfile;
+  const composerServiceCatalogs = composerCatalogsWithSavedModels(composerDiscovery.catalogs, modelCatalog.catalog.profiles, currentPickerProfile?.id);
   const defaultModelHasDraft = Boolean(agentSettings.api_key.trim()) || agentSettings.model_name !== savedAgentSettings.model_name
     || agentSettings.model_base_url !== savedAgentSettings.model_base_url || agentSettings.model_protocol !== savedAgentSettings.model_protocol;
 
