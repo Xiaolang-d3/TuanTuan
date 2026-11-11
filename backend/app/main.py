@@ -125,9 +125,12 @@ def static_asset_cache_control(path: str) -> str | None:
 # Google Fonts are linked from index.html; blob:/data: cover URL.createObjectURL
 # previews; remote https images stay allowed because feed covers and Markdown
 # images are third-party content that cannot execute script.
+# Cloudflare Web Analytics injects its beacon script automatically when the site
+# is proxied; allow only that exact script path (its versioned suffix is a path
+# prefix match) while beacons still POST to the same-origin /cdn-cgi/rum.
 _CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
-    "script-src 'self' 'wasm-unsafe-eval'; "
+    "script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' data: https://fonts.gstatic.com; "
     "img-src 'self' data: blob: https:; "
