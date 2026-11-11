@@ -13,6 +13,7 @@ import { ResultActionsContext, DocumentActionsContext } from "./result-types";
 import { HistoryAttachment } from "./HistoryAttachment";
 import { GeneratedImage } from "./GeneratedImage";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
+import { copyMessageText, MessageCopyInProgressError } from "./messageCopy";
 import { ActionBarPrimitive, ComposerPrimitive, MessagePrimitive, type AppendMessage, type MessageState } from "@assistant-ui/react";
 import { BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Copy, LoaderCircle, Pencil, RefreshCw, Search, Trash2, X } from "lucide-react";
 
@@ -544,17 +545,39 @@ function UserMessageContent({ content }: { content: string }) {
 }
 
 function MessageCopyButton({ content, label }: { content: string; label: string }) {
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState<"" | "pending" | "success" | "error" | "busy">("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { setFeedback(""); }, [content]);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  async function copy() {
-    try { await navigator.clipboard.writeText(content); setFeedback("已复制"); }
-    catch { setFeedback("复制失败，请重试"); }
+  const copyAttempt = useRef(0);
+  const inProgress = useRef(false);
+  const feedbackText = feedback === "pending" ? "正在复制" : feedback === "success" ? "已复制" : feedback === "error" ? "复制失败，请检查权限或手动选择复制" : feedback === "busy" ? "正在复制其他消息，请稍后重试" : "";
+  useEffect(() => {
+    copyAttempt.current += 1;
+    inProgress.current = false;
+    setFeedback("");
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setFeedback(""), 3000);
+  }, [content]);
+  useEffect(() => () => {
+    copyAttempt.current += 1;
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  async function copy() {
+    if (inProgress.current) return;
+    inProgress.current = true;
+    const attempt = ++copyAttempt.current;
+    if (timer.current) clearTimeout(timer.current);
+    setFeedback("pending");
+    try {
+      await copyMessageText(content);
+      if (copyAttempt.current !== attempt) return;
+      setFeedback("success");
+      timer.current = setTimeout(() => setFeedback(""), 3000);
+    } catch (error) {
+      if (copyAttempt.current === attempt) setFeedback(error instanceof MessageCopyInProgressError ? "busy" : "error");
+    } finally {
+      if (copyAttempt.current === attempt) inProgress.current = false;
+    }
   }
-  return <><button type="button" className="message-icon-action" data-copy-state={feedback ? feedback === "已复制" ? "success" : "error" : undefined} aria-label={label} title={feedback || label} onClick={() => void copy()} disabled={!content}>{feedback === "已复制" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}</button><span className="message-copy-feedback" role="status">{feedback}</span></>;
+  return <><button type="button" className="message-icon-action" data-copy-state={feedback || undefined} aria-label={label} aria-disabled={feedback === "pending" || undefined} title={feedbackText || label} onClick={() => void copy()} disabled={!content}>{feedback === "success" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}</button><span className="message-copy-feedback" data-copy-state={feedback || undefined} role="status">{feedbackText}</span></>;
 }
 
 function SearchMetadataContent({ metadata }: { metadata: SearchMetadata[] }) {
