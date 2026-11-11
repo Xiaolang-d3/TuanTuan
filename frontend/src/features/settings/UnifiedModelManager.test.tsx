@@ -21,6 +21,49 @@ function props(overrides = {}) {
 }
 
 describe("UnifiedModelManager", () => {
+  it("guides the first connection without exposing empty directory controls", () => {
+    render(<UnifiedModelManager {...props({ catalog: { ...catalog, connections: [], profiles: [], purpose_defaults: { chat: null, image: null } } })} />);
+    expect(screen.getByRole("heading", { name: "连接模型服务，开始使用" })).toBeVisible();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "搜索模型" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "刷新全部服务模型" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "连接第一个服务" }));
+    expect(screen.getByRole("form", { name: "添加服务" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "连接模型服务，开始使用" })).not.toBeInTheDocument();
+  });
+  it("shows defaults and lets the user jump to models for a purpose across services", () => {
+    render(<UnifiedModelManager {...props()} />);
+    const summary = screen.getByRole("region", { name: "当前默认模型" });
+    expect(summary).toHaveTextContent("gpt-4.1");
+    expect(summary).toHaveTextContent("尚未选择默认模型");
+    fireEvent.click(screen.getByRole("button", { name: /服务甲.*已保存配置/ }));
+    fireEvent.click(within(summary).getByRole("button", { name: "选择图片生成模型" }));
+    expect(screen.getByRole("button", { name: "全部服务" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "图片" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("row", { name: /gpt-image-2/ })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "搜索模型" })).toHaveFocus();
+  });
+  it("recovers from combined filters without losing the selected service", () => {
+    render(<UnifiedModelManager {...props()} />);
+    fireEvent.click(screen.getByRole("button", { name: /服务乙.*已保存配置/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "搜索模型" }), { target: { value: "missing-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "图片" }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "没有符合条件的模型" })).toBeVisible();
+    fireEvent.click(screen.getAllByRole("button", { name: "清除筛选" })[0]);
+    expect(screen.getByRole("row", { name: /gpt-image-2/ })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "搜索模型" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: /服务乙.*已保存配置/ })).toHaveAttribute("aria-pressed", "true");
+  });
+  it("only reveals the credential typed in the connection form when requested", () => {
+    render(<UnifiedModelManager {...props()} />);
+    fireEvent.click(screen.getByRole("button", { name: "添加服务" }));
+    fireEvent.change(screen.getByLabelText("API Key", { exact: true }), { target: { value: "test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "显示 API Key" }));
+    expect(screen.getByLabelText("API Key", { exact: true })).toHaveAttribute("type", "text");
+    fireEvent.click(screen.getByRole("button", { name: "隐藏 API Key" }));
+    expect(screen.getByLabelText("API Key", { exact: true })).toHaveAttribute("type", "password");
+  });
   it("offers ordinary service removal with confirmation and resets the selected service", async () => {
     const p = props(); const view = render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: /服务乙.*已保存配置/ }));

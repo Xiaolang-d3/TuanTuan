@@ -56,6 +56,11 @@
 .unified-connection-editor form { display: grid; gap: 18px; margin-top: 18px; }
 .unified-connection-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .unified-connection-fields label,.unified-manual label { display: grid; gap: 8px; font-size: 12px; color: var(--color-text-secondary); }
+.unified-connection-fields label { align-content: start; }
+.unified-connection-fields label > small { font-size: 12px; line-height: 1.6; color: var(--color-text-muted); }
+.unified-key-input { position: relative; display: flex; }
+.unified-key-input input { padding-right: 44px; }
+.unified-model-manager .unified-key-input button { position: absolute; right: 3px; top: 2px; min-height: 34px; padding: 6px; }
 .unified-connection-editor details summary,.unified-capability-details > summary { font-size: 12px; cursor: pointer; color: var(--color-text-muted); padding-block: 7px; }
 .unified-connection-editor details .unified-connection-fields { margin-top: 12px; }
 .unified-alert,.unified-discard { padding: 12px; color: var(--color-warning); background: var(--color-surface-subtle); border-radius: 8px; font-size: 12px; line-height: 1.7; }
@@ -73,6 +78,38 @@
 .unified-manual label { flex: 1; min-width: 160px; }
 .unified-service-advanced { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--color-border); font-size: 12px; color: var(--color-text-muted); }
 .unified-advanced-content { display: grid; gap: 20px; border-top: 1px solid var(--color-border); padding-top: 22px; }
+.unified-loading { display: flex; align-items: center; gap: 10px; padding: 24px 0; color: var(--color-text-secondary); font-size: 13px; }
+.unified-onboarding { padding: 36px 28px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+.unified-onboarding > svg { color: var(--color-text-secondary); margin-bottom: 16px; }
+.unified-onboarding h3 { margin: 0; font-size: 19px; font-weight: 600; }
+.unified-onboarding > p { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.8; }
+.unified-setup-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 0; margin: 30px 0; list-style: none; }
+.unified-setup-steps li { display: flex; align-items: flex-start; gap: 10px; }
+.unified-setup-steps li > span { display: grid; place-items: center; flex: 0 0 25px; height: 25px; border: 1px solid var(--color-border); border-radius: 50%; color: var(--color-text-secondary); font-size: 12px; }
+.unified-setup-steps strong { font-size: 13px; font-weight: 600; line-height: 25px; }
+.unified-setup-steps p { margin: 4px 0 0; font-size: 12px; line-height: 1.7; color: var(--color-text-secondary); }
+.unified-onboarding > small { display: block; margin-top: 14px; color: var(--color-text-muted); font-size: 12px; line-height: 1.7; }
+.unified-defaults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-block: 1px solid var(--color-border); }
+.unified-default-summary { display: flex; gap: 12px; align-items: flex-start; min-width: 0; padding: 18px 16px 18px 0; }
+.unified-default-summary + .unified-default-summary { padding-left: 20px; border-left: 1px solid var(--color-border); }
+.unified-default-summary > svg { flex-shrink: 0; margin-top: 3px; color: var(--color-text-secondary); }
+.unified-default-summary > div { min-width: 0; flex: 1; }
+.unified-default-summary h3 { margin: 0 0 7px; font-size: 12px; color: var(--color-text-secondary); font-weight: 500; }
+.unified-default-summary strong { display: block; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.unified-default-summary small { display: block; margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.unified-default-summary .unified-default-check { color: var(--color-brand-strong); }
+.unified-model-manager .unified-default-summary button { flex-shrink: 0; min-height: 30px; padding: 3px 6px; }
+.unified-model-manager .unified-reset { color: var(--color-brand-strong); margin-left: 8px; }
+.unified-search:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.unified-search input:focus-visible { outline: none; }
+@media (max-width: 600px) {
+  .unified-onboarding { padding: 24px 20px; }
+  .unified-setup-steps { grid-template-columns: 1fr; gap: 18px; margin: 24px 0; }
+  .unified-setup-steps p { margin-top: 0; }
+  .unified-defaults { grid-template-columns: 1fr; }
+  .unified-default-summary { padding: 16px 0; }
+  .unified-default-summary + .unified-default-summary { padding-left: 0; border-left: 0; border-top: 1px solid var(--color-border); }
+}
 .unified-model-manager ::selection { color: var(--color-text); background: color-mix(in srgb, var(--color-brand) 25%, var(--color-surface)); }
 @media (max-width: 850px) { .unified-catalog-layout { grid-template-columns: 1fr; gap: 17px; } .unified-services { display: flex; gap: 7px; border: 0; padding: 0 0 6px; overflow-x: auto; } .unified-services > * { flex: 0 0 auto; min-width: 140px; max-width: 210px; } .unified-service small { white-space: nowrap; } }
 @media (max-width: 600px) { .unified-model-manager { gap: 16px; } .unified-heading h2 { font-size: 21px; } .unified-heading p { font-size: 12px; } .unified-heading { gap: 9px; } .unified-tabs { gap: 17px; } .unified-tabs > button { font-size: 12px; } .unified-tabs .unified-advanced-toggle { font-size: 11px; gap: 4px; } .unified-directory-heading { flex-wrap: wrap; gap: 10px; } .unified-connection-fields { grid-template-columns: 1fr; } .unified-connection-editor,.unified-inspector { padding: 16px; } .unified-tools { gap: 8px; } .unified-tools > select { width: 112px; font-size: 12px; } .unified-model-table th,.unified-model-table td { padding: 11px 8px; } .unified-model-table th:nth-child(3),.unified-model-table td:nth-child(3) { display: none; } .unified-model-table td:first-child { min-width: 110px; max-width: 155px; } .unified-model-table td:nth-child(2) { min-width: 45px; } .unified-row-actions { gap: 2px; } .unified-model-manager .unified-row-actions button { min-height: 36px; padding: 4px 6px; } }

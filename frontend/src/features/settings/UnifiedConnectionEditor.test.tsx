@@ -40,7 +40,7 @@ describe("UnifiedConnectionEditor", () => {
 
     fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: " https://fixed.test/v1/ " } });
     expect(screen.getByLabelText("Base URL")).not.toHaveAttribute("aria-invalid");
-    expect(screen.getByLabelText("Base URL")).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByLabelText("Base URL")).toHaveAccessibleDescription("填写完整 API 地址，保留服务商要求的 /v1 等路径。");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     submit();
     expect(p.onSave).toHaveBeenCalledExactlyOnceWith({

@@ -11,6 +11,7 @@ test("manages services and cross-service model defaults through the real setting
   const output = resolve("..", "output", "unified-model-management");
   await mkdir(output, { recursive: true });
   const requests: string[] = [], unexpected: string[] = [], errors: string[] = [], escaped: string[] = [];
+  let emptyStart = true;
   const responseChecks: Promise<void>[] = [];
   const catalog: ModelCatalog = {
     connections: [{ id: "primary", name: "文本服务", model_base_url: "https://text.example.test/v1", model_protocol: "openai", api_key_configured: true, enabled: true, revision: 1 }],
@@ -62,6 +63,7 @@ test("manages services and cross-service model defaults through the real setting
     if (path === "/agent/model-monitor") return send(monitor());
     if (path === "/agent/models/capabilities") return send({ model_name: savedSettings().model_name, provider: "openai", provider_label: "OpenAI", protocol: "openai", protocol_label: "OpenAI", vision: capFlag, streaming: capFlag, tools: capFlag, probed: false, probe_error: null });
     if (path === "/agent/model-connections") {
+      if (emptyStart) return send({ ...catalog, connections: [], profiles: [], purpose_defaults: { chat: null, image: null } });
       if (request.method() === "POST") {
         const body = request.postDataJSON();
         expect(Object.keys(body).sort()).toEqual(["api_key", "model_base_url", "model_protocol", "name"]);
@@ -120,6 +122,21 @@ test("manages services and cross-service model defaults through the real setting
   try {
     await page.goto("/#/settings/model");
     await expect(page.getByRole("heading", { name: "模型管理", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "连接模型服务，开始使用" })).toBeVisible();
+    await expect(page.getByRole("table")).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "搜索模型" })).toHaveCount(0);
+    await page.setViewportSize({ width: 805, height: 820 });
+    await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+    await page.screenshot({ path: resolve(output, "product-first-service.png"), fullPage: true, animations: "disabled" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole("button", { name: "连接第一个服务" }).click();
+    await expect(page.getByLabel("Base URL", { exact: true })).toBeFocused();
+    await page.screenshot({ path: resolve(output, "product-first-service-narrow.png"), fullPage: true, animations: "disabled" });
+    emptyStart = false;
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    await expect(page.getByRole("region", { name: "当前默认模型" })).toContainText("尚未选择默认模型");
     const disabledRow = page.getByRole("row", { name: /deepseek-chat/ });
     const writesBeforeViewing = requests.filter(item => item.startsWith("PATCH")).length;
     await disabledRow.getByRole("button", { name: "参数", exact: true }).click();
@@ -134,13 +151,13 @@ test("manages services and cross-service model defaults through the real setting
     await expect(form.getByLabel("接口协议")).not.toBeVisible();
     await page.screenshot({ path: resolve(output, "product-desktop-connection.png"), fullPage: true, animations: "disabled" });
     await form.getByLabel("Base URL").fill("invalid-address");
-    await form.getByLabel("API Key").fill("synthetic-key-only-for-intercepted-test");
+    await form.getByLabel("API Key", { exact: true }).fill("synthetic-key-only-for-intercepted-test");
     await form.getByRole("button", { name: "保存并获取模型" }).click();
-    await expect(form.getByLabel("API Key")).toHaveValue("synthetic-key-only-for-intercepted-test");
+    await expect(form.getByLabel("API Key", { exact: true })).toHaveValue("synthetic-key-only-for-intercepted-test");
     await expect(form.getByLabel("Base URL")).toBeFocused();
     expect(requests.filter(item => item === "POST /agent/model-connections")).toHaveLength(0);
     await form.getByLabel("Base URL").fill("https://gateway.example.test/v1");
-    await form.getByLabel("API Key").fill("synthetic-key-only-for-intercepted-test");
+    await form.getByLabel("API Key", { exact: true }).fill("synthetic-key-only-for-intercepted-test");
     await form.getByRole("button", { name: "保存并获取模型" }).click();
     await expect(form).not.toBeVisible();
     await expect(page.getByRole("row", { name: /Studio Paint/ })).toBeVisible();

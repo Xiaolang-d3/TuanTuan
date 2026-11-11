@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import type { ModelConnection, ModelProtocol } from "../../types";
 import { PROTOCOL_LABELS } from "./protocolLabels";
 
@@ -10,6 +11,7 @@ const address = (value: string) => value.trim().replace(/\/+$/, "");
 export function UnifiedConnectionEditor({ connection, currentConnection, connections = [], busy, secretWritable, onCancel, onSave }: Props) {
   const [baseUrl, setBaseUrl] = useState(connection?.model_base_url ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [name, setName] = useState(connection?.name ?? "");
   const [protocol, setProtocol] = useState<ModelProtocol>(connection?.model_protocol ?? "auto");
   const [error, setError] = useState("");
@@ -52,7 +54,7 @@ export function UnifiedConnectionEditor({ connection, currentConnection, connect
   return <section className="unified-connection-editor" aria-label={connection ? "编辑服务" : "添加服务"}>
     <div className="unified-directory-heading"><div><h3>{connection ? "编辑服务" : "添加服务"}</h3><p>填写服务商提供的地址和密钥。名称与接口可保持自动。</p></div></div>
     <form ref={root} aria-label={connection ? "编辑服务" : "添加服务"} onSubmit={event => { event.preventDefault(); void save(); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancel(); } }}>
-      <div className="unified-connection-fields"><label>Base URL<input ref={baseUrlInput} aria-label="Base URL" aria-invalid={invalidField === "baseUrl" || undefined} aria-describedby={invalidField === "baseUrl" ? errorId : undefined} type="text" value={baseUrl} placeholder="https://api.example.com/v1" autoComplete="off" spellCheck={false} disabled={locked} onChange={event => { setBaseUrl(event.target.value); clearValidationError(); }} /></label><label>API Key<input ref={apiKeyInput} aria-label="API Key" aria-invalid={invalidField === "apiKey" || undefined} aria-describedby={invalidField === "apiKey" ? errorId : undefined} type="password" value={apiKey} placeholder={connection?.api_key_configured ? "已安全保存，留空继续使用" : "服务商提供的密钥"} autoComplete="new-password" disabled={locked} readOnly={secretWritable === false} onChange={event => { setApiKey(event.target.value); clearValidationError(); }} /></label></div>
+      <div className="unified-connection-fields"><label>Base URL<input ref={baseUrlInput} aria-label="Base URL" aria-invalid={invalidField === "baseUrl" || undefined} aria-describedby={invalidField === "baseUrl" ? errorId : `${errorId}-address-help`} type="text" value={baseUrl} placeholder="https://api.example.com/v1" autoComplete="off" spellCheck={false} disabled={locked} onChange={event => { setBaseUrl(event.target.value); clearValidationError(); }} /><small id={`${errorId}-address-help`}>填写完整 API 地址，保留服务商要求的 /v1 等路径。</small></label><label>API Key<span className="unified-key-input"><input ref={apiKeyInput} aria-label="API Key" aria-invalid={invalidField === "apiKey" || undefined} aria-describedby={invalidField === "apiKey" ? errorId : `${errorId}-key-help`} type={showKey ? "text" : "password"} value={apiKey} placeholder={connection?.api_key_configured ? "已安全保存，留空继续使用" : "服务商提供的密钥"} autoComplete="new-password" disabled={locked} readOnly={secretWritable === false} onChange={event => { setApiKey(event.target.value); clearValidationError(); }} /><button type="button" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"} aria-pressed={showKey} disabled={locked || !apiKey} onClick={() => setShowKey(value => !value)}>{showKey ? <EyeOff size={16} /> : <Eye size={16} />}</button></span><small id={`${errorId}-key-help`}>本地 Ollama 可留空；其他服务填写对应的访问密钥。</small></label></div>
       {duplicates.length ? <p role="status" className="unified-duplicate">已有相同地址的服务：{duplicates.map(item => item.name || "模型服务").join("、")}。更新配置请取消后编辑已有服务；使用不同账号时可继续添加，并设置不同的服务名称。</p> : null}
       <details><summary>名称与接口（可选）</summary><div className="unified-connection-fields"><label>服务名称<input aria-label="服务名称" value={name} disabled={locked} placeholder="自动使用地址名称" onChange={event => setName(event.target.value)} /></label><label>接口协议<select aria-label="接口协议" value={protocol} disabled={locked} onChange={event => { setProtocol(event.target.value as ModelProtocol); clearValidationError(); }}><option value="auto">自动匹配</option>{Object.entries(PROTOCOL_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div></details>
       {outdated ? <p role="alert">此服务已更新，请取消后重新编辑最新配置。</p> : error ? <p id={errorId} role="alert">{error}</p> : null}
