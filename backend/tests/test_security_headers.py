@@ -1,6 +1,8 @@
 """Every response carries baseline security headers, rejected requests included."""
 from __future__ import annotations
 
+import re
+
 from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
@@ -88,6 +90,31 @@ def test_content_security_policy_has_no_wildcard_sources() -> None:
 
     assert "*" not in policy
     assert "'unsafe-eval'" not in policy
+
+
+def test_product_policy_allows_only_the_cloudflare_beacon_script() -> None:
+    # Cloudflare Web Analytics injects one external script when the site is
+    # proxied. It must stay the sole third-party script source; beacons still
+    # POST to the same-origin /cdn-cgi/rum, so connect-src remains first-party.
+    policy = _content_security_policy(TestClient(app).get("/health"))
+
+    script_sources = re.search(r"script-src ([^;]+)", policy).group(1).split()
+    assert script_sources == ["'self'", "'wasm-unsafe-eval'", "https://static.cloudflareinsights.com/beacon.min.js"]
+    connect_sources = re.search(r"connect-src ([^;]+)", policy).group(1).split()
+    assert connect_sources == ["'self'"]
+
+
+def test_docs_policy_does_not_inherit_the_product_beacon_exception() -> None:
+    fixture = FastAPI()
+    fixture.middleware("http")(add_security_headers)
+
+    @fixture.get("/docs")
+    def docs() -> Response:
+        return Response("<html></html>", media_type="text/html")
+
+    policy = _content_security_policy(TestClient(fixture).get("/docs"))
+
+    assert "cloudflareinsights.com" not in policy
 
 
 def test_confirmation_landing_keeps_its_own_narrower_policy() -> None:
