@@ -95,6 +95,7 @@ _PUBLIC_FRONTEND_FILES = {
     "/tuantuan-legacy-mark-v1.png",
     "/tuantuan-legacy-favicon-v1.png",
     "/intro-surface-v1.webp",
+    "/auth-companion-cutout.webp",
     # These bundled, non-user-specific presets are loaded by <img> and fetch
     # without bearer tokens. Keep the allowlist exact rather than exposing the
     # entire avatars directory.

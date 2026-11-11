@@ -68,6 +68,42 @@ def test_untrusted_archives_cannot_escape_or_overwrite_runtime_data(tmp_path, na
         deployment.extract_bundle(archive, tmp_path / "release")
 
 
+@pytest.mark.parametrize("failure", [None, "missing", "wrong-body"])
+def test_frontend_smoke_downloads_lazy_chunks_and_public_images(tmp_path, monkeypatch, failure):
+    from urllib.error import HTTPError
+
+    asset_paths = [*deployment.PUBLIC_FILES, "assets/revision/ChatWorkspace-chunk.js",
+                   "assets/revision/ChatWorkspace-style.css", "avatars/nailong-smile.svg"]
+    expected = {}
+    for name in asset_paths:
+        file = tmp_path / "frontend/dist" / name
+        file.parent.mkdir(parents=True, exist_ok=True)
+        expected["/" + name] = name.encode()
+        file.write_bytes(name.encode())
+    requested = []
+
+    def open_asset(url, timeout):
+        path = url.removeprefix("http://127.0.0.1:18000")
+        requested.append(path)
+        body = expected[path]
+        if "ChatWorkspace-chunk.js" in path:
+            if failure == "missing":
+                raise HTTPError(url, 404, "Not Found", {}, None)
+            if failure == "wrong-body":
+                body = b"<html>fallback page instead of JavaScript</html>"
+        response = io.BytesIO(body)
+        response.status = 200
+        return response
+
+    monkeypatch.setattr(deployment.LOCAL_HTTP, "open", open_asset)
+    if failure:
+        with pytest.raises((HTTPError, RuntimeError)):
+            deployment.check_frontend_assets(tmp_path, 18000)
+    else:
+        deployment.check_frontend_assets(tmp_path, 18000)
+        assert set(requested) == set(expected)
+
+
 def test_failed_candidate_restores_data_before_reopening_old_release(deployment_root, monkeypatch):
     root, config = deployment_root
     events = []

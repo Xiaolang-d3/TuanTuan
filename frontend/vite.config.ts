@@ -4,6 +4,12 @@ import react from "@vitejs/plugin-react";
 // Defaults keep the dev server on loopback. Set BIND_HOST=0.0.0.0 plus
 // PUBLIC_HOSTS=<lan-ip-or-hostname> to expose it to other devices on purpose.
 const devHost = process.env.BIND_HOST?.trim() || "127.0.0.1";
+// Content hashes can be reused across releases. A release-specific directory
+// prevents a cached 404 from an earlier deployment poisoning the next one.
+const buildRevision = process.env.GITHUB_SHA?.trim();
+if (buildRevision && !/^[a-f0-9]{40}$/.test(buildRevision)) {
+  throw new Error("GITHUB_SHA must be a full commit SHA");
+}
 const allowedHosts = [
   "127.0.0.1",
   "localhost",
@@ -21,6 +27,7 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.mjs"]
   },
   build: {
+    assetsDir: buildRevision ? `assets/${buildRevision}` : "assets",
     rollupOptions: {
       output: {
         manualChunks(id) {
