@@ -95,6 +95,21 @@ _PUBLIC_FRONTEND_FILES = {
     "/tuantuan-legacy-mark-v1.png",
     "/tuantuan-legacy-favicon-v1.png",
     "/intro-surface-v1.webp",
+    # These bundled, non-user-specific presets are loaded by <img> and fetch
+    # without bearer tokens. Keep the allowlist exact rather than exposing the
+    # entire avatars directory.
+    "/avatars/nailong-cheer.svg",
+    "/avatars/nailong-chef.svg",
+    "/avatars/nailong-cool.svg",
+    "/avatars/nailong-flower.svg",
+    "/avatars/nailong-music.svg",
+    "/avatars/nailong-sleep.svg",
+    "/avatars/nailong-smile.svg",
+    "/avatars/nailong-snack.svg",
+    "/avatars/nailong-space.svg",
+    "/avatars/nailong-study.svg",
+    "/avatars/nailong-surprise.svg",
+    "/avatars/nailong-wink.svg",
 }
 
 _STATIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
