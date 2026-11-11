@@ -208,6 +208,32 @@ def test_current_public_images_load_without_authorization(tmp_path, filename: st
     assert client.get("/library").status_code == 401
 
 
+def test_built_in_avatar_assets_are_public_without_opening_other_paths(tmp_path) -> None:
+    # Serve the real preset files through the production auth middleware and
+    # Starlette static mount, just as a browser without an Authorization header.
+    avatar_source = FRONTEND_DIST_DIR.parent / "public" / "avatars"
+    avatar_files = sorted(avatar_source.glob("*.svg"))
+    assert len(avatar_files) == 12
+    avatar_dir = tmp_path / "avatars"
+    avatar_dir.mkdir()
+    for source in avatar_files:
+        (avatar_dir / source.name).write_bytes(source.read_bytes())
+    (avatar_dir / "private.svg").write_text("<svg/>", encoding="utf-8")
+    static_app = FastAPI()
+    static_app.middleware("http")(require_login)
+    static_app.mount("/", StaticFiles(directory=tmp_path), name="frontend")
+    client = TestClient(static_app)
+
+    for source in avatar_files:
+        response = client.get(f"/avatars/{source.name}")
+        assert response.status_code == 200, source.name
+        assert response.content == source.read_bytes()
+        assert response.headers["content-type"].startswith("image/svg+xml")
+        assert "immutable" not in response.headers.get("cache-control", "")
+    assert client.get("/avatars/private.svg").status_code == 401
+    assert client.get("/library").status_code == 401
+
+
 def test_deployment_maintenance_blocks_visitors_until_activation_finishes(tmp_path, monkeypatch):
     flag = tmp_path / "maintenance"
     flag.touch()
