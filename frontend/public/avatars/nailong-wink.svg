@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="眨眼奶龙">
+  <defs>
+    <radialGradient id="bgG" cx="42%" cy="26%" r="86%">
+      <stop offset="0" stop-color="#F4FCF7"/>
+      <stop offset="1" stop-color="#E4F5EA"/>
+    </radialGradient>
+    <linearGradient id="skinG" gradientUnits="userSpaceOnUse" x1="340" y1="46" x2="150" y2="500">
+      <stop offset="0" stop-color="#FFF79B"/>
+      <stop offset=".2" stop-color="#FFF16B"/>
+      <stop offset=".48" stop-color="#FFE94D"/>
+      <stop offset=".8" stop-color="#F7E23E"/>
+      <stop offset="1" stop-color="#E8C82F"/>
+    </linearGradient>
+    <radialGradient id="hlG">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".5"/>
+      <stop offset=".55" stop-color="#FFFBD8" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#FFFBD8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="shG">
+      <stop offset="0" stop-color="#D3B020" stop-opacity=".38"/>
+      <stop offset=".6" stop-color="#D3B020" stop-opacity=".1"/>
+      <stop offset="1" stop-color="#D3B020" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowG">
+      <stop offset="0" stop-color="#CFEEDF" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#CFEEDF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="capG" x1="24%" y1="0%" x2="76%" y2="100%">
+      <stop offset="0" stop-color="#ECF8FF"/>
+      <stop offset="1" stop-color="#A3CCEA"/>
+    </linearGradient>
+    <linearGradient id="clothG" x1="28%" y1="0%" x2="72%" y2="100%">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDE9F3"/>
+    </linearGradient>
+    <linearGradient id="creamG" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0" stop-color="#FFF6DC"/>
+      <stop offset="1" stop-color="#F6DFA6"/>
+    </linearGradient>
+    <clipPath id="figC"><path d="M256 50C352 50 424 118 424 214C424 290 398 320 392 352C388 388 402 402 402 424C402 474 340 496 256 496C172 496 110 474 110 424C110 402 124 388 120 352C114 320 88 290 88 214C88 118 160 50 256 50Z"/></clipPath>
+    <clipPath id="headC"><ellipse cx="256" cy="220" rx="170" ry="172"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#bgG)"/>
+  <circle cx="222" cy="172" r="200" fill="url(#glowG)"/>
+<path d="M56 165Q58.6 173.4 67 176Q58.6 178.6 56 187Q53.4 178.6 45 176Q53.4 173.4 56 165Z" fill="#FFFFFF" opacity="0.85"/><path d="M452 191Q454.2 197.8 461 200Q454.2 202.2 452 209Q449.8 202.2 443 200Q449.8 197.8 452 191Z" fill="#FFFFFF" opacity="0.8"/>
+  <g transform="rotate(8 256 330)">
+  <ellipse cx="104" cy="384" rx="41" ry="39.8" fill="url(#skinG)"/>  <ellipse cx="408" cy="384" rx="41" ry="39.8" fill="url(#skinG)"/>
+  <ellipse cx="256" cy="486" rx="112" ry="18" fill="#5A3C14" opacity=".10"/>
+  <g fill="#B9831C" opacity=".11"><path d="M256 50C352 50 424 118 424 214C424 290 398 320 392 352C388 388 402 402 402 424C402 474 340 496 256 496C172 496 110 474 110 424C110 402 124 388 120 352C114 320 88 290 88 214C88 118 160 50 256 50Z" transform="translate(3 5)"/></g>
+  <g clip-path="url(#figC)">
+    <rect width="512" height="512" fill="url(#skinG)"/>
+    <ellipse cx="344" cy="90" rx="215" ry="196" fill="url(#hlG)"/>
+    <ellipse cx="104" cy="450" rx="205" ry="186" fill="url(#shG)"/>
+  </g>
+
+  <path d="M117 230q39 39 78 0" stroke="#141310" stroke-width="21" stroke-linecap="round" fill="none"/>
+<circle cx="356" cy="246" r="48" fill="#C8D98A"/>  <circle cx="356" cy="246" r="37" fill="#141310"/>
+  <circle cx="341" cy="229" r="12" fill="#FFFFFF"/>
+  <circle cx="372" cy="263" r="5.5" fill="#FFFFFF" opacity=".92"/>
+  <circle cx="250" cy="302" r="5" fill="#3F3418" opacity=".82"/>
+  <circle cx="265" cy="306" r="4.2" fill="#3F3418" opacity=".82"/>
+  <path d="M238 328q30 14 58 -6" stroke="#3F3418" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <path d="M366 78Q369 90 381 93Q369 96 366 108Q363 96 351 93Q363 90 366 78Z" fill="#BFE2F7" opacity=".95"/>
+  </g>
+
+</svg>

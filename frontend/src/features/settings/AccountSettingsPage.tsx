@@ -1,10 +1,13 @@
-import { Camera, Check, Eye, EyeOff, LoaderCircle, Save, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { Camera, Check, Eye, EyeOff, LoaderCircle, Save, ShieldCheck, Sparkles, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createApiClient } from "../../api/client";
 import type { AuthUser } from "../../components/AuthGate";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { PasswordGuidance } from "../../components/PasswordGuidance";
 import { newPasswordError, passwordLength, passwordMaxLength, passwordMinLength } from "../auth/passwordPolicy";
+import { presetAvatarFile } from "./avatar-raster";
+import { avatarPresets, type AvatarPreset } from "./avatar-presets";
+import { PresetAvatarPicker } from "./PresetAvatarPicker";
 import "./account-settings.css";
 
 type Props = {
@@ -56,6 +59,11 @@ export function AccountSettingsPage({
   const [currentPasswordError, setCurrentPasswordError] = useState("");
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Which built-in avatar was applied during this visit. The account only stores
+  // the resulting picture, so after a reload there is no preset to highlight.
+  const [presetActiveId, setPresetActiveId] = useState<string | null>(null);
+  const [presetBusyId, setPresetBusyId] = useState<string | null>(null);
+  const [presetStatus, setPresetStatus] = useState<{ tone: "notice" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     setDisplayName(account.display_name || "");
@@ -103,6 +111,8 @@ export function AccountSettingsPage({
     && newPassword.normalize("NFC") === confirmPassword.normalize("NFC")
   );
   const confirmMismatch = Boolean(confirmPassword && newPassword.normalize("NFC") !== confirmPassword.normalize("NFC"));
+  // A photo upload and a preset pick write the same avatar, so they serialize.
+  const avatarLocked = avatarBusy || presetBusyId !== null;
 
   async function saveProfile(event?: FormEvent) {
     event?.preventDefault();
@@ -143,11 +153,13 @@ export function AccountSettingsPage({
     setAvatarBusy(true);
     setAvatarError("");
     setAvatarNotice("");
+    setPresetStatus(null);
     try {
       const body = new FormData();
       body.append("file", file);
       const payload = await fetchJson<{ user: AuthUser }>("/auth/me/avatar", { method: "POST", body });
       onAccountChange(payload.user);
+      setPresetActiveId(null);
       setAvatarNotice("头像已更新");
     } catch (reason) {
       replaceLocalAvatar(null);
@@ -158,14 +170,38 @@ export function AccountSettingsPage({
     }
   }
 
+  async function applyPreset(preset: AvatarPreset) {
+    if (avatarBusy || presetBusyId) return;
+    setPresetBusyId(preset.id);
+    setPresetStatus(null);
+    setAvatarError("");
+    try {
+      // The built-in artwork is an SVG, so it is rasterised locally and then
+      // sent through the very same upload endpoint a photo would use.
+      const file = await presetAvatarFile(preset);
+      const body = new FormData();
+      body.append("file", file);
+      const payload = await fetchJson<{ user: AuthUser }>("/auth/me/avatar", { method: "POST", body });
+      onAccountChange(payload.user);
+      setPresetActiveId(preset.id);
+      setPresetStatus({ tone: "notice", text: `已换成${preset.label}` });
+    } catch (reason) {
+      setPresetStatus({ tone: "error", text: reason instanceof Error ? reason.message : "头像更新失败" });
+    } finally {
+      setPresetBusyId(null);
+    }
+  }
+
   async function removeAvatar() {
     setAvatarBusy(true);
     setAvatarError("");
     setAvatarNotice("");
+    setPresetStatus(null);
     try {
       const payload = await fetchJson<{ user: AuthUser }>("/auth/me/avatar", { method: "DELETE" });
       replaceLocalAvatar(null);
       onAccountChange(payload.user);
+      setPresetActiveId(null);
       setAvatarNotice("已移除头像");
     } catch (reason) {
       setAvatarError(reason instanceof Error ? reason.message : "头像删除失败");
@@ -253,7 +289,7 @@ export function AccountSettingsPage({
             <button
               className="account-avatar"
               type="button"
-              disabled={avatarBusy}
+              disabled={avatarLocked}
               onClick={() => fileRef.current?.click()}
               aria-label={account.has_avatar || preview ? "更换头像" : "上传头像"}
             >
@@ -267,18 +303,18 @@ export function AccountSettingsPage({
               ref={fileRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              disabled={avatarBusy}
+              disabled={avatarLocked}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) void uploadAvatar(file);
               }}
             />
             <div className="account-avatar-actions">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={avatarBusy}>
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={avatarLocked}>
                 <Camera size={15} />{preview ? "更换头像" : "上传头像"}
               </button>
               {account.has_avatar || localAvatar ? (
-                <button type="button" onClick={() => void removeAvatar()} disabled={avatarBusy}>
+                <button type="button" onClick={() => void removeAvatar()} disabled={avatarLocked}>
                   <Trash2 size={15} />移除
                 </button>
               ) : null}
@@ -336,6 +372,25 @@ export function AccountSettingsPage({
             ) : null}
           </div>
         </div>
+        <section className="account-preset-block" aria-labelledby="account-preset-title">
+          <header className="account-preset-heading">
+            <span><Sparkles size={16} aria-hidden="true" /></span>
+            <div>
+              <h4 id="account-preset-title">奶龙头像</h4>
+              <small>挑一个直接换上，也可以继续用自己的照片。</small>
+            </div>
+          </header>
+          <PresetAvatarPicker
+            presets={avatarPresets}
+            activeId={presetActiveId}
+            busyId={presetBusyId}
+            disabled={avatarLocked}
+            onSelect={(preset) => void applyPreset(preset)}
+          />
+          {presetStatus ? (presetStatus.tone === "error"
+            ? <p className="account-preset-status account-preset-error" role="alert">{presetStatus.text}</p>
+            : <p className="account-preset-status" role="status"><Check size={14} aria-hidden="true" />{presetStatus.text}</p>) : null}
+        </section>
       </form>
 
       <form className="account-card" onSubmit={(event) => void savePassword(event)} noValidate>

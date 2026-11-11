@@ -1,7 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountSettingsPage } from "./AccountSettingsPage";
 import type { AuthUser } from "../../components/AuthGate";
+
+const raster = vi.hoisted(() => ({ presetAvatarFile: vi.fn<(preset: { id: string }) => Promise<File>>() }));
+vi.mock("./avatar-raster", () => ({ presetAvatarFile: raster.presetAvatarFile }));
 
 const account: AuthUser = {
   id: 1,
@@ -26,6 +29,7 @@ describe("AccountSettingsPage", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    raster.presetAvatarFile.mockReset();
   });
 
   it("keeps account identity separate from the career profile", () => {
@@ -158,5 +162,77 @@ describe("AccountSettingsPage", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("图片不能超过 2MB");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("offers a row of built-in avatars next to the upload entry", () => {
+    render(<AccountSettingsPage {...props()} />);
+
+    const picker = screen.getByRole("group", { name: "奶龙头像" });
+    const tiles = within(picker).getAllByRole("button");
+    expect(tiles).toHaveLength(12);
+    expect(tiles[0]).toHaveAccessibleName("使用开心奶龙");
+    expect(tiles[0]).toHaveAttribute("aria-pressed", "false");
+    expect(picker.querySelectorAll("img")).toHaveLength(12);
+    // A photo upload stays available, so nothing is taken away from the person.
+    expect(screen.getAllByRole("button", { name: "上传头像" })).toHaveLength(2);
+  });
+
+  it("applies a built-in avatar through the same upload endpoint", async () => {
+    const onAccountChange = vi.fn();
+    const nextUser = { ...account, has_avatar: true };
+    const png = new File([new Uint8Array(1024)], "nailong-cheer.png", { type: "image/png" });
+    raster.presetAvatarFile.mockResolvedValue(png);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://app.example.com/auth/me/avatar");
+      expect(init?.method).toBe("POST");
+      const sent = (init?.body as FormData).get("file") as File;
+      expect(sent.name).toBe("nailong-cheer.png");
+      return new Response(JSON.stringify({ user: nextUser }), { status: 200 });
+    }));
+
+    render(<AccountSettingsPage {...props({ onAccountChange })} />);
+    const picker = screen.getByRole("group", { name: "奶龙头像" });
+    const cheer = within(picker).getByRole("button", { name: "使用加油奶龙" });
+    fireEvent.click(cheer);
+
+    await waitFor(() => expect(onAccountChange).toHaveBeenCalledWith(nextUser));
+    expect(await screen.findByText("已换成加油奶龙")).toBeInTheDocument();
+    expect(cheer).toHaveAttribute("aria-pressed", "true");
+    expect(raster.presetAvatarFile).toHaveBeenCalledWith(expect.objectContaining({ id: "nailong-cheer" }));
+  });
+
+  it("reports a built-in avatar that cannot be prepared", async () => {
+    const onAccountChange = vi.fn();
+    const fetchMock = vi.fn();
+    raster.presetAvatarFile.mockRejectedValue(new Error("头像素材加载失败"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AccountSettingsPage {...props({ onAccountChange })} />);
+    const cheff = within(screen.getByRole("group", { name: "奶龙头像" })).getByRole("button", { name: "使用开心奶龙" });
+    fireEvent.click(cheff);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("头像素材加载失败");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAccountChange).not.toHaveBeenCalled();
+    expect(cheff).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("clears the built-in selection once a photo is uploaded", async () => {
+    const nextUser = { ...account, has_avatar: true };
+    raster.presetAvatarFile.mockResolvedValue(new File([new Uint8Array(64)], "nailong-wink.png", { type: "image/png" }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ user: nextUser }), { status: 200 })));
+
+    render(<AccountSettingsPage {...props()} />);
+    const picker = screen.getByRole("group", { name: "奶龙头像" });
+    const wink = within(picker).getByRole("button", { name: "使用眨眼奶龙" });
+    fireEvent.click(wink);
+    await waitFor(() => expect(wink).toHaveAttribute("aria-pressed", "true"));
+
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(["photo"], "face.png", { type: "image/png" })] }
+    });
+
+    await waitFor(() => expect(wink).toHaveAttribute("aria-pressed", "false"));
+    expect(await screen.findByText("头像已更新")).toBeInTheDocument();
   });
 });
