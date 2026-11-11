@@ -55,7 +55,8 @@ describe("ComposerModelParameters", () => {
     fireEvent.change(screen.getByLabelText("思考程度"), { target: { value: "high" } });
     await screen.findByRole("alert");
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-    expect(onSavingChange).toHaveBeenLastCalledWith(false);
+    // The alert can commit before the effect reports that saving has finished.
+    await waitFor(() => expect(onSavingChange).toHaveBeenLastCalledWith(false));
     rerender(<ComposerModelParameters settings={{ ...settings, profile: { ...settings.profile, revision: 5, reasoning_effort: "low" } }} disabled={false} onDirtyChange={onDirtyChange} onSavingChange={onSavingChange} />);
     expect(screen.getByLabelText("思考程度")).toHaveValue("high");
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
