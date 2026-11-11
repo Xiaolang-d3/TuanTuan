@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Plus, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Image, MessageSquare, Plus, RefreshCw, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
 import type { createApiClient } from "../../api/client";
 import type { ModelCatalog, ModelCatalogEntry, ModelConnection, ModelProfile } from "../../types";
 import { useComposerModelDiscovery } from "../chat/useComposerModelDiscovery";
@@ -81,6 +81,9 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
     }
   }
   const visible = rows.filter(row => (!serviceId || row.connection.id === serviceId) && `${row.name} ${row.entry?.display_name ?? ""} ${row.connection.name}`.toLowerCase().includes(query.trim().toLowerCase()) && (category === "all" || (category === "unknown" ? !row.types.length : row.types.includes(category as ModelCategory))) && (availability === "all" || (availability === "enabled" ? row.profile?.enabled && row.connection.enabled : !row.profile?.enabled || !row.connection.enabled)));
+  const hasServices = catalog.connections.length > 0;
+  const hasFilters = Boolean(query.trim() || category !== "all" || availability !== "all");
+  function resetFilters() { setQuery(""); setCategory("all"); setAvailability("all"); }
   const selectedService = catalog.connections.find(item => item.id === serviceId);
   const inspectedProfile = inspector?.owner === owner ? catalog.profiles.find(item => item.id === inspector.id) ?? (inspector.preview ? { id: inspector.id, connection_id: inspector.preview.connection.id, model_name: inspector.preview.name, enabled: false, revision: 0, output_types: inspector.preview.types } : undefined) : undefined;
   const discoveryBusy = discovery.catalogs.some(item => item.busy && (!serviceId || item.connection_id === serviceId));
@@ -183,21 +186,51 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
       }
       return success;
     }} /> : null}
-    {tab === "models" ? <div className="unified-catalog-layout">
+    {tab === "models" && loading && !hasServices ? <p className="unified-loading" role="status"><RefreshCw size={16} className="spinning" aria-hidden="true" />正在读取服务与模型配置…</p> : null}
+    {tab === "models" && !hasServices && !loading && editor?.owner !== owner ? <section className="unified-onboarding" aria-labelledby="unified-start-title">
+      <Server size={28} aria-hidden="true" />
+      <h3 id="unified-start-title">连接模型服务，开始使用</h3>
+      <p>准备好服务商提供的 API 地址和密钥，团团会自动获取可选模型。</p>
+      <ol className="unified-setup-steps">
+        <li><span>1</span><div><strong>连接服务</strong><p>填写 Base URL 和 API Key</p></div></li>
+        <li><span>2</span><div><strong>获取模型</strong><p>保存后自动读取模型列表</p></div></li>
+        <li><span>3</span><div><strong>选择默认模型</strong><p>分别用于文本对话和图片生成</p></div></li>
+      </ol>
+      <button type="button" className="unified-primary" disabled={locked} onClick={() => setEditor({ owner })}>连接第一个服务<ArrowRight size={16} aria-hidden="true" /></button>
+      <small>支持兼容 API 的服务和本地 Ollama；接口协议默认自动匹配。</small>
+    </section> : null}
+    {tab === "models" && hasServices ? <section className="unified-defaults" aria-label="当前默认模型">
+      {(["chat", "image"] as const).map(purpose => {
+        const profile = catalog.profiles.find(item => item.id === defaults?.[purpose]);
+        const connection = catalog.connections.find(item => item.id === profile?.connection_id);
+        const usable = profile?.enabled && connection?.enabled;
+        return <div className="unified-default-summary" key={purpose}>
+          {purpose === "chat" ? <MessageSquare size={18} aria-hidden="true" /> : <Image size={18} aria-hidden="true" />}
+          <div><h3>{purpose === "chat" ? "文本对话与工作" : "图片生成"}</h3><strong>{!ready ? "正在读取默认配置…" : profile ? profile.model_name : "尚未选择默认模型"}</strong><small>{profile ? `${connection?.name || "模型服务"}${usable ? " · 后续新任务使用" : " · 当前不可用，请重新选择"}` : "在下方模型列表中选择"}</small></div>
+          {usable ? <CheckCircle2 size={16} className="unified-default-check" aria-label="已配置" /> : null}
+          <button type="button" aria-label={`${profile ? "更换" : "选择"}${purpose === "chat" ? "文本对话" : "图片生成"}模型`} disabled={loading} onClick={() => { resetFilters(); setCategory(purpose); setServiceId(null); document.querySelector<HTMLInputElement>(".unified-search input")?.focus(); }}>{profile ? "更换" : "选择"}<ArrowRight size={13} aria-hidden="true" /></button>
+        </div>;
+      })}
+    </section> : null}
+    {tab === "models" ? (hasServices ? <div className="unified-catalog-layout">
       <aside className="unified-services" aria-label="服务筛选"><button type="button" className="unified-service" aria-label="全部服务" aria-pressed={!serviceId} onClick={() => setServiceId(null)}><Server size={16} /><strong>全部服务</strong><small>{catalog.connections.length}</small></button>{catalog.connections.map(connection => <div className="unified-service-item" key={connection.id}><button type="button" className="unified-service" aria-pressed={serviceId === connection.id} onClick={() => setServiceId(connection.id)}><strong>{connection.name || "模型服务"}</strong><small className="unified-service-address">{connection.model_base_url}</small><small>{connection.enabled ? connection.api_key_configured || connection.model_protocol === "ollama" ? "已保存配置" : "缺少密钥" : "已停用"}</small></button><div className="unified-service-controls"><button type="button" className="unified-service-edit" disabled={locked || editor?.owner === owner} aria-label={`编辑${connection.name || "模型服务"}`} onClick={() => setEditor({ owner, connection })}>编辑</button><button type="button" className="unified-service-delete" disabled={locked || loading || editor?.owner === owner} aria-label={`删除${connection.name || "模型服务"}`} title="删除服务" onClick={() => { setRemoval({ owner, connection }); setNotice(""); }}><Trash2 size={14} aria-hidden="true" /></button></div></div>)}</aside>
       <section className="unified-directory" aria-label="全部模型"><div className="unified-directory-heading"><div><h3>{selectedService?.name || "全部模型"}</h3><p>{selectedService ? selectedService.model_base_url : "来自所有服务的模型，可以跨服务分别选择用途。"}</p></div><div className="unified-actions"><button type="button" disabled={locked || loading || !(selectedService ? selectedService.enabled : catalog.connections.some(item => item.enabled)) || discoveryBusy} onClick={() => void discovery.discover(true, serviceId ?? undefined)}>{discoveryBusy ? "获取中…" : selectedService ? "刷新此服务模型" : "刷新全部服务模型"}</button><button type="button" disabled={locked || !catalog.connections.some(item => item.enabled)} onClick={() => { setManual(value => !value); setManualService(selectedService?.enabled ? selectedService.id : catalog.connections.find(item => item.enabled)?.id ?? ""); }}>手动添加</button></div></div>
         {loading && !catalog.connections.length ? <p role="status">正在读取服务…</p> : null}
-        {!loading && !catalog.connections.length ? <div className="unified-empty"><h4>从一个服务开始</h4><p>填写 Base URL 和 API Key，保存后获取该服务提供的模型。</p><button type="button" disabled={locked} onClick={() => setEditor({ owner })}>连接第一个服务</button></div> : null}
+
         {discovery.catalogs.filter(item => item.error && (!serviceId || serviceId === item.connection_id)).map(item => <p key={item.connection_id} role="alert" className="unified-alert">{item.connection_name}：{item.error}。可检查服务地址、接口协议，或手动添加模型 ID。<button type="button" disabled={locked || item.busy} onClick={() => void discovery.discover(true, item.connection_id)}>重试此服务</button></p>)}
         {manual ? <form className="unified-manual" aria-label="手动添加模型" onSubmit={event => { event.preventDefault(); addManual(); }}><label>所属服务<select aria-label="所属服务" value={manualService} onChange={event => setManualService(event.target.value)}>{catalog.connections.filter(item => item.enabled).map(item => <option key={item.id} value={item.id}>{item.name || item.model_base_url}</option>)}</select></label><label>模型 ID<input aria-label="模型 ID" value={manualName} maxLength={120} onChange={event => setManualName(event.target.value)} placeholder="保留服务提供的完整 ID" /></label><button type="submit" disabled={locked || !manualName.trim()}>添加模型</button><button type="button" disabled={locked} onClick={() => { setManual(false); setManualName(""); }}>取消添加</button></form> : null}
-        <div className="unified-tools"><label className="unified-search"><Search size={15} /><input aria-label="搜索模型" placeholder="搜索模型或服务" value={query} onChange={event => setQuery(event.target.value)} /></label><select aria-label="模型状态筛选" value={availability} onChange={event => setAvailability(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">未启用</option></select></div>
-        <div className="unified-filters" aria-label="模型分类">{categories.map(item => <button type="button" key={item.id} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.label}</button>)}<small>{visible.length} 个模型</small></div>
-        <div className="unified-table-scroll"><table className="unified-model-table"><thead><tr><th scope="col">模型</th><th scope="col">输出</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(row => <ModelRow key={JSON.stringify([row.connection.id, row.name])} row={row} defaults={defaults} locked={locked} ready={ready} advanced={advancedMode} onUse={purpose => useModel(row, purpose)} onInspect={(capabilities, trigger) => inspect(row, capabilities, trigger)} onEditConnection={() => setEditor({ owner, connection: row.connection })} onToggle={() => toggle(row)} />)}</tbody></table></div>
-        {!visible.length && catalog.connections.length ? <p className="unified-empty">{rows.length ? "没有匹配的模型，试试其他分类或搜索条件。" : "尚未获取模型。点击“获取模型”，也可手动添加完整模型 ID。"}</p> : null}
+        {rows.some(row => !serviceId || row.connection.id === serviceId) ? <><div className="unified-tools"><label className="unified-search"><Search size={15} /><input aria-label="搜索模型" placeholder="搜索模型或服务" value={query} onChange={event => setQuery(event.target.value)} /></label><select aria-label="模型状态筛选" value={availability} onChange={event => setAvailability(event.target.value)}><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">未启用</option></select></div>
+        <div className="unified-filters" aria-label="模型分类">{categories.map(item => <button type="button" key={item.id} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.label}</button>)}{hasFilters ? <button type="button" className="unified-reset" onClick={resetFilters}>清除筛选</button> : null}<small>{visible.length} 个模型</small></div></> : null}
+        {visible.length ? <div className="unified-table-scroll"><table className="unified-model-table"><thead><tr><th scope="col">模型</th><th scope="col">输出</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(row => <ModelRow key={JSON.stringify([row.connection.id, row.name])} row={row} defaults={defaults} locked={locked} ready={ready} advanced={advancedMode} onUse={purpose => useModel(row, purpose)} onInspect={(capabilities, trigger) => inspect(row, capabilities, trigger)} onEditConnection={() => setEditor({ owner, connection: row.connection })} onToggle={() => toggle(row)} />)}</tbody></table></div> : null}
+        {!visible.length && hasServices ? <div className="unified-empty">
+          <h4>{discoveryBusy ? "正在获取模型…" : hasFilters ? "没有符合条件的模型" : "还没有可选模型"}</h4>
+          <p>{discoveryBusy ? "获取完成后，选择模型的默认用途即可开始使用。" : hasFilters ? "试试其他关键词，或清除筛选查看模型。" : "点击上方刷新按钮获取服务的模型列表；也可以手动添加服务商提供的模型 ID。"}</p>
+          {hasFilters ? <button type="button" onClick={resetFilters}>清除筛选</button> : null}
+        </div> : null}
         <p className="unified-directory-note">获取列表不会调用模型。启用与默认用途分别保存；视频生成暂未接入。</p>
         {advancedMode && selectedService ? <div className="unified-service-advanced"><p>{selectedService.model_base_url} · 连接版本 {selectedService.revision}</p>{archiveId === selectedService.id ? <><span>停用服务后，新任务将无法使用它的模型。</span><button type="button" disabled={locked} onClick={() => void run(async () => { if (await onMutate(`/agent/model-connections/${encodeURIComponent(selectedService.id)}`, "DELETE") && active.current === owner) setArchiveId(null); })}>确认停用</button><button type="button" disabled={locked} onClick={() => setArchiveId(null)}>取消停用</button></> : <button type="button" disabled={locked} onClick={() => selectedService.enabled ? setArchiveId(selectedService.id) : void run(async () => { await onMutate(`/agent/model-connections/${encodeURIComponent(selectedService.id)}`, "PATCH", { enabled: true, expected_revision: selectedService.revision }); })}>{selectedService.enabled ? "停用此服务" : "启用此服务"}</button>}</div> : null}
       </section>
-    </div> : <ModelUsageRules catalog={catalog} busy={locked} loading={loading} onMutate={onMutate} onApplied={onApplied} scope={owner} />}
+    </div> : null) : <ModelUsageRules catalog={catalog} busy={locked} loading={loading} onMutate={onMutate} onApplied={onApplied} scope={owner} />}
     {inspector?.preview ? <div className="unified-notice"><p>目录预览，不会创建或启用模型。启用后可确认能力和编辑参数。</p><button type="button" disabled={locked || !inspector.preview.connection.enabled || !inspector.preview.connection.api_key_configured && inspector.preview.connection.model_protocol !== "ollama"} onClick={activatePreview}>启用并编辑参数</button></div> : null}
     {inspectedProfile ? <UnifiedModelInspector key={inspectedProfile.id} profile={inspectedProfile} connection={catalog.connections.find(item => item.id === inspectedProfile.connection_id)} fetchJson={fetchJson} busy={locked} error={error} onMutate={onMutate} openCapabilities={inspector?.capabilities} readOnly={Boolean(inspector?.preview) || !catalog.connections.find(item => item.id === inspectedProfile.connection_id)?.enabled} onDirtyChange={setInspectorDirty} onSavingChange={setInspectorSaving} onClose={closeInspector} /> : null}
     {advancedMode && advanced ? <div className="unified-advanced-content">{advanced}</div> : null}
