@@ -1,0 +1,6 @@
+{
+  "package": "@deepseek-ai/dsh",
+  "version": "0.2.2-rc.1",
+  "binPath": "node_modules/@deepseek-ai/dsh/lib/bin.js",
+  "binSha256": "b6640801a5a65aae9f53ca21bcce3b2ea28bd9e9554c939c1ff7c4448d91fa18"
+}

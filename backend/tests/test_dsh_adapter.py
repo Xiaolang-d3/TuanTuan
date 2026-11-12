@@ -41,7 +41,7 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
         connection = {
             "model_name": "deepseek-v4-flash",
             "model_base_url": "https://api.deepseek.com",
-            "api_key": "spike-key",
+            "api_key": "fake-key",
         }
         return DshKernelRuntime(manager, connection, **kwargs)
 

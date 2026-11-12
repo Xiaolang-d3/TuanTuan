@@ -61,6 +61,14 @@
 
 界面提供 **首页、AI 工作区、文件库、设置** 四个入口，支持浅色、深色和跟随系统外观。产品名称为团团，英文标识统一使用 `tuantuan`。
 
+## Agent 内核
+
+对话支持两种 Agent 内核：默认使用团团自研编排内核，也可选择开源的 DeepSeek Harness（DSH）。内核在新建对话时于输入框选择，首条消息后锁定；设置 → 模型设置中的默认值只影响新对话。两种内核共用对话界面、历史记录与审批交互；运行中或等待确认时不可切换，想换内核请新建对话。
+
+DSH 内核当前仅支持 DeepSeek 官方端点连接，且本期只提供对话、审批与用户提问能力；资料库与联网工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 启用 DSH 选项；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`。
+
+DeepSeek Harness 使用 MIT 许可证（Copyright (c) 2026 DeepSeek），目前处于开发者预览，接口可能发生不兼容变更；版本锁定在 `@deepseek-ai/dsh@0.2.2-rc.1`。
+
 ## 技术栈
 
 - 前端：React 19、TypeScript、Vite、Vitest、Playwright
