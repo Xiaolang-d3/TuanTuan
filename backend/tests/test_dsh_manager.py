@@ -77,23 +77,29 @@ class DshManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("name: '@deepseek-ai/dsh-mcp-client'", patch_text)
         self.assertIn("command: 'C:/python.exe'", patch_text)
 
-    def test_build_launch_rejects_non_deepseek_endpoint(self) -> None:
+    def test_build_launch_accepts_any_safe_https_endpoint(self) -> None:
         self.vendored_bin()
         with patch.object(manager.shutil, "which", return_value="node"):
-            with self.assertRaises(KernelUnavailable):
-                build_dsh_launch(
-                    self.deepseek_connection("https://api.openai.com/v1"),
-                    patch_path=db.DATA_DIR / "p.yml",
-                )
+            launch = build_dsh_launch(
+                self.deepseek_connection("https://www.fastaitoken.com/v1"),
+                patch_path=db.DATA_DIR / "p.yml",
+            )
+            self.assertEqual(launch.env["DEEPSEEK_BASE_URL"], "https://www.fastaitoken.com/v1")
 
-    def test_build_launch_rejects_deepseek_lookalike_endpoint(self) -> None:
+    def test_build_launch_rejects_lookalike_and_insecure_endpoints(self) -> None:
         self.vendored_bin()
         with patch.object(manager.shutil, "which", return_value="node"):
-            with self.assertRaises(KernelUnavailable):
-                build_dsh_launch(
-                    self.deepseek_connection("https://api.deepseek.com.attacker.test"),
-                    patch_path=db.DATA_DIR / "p.yml",
-                )
+            for url in (
+                "https://api.deepseek.com.attacker.test",
+                "http://api.deepseek.com",
+                "http://www.fastaitoken.com/v1",
+                "https://user@www.fastaitoken.com/v1",
+            ):
+                with self.subTest(url=url), self.assertRaises(KernelUnavailable):
+                    build_dsh_launch(
+                        self.deepseek_connection(url),
+                        patch_path=db.DATA_DIR / "p.yml",
+                    )
 
     def test_build_launch_requires_node_and_vendored_runtime(self) -> None:
         with patch.object(manager.shutil, "which", return_value=None):
