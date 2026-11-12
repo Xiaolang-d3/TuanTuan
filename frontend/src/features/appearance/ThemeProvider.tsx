@@ -2,17 +2,16 @@ import { readStorageItem } from "../../storage";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import "./global-theme.css";
 
-export type ThemePreference = "light" | "dark" | "system";
-export type ResolvedTheme = "light" | "dark";
+export type ThemePreference = "light" | "dark" | "blue";
+export type ResolvedTheme = ThemePreference;
 export const THEME_STORAGE_KEY = "tuantuan-theme";
 export function isThemePreference(value: unknown): value is ThemePreference {
-  return value === "light" || value === "dark" || value === "system";
+  return value === "light" || value === "dark" || value === "blue";
 }
 function readTheme(): ThemePreference {
-  try { const saved = readStorageItem(THEME_STORAGE_KEY); return isThemePreference(saved) ? saved : "system"; }
-  catch { return "system"; }
+  try { const saved = readStorageItem(THEME_STORAGE_KEY); return isThemePreference(saved) ? saved : "light"; }
+  catch { return "light"; }
 }
-function systemIsDark() { return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false; }
 function persistTheme(value: ThemePreference) {
   try { localStorage.setItem(THEME_STORAGE_KEY, value); } catch { /* The current window still updates when storage is unavailable. */ }
 }
@@ -25,8 +24,7 @@ const ThemeContext = createContext<{
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setValue] = useState<ThemePreference>(readTheme);
-  const [systemDark, setSystemDark] = useState(systemIsDark);
-  const resolved: ResolvedTheme = preference === "system" ? systemDark ? "dark" : "light" : preference;
+  const resolved: ResolvedTheme = preference;
   const setPreference = useCallback((value: ThemePreference) => { setValue(value); persistTheme(value); }, []);
   const migrateHomeTheme = useCallback((accountKey: string) => {
     try {
@@ -40,16 +38,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [setPreference]);
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = resolved;
-    document.documentElement.style.colorScheme = resolved;
+    document.documentElement.style.colorScheme = resolved === "dark" ? "dark" : "light";
   }, [resolved]);
-  useEffect(() => {
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!media) return;
-    const update = () => setSystemDark(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
   useEffect(() => {
     const update = (event: StorageEvent) => {
       if (event.key === THEME_STORAGE_KEY || event.key === null) setValue(readTheme());

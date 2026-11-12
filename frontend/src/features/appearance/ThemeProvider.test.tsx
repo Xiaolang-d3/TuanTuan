@@ -3,13 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ThemeProvider, THEME_STORAGE_KEY, useTheme } from "./ThemeProvider";
 import { AppearanceSettingsPage } from "../settings/AppearanceSettingsPage";
 
-let dark = false;
-let mediaChange: (() => void) | null;
 beforeEach(() => {
   localStorage.clear();
-  dark = false;
-  mediaChange = null;
-  vi.stubGlobal("matchMedia", vi.fn(() => ({ get matches() { return dark; }, addEventListener: (_event: string, callback: () => void) => { mediaChange = callback; }, removeEventListener: vi.fn() })));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); delete document.documentElement.dataset.theme; document.documentElement.style.colorScheme = ""; });
 function Migration({ account }: { account: string }) {
@@ -28,20 +23,22 @@ it("applies and persists the same document theme across page remounts", () => {
   expect(screen.getByRole("radio", { name: /深色/ })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: /浅色/ }));
   expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  fireEvent.click(screen.getByRole("radio", { name: /主题色蓝/ }));
+  expect(document.documentElement).toHaveAttribute("data-theme", "blue");
+  expect(document.documentElement.style.colorScheme).toBe("light");
+  expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("blue");
 });
-it("follows system changes only while system mode is selected", () => {
+it("starts on the light theme and switches to the brand-blue theme", () => {
   render(<Page />);
-  expect(screen.getByRole("radio", { name: /跟随系统/ })).toBeChecked();
-  act(() => { dark = true; mediaChange?.(); });
-  expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-  fireEvent.click(screen.getByRole("radio", { name: /浅色/ }));
-  act(() => { dark = false; mediaChange?.(); dark = true; mediaChange?.(); });
-  expect(document.documentElement).toHaveAttribute("data-theme", "light");
+  expect(screen.getByRole("radio", { name: /浅色/ })).toBeChecked();
+  fireEvent.click(screen.getByRole("radio", { name: /主题色蓝/ }));
+  expect(document.documentElement).toHaveAttribute("data-theme", "blue");
+  expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("blue");
 });
 it("syncs another tab's preference and safely falls back for invalid values", () => {
   localStorage.setItem(THEME_STORAGE_KEY, "unknown");
   render(<Page />);
-  expect(screen.getByRole("radio", { name: /跟随系统/ })).toBeChecked();
+  expect(screen.getByRole("radio", { name: /浅色/ })).toBeChecked();
   act(() => { localStorage.setItem(THEME_STORAGE_KEY, "dark"); window.dispatchEvent(new StorageEvent("storage", { key: THEME_STORAGE_KEY })); });
   expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   act(() => { localStorage.clear(); window.dispatchEvent(new StorageEvent("storage", { key: null })); });
