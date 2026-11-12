@@ -63,9 +63,11 @@
 
 ## Agent 内核
 
-对话支持两种 Agent 内核：默认使用团团自研编排内核，也可选择开源的 DeepSeek Harness（DSH）。内核在新建对话时于输入框选择，首条消息后锁定；设置 → 模型设置中的默认值只影响新对话。两种内核共用对话界面、历史记录与审批交互；运行中或等待确认时不可切换，想换内核请新建对话。
+对话支持两种 Agent 内核：默认使用团团自研编排内核，也可选择开源的 DeepSeek Harness（DSH）。在空白对话的输入框可直接选择内核；设置 → 模型设置中的“新对话默认内核”只影响之后新建的对话。
 
-DSH 内核当前仅支持 DeepSeek 官方端点连接，且本期只提供对话、审批与用户提问能力；资料库与联网工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 启用 DSH 选项；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`。
+已有消息的对话选择另一种内核时，团团会自动建立一个空白分支，并把原对话的摘要和最近文本作为只读上下文带入。原对话不会被修改或中断：即使它正在运行或等待确认，也会继续留在原处；尚未完成的本轮用户消息不会复制到分支。附件、待审批请求和工具执行状态也不会继承，需在分支中重新添加或确认。
+
+DSH 内核当前仅支持使用 DeepSeek 官方 `https://api.deepseek.com` 端点的已启用模型档案，且本期只提供对话、审批与用户提问能力；资料库、联网搜索、技能与团团自有原生工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 后，满足条件的 DSH 选项才可用；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`，子进程重建时会依据已保存的对话历史恢复上下文。
 
 DeepSeek Harness 使用 MIT 许可证（Copyright (c) 2026 DeepSeek），目前处于开发者预览，接口可能发生不兼容变更；版本锁定在 `@deepseek-ai/dsh@0.2.2-rc.1`。
 
