@@ -41,6 +41,7 @@ def main() -> None:
                     "requestId": "req-1", "sessionId": "any", "toolName": "ping", "reason": "测试审批",
                 }})
         elif method == "session/query":
+            record({"method": method, "params": params})
             session_id = params["sessionId"]
             send({"jsonrpc": "2.0", "id": request_id, "result": {"kind": "prompt", "messageId": "msg-1"}})
             if os.environ.get("FAKE_DSH_APPROVE_DURING_TURN") == "1":

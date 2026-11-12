@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 from ....domain import AgentMessage, AgentRunResult, AgentRunSnapshot, AgentStreamEvent, ToolError, ToolEvent
-from ..base import KernelRuntime, register_kernel_runtime
+from ....workspace import current_user_id
+from ..base import KernelRuntime, KernelUnavailable, register_kernel_runtime
 from .approvals import (
     answers_from_reply,
     approval_clarification,
@@ -20,11 +22,15 @@ from .manager import DshRuntimeManager, DshSession
 
 
 _manager = DshRuntimeManager()
-_pending: dict[int, dict[str, Any]] = {}
+_pending: dict[tuple[int, int], dict[str, Any]] = {}
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _conversation_key(conversation_id: int) -> tuple[int, int]:
+    return (int(current_user_id() or 0), int(conversation_id))
 
 
 def _text_from_content(content: Any) -> str:
@@ -35,6 +41,45 @@ def _text_from_content(content: Any) -> str:
         if isinstance(block, dict) and block.get("type") == "text":
             parts.append(str(block.get("text") or ""))
     return "".join(parts)
+
+
+def _history_rebuild_prompt(history: list[AgentMessage], user_content: str) -> str:
+    """Turn canonical persisted messages into one safe startup input for a reset SDK session."""
+    entries = []
+    for message in history:
+        content = str(message.content or "").strip()
+        if not content:
+            continue
+        label = {"user": "用户", "assistant": "团团", "system": "系统上下文"}.get(
+            message.role, "对话记录"
+        )
+        entries.append(f"{label}：{content}")
+    if not entries:
+        return user_content
+    transcript = "\n".join(entries)
+    return (
+        "以下是应用保存的同一对话历史，仅用于理解当前请求。"
+        "不要重新回答或执行历史中的请求，只处理最后的“当前用户消息”。\n"
+        "--- 对话历史开始 ---\n"
+        f"{transcript}\n"
+        "--- 对话历史结束 ---\n"
+        f"当前用户消息：\n{user_content}"
+    )
+
+
+def reset_dsh_conversation_state(conversation_id: int) -> None:
+    """Drop approval state and make the next live session rebuild from the SQL conversation."""
+    _pending.pop(_conversation_key(conversation_id), None)
+    _manager.reset_for_history_change(conversation_id)
+
+
+def reap_idle_dsh_sessions() -> list[int]:
+    return _manager.reap_idle()
+
+
+async def close_dsh_runtime() -> None:
+    _pending.clear()
+    await _manager.close_all()
 
 
 def _tool_event(event_type: str, event: dict[str, Any], *, round_number: int) -> ToolEvent | None:
@@ -112,11 +157,33 @@ class DshKernelRuntime:
         provider = str(model_selection.get("profile_id") or "dsh") if model_selection else "dsh"
         selection = dict(model_selection or {})
         yield AgentStreamEvent(type="run_started")
+        session: DshSession | None = None
         try:
             session = self._manager.acquire(conversation_key, self._connection)
-            async for event in self._drive(session, conversation_key, user_content, resume, provider, selection):
+            session.in_use = True
+            session.last_active = time.monotonic()
+            async for event in self._drive(
+                session,
+                conversation_key,
+                user_content,
+                history or [],
+                resume,
+                provider,
+                selection,
+            ):
                 yield event
-        except DshClientError as exc:
+        except KernelUnavailable as exc:
+            yield AgentStreamEvent(
+                type="error",
+                result=AgentRunResult(
+                    content="DeepSeek Harness 内核当前不可用，本次任务未执行。",
+                    provider=provider, platform="dsh", rounds=0, model_selection=selection,
+                    status="failed",
+                    error=ToolError(code="dsh_unavailable", message=str(exc), retryable=False),
+                    events=[],
+                ),
+            )
+        except (DshClientError, OSError) as exc:
             yield AgentStreamEvent(
                 type="error",
                 result=AgentRunResult(
@@ -127,12 +194,17 @@ class DshKernelRuntime:
                     events=[],
                 ),
             )
+        finally:
+            if session is not None:
+                session.in_use = False
+                session.last_active = time.monotonic()
 
     async def _drive(
         self,
         session: DshSession,
         conversation_id: int,
         user_content: str,
+        history: list[AgentMessage],
         resume: AgentRunSnapshot | None,
         provider: str,
         selection: dict[str, Any],
@@ -148,19 +220,30 @@ class DshKernelRuntime:
                 "model": model,
             })
             session.initialized = True
-        pending = _pending.get(conversation_id)
+        pending_key = _conversation_key(conversation_id)
+        pending = _pending.get(pending_key)
+        if fresh and pending is not None:
+            # A fresh DSH process cannot answer a request owned by the previous
+            # process. Treat the user's reply as a new turn with SQL history.
+            _pending.pop(pending_key, None)
+            pending = None
         if pending is not None and resume is not None:
             reply = " ".join((user_content or "").split())
             if pending["kind"] == "approval":
                 await client.respond(pending["request_id"], decision_from_reply(reply))
             else:
                 await client.respond(pending["request_id"], answers_from_reply(pending["request"], reply))
-            _pending.pop(conversation_id, None)
+            _pending.pop(pending_key, None)
         else:
-            blocks: list[dict[str, Any]] = [{"type": "text", "text": user_content}]
+            query_content = user_content
+            if fresh:
+                query_content = _history_rebuild_prompt(history, user_content)
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": query_content}]
             if fresh and self._tool_ready_grace > 0:
                 await asyncio.sleep(self._tool_ready_grace)
             await client.session_query(f"session-{conversation_id}", blocks)
+            if fresh:
+                session.needs_history_rebuild = False
 
         events: list[ToolEvent] = []
         text_parts: list[str] = []
@@ -176,14 +259,15 @@ class DshKernelRuntime:
             except DshTimeoutError:
                 request = None
             if request is not None:
+                session.last_active = time.monotonic()
                 if request.method == "approval/request":
                     clarification = approval_clarification(request)
-                    _pending[conversation_id] = {
+                    _pending[pending_key] = {
                         "kind": "approval", "request_id": request.params.get("requestId"), "request": request,
                     }
                 else:
                     clarification = question_clarification(request)
-                    _pending[conversation_id] = {
+                    _pending[pending_key] = {
                         "kind": "question", "request_id": request.params.get("requestId"), "request": request,
                     }
                 snapshot = AgentRunSnapshot(
@@ -203,8 +287,9 @@ class DshKernelRuntime:
                 notification = await client.next_notification(timeout=0.5)
             except DshTimeoutError:
                 continue
+            session.last_active = time.monotonic()
             if notification.method != "session.event":
-                if notification.method == "session.status" and notification.params.get("status") == "idle" and text_parts:
+                if notification.method == "session.status" and notification.params.get("status") == "idle":
                     finished = True
                 continue
             event = notification.params.get("event")
@@ -253,7 +338,7 @@ class DshKernelRuntime:
 
 
 def build_dsh_runtime(agent_runtime: Any) -> KernelRuntime:
-    from ....bootstrap import get_profile_connection
+    from ...bootstrap import get_profile_connection
 
     selection = getattr(agent_runtime, "model_selection", None)
     profile_id = (selection or {}).get("profile_id")

@@ -107,7 +107,7 @@ def agent_kernels_get() -> dict[str, Any]:
         if not dsh_feature_enabled():
             return {"id": kernel, "name": "DeepSeek Harness", "available": False, "reason": "DSH 内核未启用"}
         if not has_deepseek_connection():
-            return {"id": kernel, "name": "DeepSeek Harness", "available": False, "reason": "需要先添加 DeepSeek 模型连接"}
+            return {"id": kernel, "name": "DeepSeek Harness", "available": False, "reason": "需要先添加并启用 DeepSeek 模型档案"}
         return {"id": kernel, "name": "DeepSeek Harness", "available": True, "reason": ""}
 
     default_kernel = str(get_agent_settings().get("default_kernel") or "tuantuan")

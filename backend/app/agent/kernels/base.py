@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Protocol, TYPE_CHECKING
+from urllib.parse import urlparse
 
 from ...branding import env
 from ...db import connect
@@ -81,7 +82,7 @@ def validate_kernel_selection(kernel: str, db_path: str | Path | None = None) ->
     if normalized == KERNEL_DSH and not is_kernel_available(normalized, db_path):
         if not dsh_feature_enabled():
             raise KernelUnavailable("DSH 内核未启用")
-        raise KernelUnavailable("DSH 内核需要先添加 DeepSeek 模型连接")
+        raise KernelUnavailable("DSH 内核需要先添加 DeepSeek 模型档案")
     return normalized
 
 
@@ -98,21 +99,43 @@ def dsh_feature_enabled() -> bool:
     return env("TUANTUAN_DSH_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def is_deepseek_official_endpoint(value: Any) -> bool:
+    """Accept the official HTTPS API host only, before giving DSH an API key."""
+    try:
+        parsed = urlparse(str(value or "").strip())
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.lower() == "https"
+        and parsed.hostname == "api.deepseek.com"
+        and parsed.username is None
+        and parsed.password is None
+        and port in {None, 443}
+    )
+
+
 def has_deepseek_connection(db_path: str | Path | None = None) -> bool:
-    """Whether an enabled model connection points at a DeepSeek endpoint."""
+    """Whether a selectable DeepSeek model is available for the DSH kernel."""
     try:
         with connect(db_path) as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 """
-                SELECT 1 FROM model_connections
-                WHERE enabled = 1 AND (deleted_at IS NULL OR deleted_at = '')
-                  AND base_url LIKE '%deepseek.com%'
-                LIMIT 1
+                SELECT connection.base_url, connection.effective_base_url
+                FROM model_connections AS connection
+                JOIN model_profiles AS profile ON profile.connection_id = connection.id
+                WHERE connection.enabled = 1
+                  AND profile.enabled = 1
+                  AND (connection.deleted_at IS NULL OR connection.deleted_at = '')
                 """
-            ).fetchone()
+            ).fetchall()
     except sqlite3.OperationalError:
         return False
-    return row is not None
+    return any(
+        is_deepseek_official_endpoint(row["base_url"])
+        or is_deepseek_official_endpoint(row["effective_base_url"])
+        for row in rows
+    )
 
 
 def is_kernel_available(kernel: str, db_path: str | Path | None = None) -> bool:
