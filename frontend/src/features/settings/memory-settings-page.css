@@ -1,4 +1,6 @@
 .memory-settings { max-width: 720px; color: var(--color-text); }
+.memory-settings .settings-card { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); box-shadow: var(--shadow-sm); }
+.memory-settings .settings-card-heading p { color: var(--color-text-muted); }
 .memory-settings header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
 .memory-settings header > div { min-width: 0; overflow-wrap: anywhere; }
 .memory-settings header > svg { flex-shrink: 0; }
