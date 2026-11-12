@@ -95,3 +95,44 @@ class LibraryKnowledgeReviewIn(BaseModel):
 
 class LibraryKnowledgeMergeIn(BaseModel):
     target_fact_id: int = Field(ge=1)
+
+
+class HomeWorkspaceConversation(BaseModel):
+    id: int
+    title: str
+    last_message_at: str | None = None
+    task_status: str = "active"
+
+
+class HomeWorkspaceJob(BaseModel):
+    id: str
+    kind: str
+    display_title: str
+    status: str
+    created_at: str
+
+
+class HomeWorkspaceBlock(BaseModel):
+    items: list[dict[str, Any]] = []
+    error: str | None = None
+
+
+class HomeWorkspaceJobs(BaseModel):
+    running: list[HomeWorkspaceJob] = []
+    pending_confirmations: list[HomeWorkspaceJob] = []
+
+
+class HomeWorkspaceWeixin(BaseModel):
+    connected: bool = False
+    unread_count: int = 0
+    error: str | None = None
+
+
+class HomeWorkspaceResponse(BaseModel):
+    generated_at: str
+    conversations: HomeWorkspaceBlock
+    jobs: HomeWorkspaceJobs
+    weixin: HomeWorkspaceWeixin
+    changelog: HomeWorkspaceBlock
+    skills: HomeWorkspaceBlock
+    library_recent: HomeWorkspaceBlock

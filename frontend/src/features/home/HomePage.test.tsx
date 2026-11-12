@@ -3,11 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "./HomePage";
 import { formatPublished } from "./HomeFeedCards";
 import { homeInboxItems } from "./home-metrics";
-import type { FetchJson, HomeArticle, HomeDigest, HomeFeedResponse, HomeRepository } from "./types";
+import type { FetchJson, HomeArticle, HomeDigest, HomeFeedResponse, HomeRepository, HomeWorkspaceResponse } from "./types";
 
 const fixtureArticle = (index: number, overrides: Partial<HomeArticle> = {}): HomeArticle => ({ id: `article-${index}`, title: `测试 Agent 更新 ${index}`, summary: `测试摘要 ${index}，只用于确定性 UI 测试。`, url: `https://example.test/news/${index}`, source: "测试官方源", published_at: "2026-10-08T01:00:00Z", category: index % 2 ? "agent" : "mcp", tags: [index % 2 ? "Agent" : "MCP"], image_url: null, ...overrides });
 const fixtureRepository = (index: number, overrides: Partial<HomeRepository> = {}): HomeRepository => ({ id: `repository-${index}`, owner: `owner${index}`, name: `repo${index}`, description: `测试项目用途 ${index}`, url: `https://github.com/owner${index}/repo${index}`, language: "TypeScript", stars: 100 + index, period_stars: 10 + index, forks: null, rank: index * 2, tags: [index % 2 ? "Agent" : "评测"], ...overrides });
 const fixtureDigest = (overrides: Partial<HomeDigest> = {}): HomeDigest => ({ status: "ready", profile_id: "p1", model_name: "digest-model", generated_at: "2026-10-08T02:00:00Z", date: "2026-10-08", error: "", overview: "今日总览内容。", sections: [{ key: "news", label: "AI / Agent 动态", points: [{ text: "要点一", url: "https://example.test/news/1" }, { text: "要点二", url: null }] }], ...overrides });
+const fixtureWorkspace = (): HomeWorkspaceResponse => ({
+  generated_at: "2026-10-08T02:00:00Z",
+  conversations: { items: [], error: null },
+  jobs: { running: [], pending_confirmations: [] },
+  weixin: { connected: false, unread_count: 0 },
+  changelog: { items: [], error: null },
+  skills: { items: [], error: null },
+  library_recent: { items: [], error: null }
+});
 function fixtureFeed(): HomeFeedResponse {
   return {
     news: Array.from({ length: 9 }, (_, index) => fixtureArticle(index + 1)),
@@ -24,6 +33,7 @@ function setup(initial = fixtureFeed()) {
   const request = vi.fn(async (path: string, options?: RequestInit) => {
     const body = options?.body ? JSON.parse(String(options.body)) : {};
     if (path === "/home/preferences") snapshot.preferences = body;
+    if (path === "/home/workspace") return structuredClone(fixtureWorkspace());
     if (path === "/agent/model-connections") return { connections: [{ id: "c1", enabled: true }], profiles: [{ id: "p1", model_name: "digest-model", connection_id: "c1", enabled: true }], default_profile_id: "p1" };
     if (path === "/home/feed/digest") { snapshot.digest = fixtureDigest({ status: "generating", overview: "", sections: [] }); return structuredClone(snapshot); }
     if (path.startsWith("/home/feed/items/")) {
@@ -97,7 +107,12 @@ describe("developer HomePage", () => {
     const page = setup(); page.render(); await load();
     expect(page.request).toHaveBeenCalledWith("/home/feed", expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("早上好，测试开发者");
-    for (const title of ["模型动态", "GitHub 热榜", "我的技术栈更新", "工程实践精选"]) expect(screen.getByRole("heading", { name: new RegExp(title.replace("/", "\\/")) })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /模型动态/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "技术热榜" }));
+    expect(screen.getByRole("heading", { name: "GitHub 热榜" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "工程实践精选" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "我的技术栈" }));
+    expect(screen.getByRole("heading", { name: /我的技术栈更新/ })).toBeInTheDocument();
     expect(screen.getByLabelText("当前时间")).toHaveTextContent("11:59");
     vi.setSystemTime(new Date(2026, 9, 8, 18, 5));
     act(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -135,6 +150,7 @@ describe("developer HomePage", () => {
 
   it("keeps original GitHub rankings after filtering and switches between actual period snapshots", async () => {
     setup().render(); await load();
+    fireEvent.click(screen.getByRole("tab", { name: "技术热榜" }));
     fireEvent.click(within(screen.getByRole("group", { name: "项目分类" })).getByRole("button", { name: "评测" }));
     const repo = screen.getByRole("link", { name: "owner2/repo2" }).closest("article")!;
     expect(within(repo).getByText("4")).toBeInTheDocument();
@@ -284,6 +300,7 @@ describe("developer HomePage", () => {
       fixtureArticle(21, { title: "带照片的工程实践", category: "rag", summary: "", image_url: "https://example.test/photo.png" })
     ];
     const page = setup(initial); page.render(); await load();
+    fireEvent.click(screen.getByRole("tab", { name: "技术热榜" }));
     const practice = screen.getByRole("region", { name: "工程实践精选" });
     const illustration = within(practice).getByRole("link", { name: "带插画的工程实践" }).closest("article")!;
     expect(practice.querySelector("img")).toBeNull();
@@ -294,14 +311,16 @@ describe("developer HomePage", () => {
     expect(within(practice).getByRole("link", { name: "打开原文：带插画的工程实践" })).toBeInTheDocument();
     fireEvent.click(within(practice).getByRole("button", { name: "收藏：带插画的工程实践" }));
     await waitFor(() => expect(page.request).toHaveBeenCalledWith("/home/feed/items/article-20/state", expect.objectContaining({ method: "PATCH" })));
-    expect(screen.getByRole("link", { name: "测试 Agent 更新 1" }).closest("article")!.querySelector("img")).toHaveAttribute("src", initial.news[0].image_url);
     expect(illustration.querySelector(".home-card-media")).toBeNull();
     expect(within(illustration).getByRole("link", { name: "带插画的工程实践" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /AI 动态/ }));
+    expect(screen.getByRole("link", { name: "测试 Agent 更新 1" }).closest("article")!.querySelector("img")).toHaveAttribute("src", initial.news[0].image_url);
   });
 
   it("does not present review-only releases as safe upgrades and guides unsubscribed accounts", async () => {
     const initial = fixtureFeed(); initial.preferences.repositories = [];
     setup(initial).render(); await load();
+    fireEvent.click(screen.getByRole("tab", { name: "我的技术栈" }));
     expect(screen.getByText("还没有关注技术栈")).toBeInTheDocument();
     expect(screen.queryByText("可直接升级")).not.toBeInTheDocument();
   });

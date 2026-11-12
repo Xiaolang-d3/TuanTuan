@@ -216,3 +216,57 @@
 .home-source-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: 12px; }
 .home-source-filter select { max-width: 140px; min-height: 32px; padding: 4px 8px; border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-secondary); background: var(--color-surface); font: inherit; }
 .home-source-filter select:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+
+/* Continue-working bar: recent conversations, running jobs, WeChat and library tiles. */
+.home-workspace-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+.home-workspace-card { min-width: 0; display: flex; flex-direction: column; padding: 16px; border: 1px solid; border-radius: 12px; }
+.home-workspace-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; min-height: 24px; }
+.home-workspace-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; line-height: 22px; font-weight: 600; white-space: nowrap; }
+.home-workspace-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.home-workspace-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px; border-radius: 8px; font-size: 13px; line-height: 20px; }
+.home-workspace-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.home-workspace-row time { flex: none; font-size: 12px; line-height: 16px; }
+.home-workspace-chip { flex: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; }
+.home-workspace-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 16px; font-weight: 600; }
+.home-workspace-group { padding: 8px 8px 4px; font-size: 12px; line-height: 16px; font-weight: 600; }
+.home-workspace-empty { display: flex; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 4px 8px; }
+.home-workspace-empty p { margin: 0; font-size: 13px; line-height: 20px; }
+.home-workspace-empty .home-link-btn { padding-left: 0; }
+.home-workspace-block-error { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px; font-size: 13px; line-height: 20px; }
+.home-workspace-error { display: flex; align-items: center; gap: 8px; margin-top: 24px; padding: 16px; border: 1px solid; border-radius: 12px; font-size: 13px; line-height: 20px; }
+.home-workspace-error span { flex: 1; }
+.home-weixin-unread { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px; font-size: 13px; line-height: 20px; }
+.home-weixin-unread p { margin: 0; }
+.home-weixin-unread b { font-size: 20px; line-height: 28px; font-weight: 600; }
+
+/* Tuantuan updates: changelog highlights with inline expansion and skill recommendations. */
+.home-product-updates { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 24px; align-items: stretch; }
+.home-updates-card { min-width: 0; display: flex; flex-direction: column; padding: 16px; border: 1px solid; border-radius: 12px; }
+.home-updates-head { margin-bottom: 12px; }
+.home-updates-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; line-height: 22px; font-weight: 600; white-space: nowrap; }
+.home-changelog-list { display: flex; flex-direction: column; gap: 8px; }
+.home-changelog-item { min-width: 0; padding: 12px; border: 1px solid; border-radius: 8px; }
+.home-changelog-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.home-changelog-category { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; font-weight: 600; }
+.home-changelog-version { flex: none; height: 20px; padding: 0 8px; border-radius: 999px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 20px; }
+.home-changelog-text { margin: 8px 0 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.home-changelog-text--clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.home-chevron-open { transform: rotate(180deg); }
+.home-skill-list { display: flex; flex-direction: column; gap: 8px; }
+.home-skill-card { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid; border-radius: 8px; }
+.home-skill-name { font-size: 14px; line-height: 22px; font-weight: 600; }
+.home-skill-summary { font-size: 13px; line-height: 20px; }
+.home-skill-source { font-size: 12px; line-height: 16px; }
+
+/* Info-stream tabs: AI 动态 / 技术热榜 / 我的技术栈 with lazy panels. */
+.home-info-tabs { margin-top: 24px; }
+.home-tablist { display: flex; gap: 4px; border-bottom: 1px solid; margin-bottom: 16px; }
+.home-tab { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; font-size: 14px; line-height: 22px; font-weight: 500; }
+.home-tab .home-count { font-size: 12px; }
+.home-tabpanel { min-width: 0; }
+.home-tabpanel-stack { display: flex; flex-direction: column; min-width: 0; }
+.home-tabpanel-stack > .home-module + .home-module { margin-top: 24px; }
+
+@media (max-width: 1180px) { .home-product-updates { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { .home-workspace-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .home-tablist { gap: 0; } .home-tab { padding: 0 8px; } }

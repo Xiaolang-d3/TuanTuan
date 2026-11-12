@@ -148,3 +148,24 @@
 .developer-home-shell .app-identity-menu button:hover { color: var(--home-text); background: var(--home-hover); }
 @media (max-width: 1360px) { .app-shell.has-chat-dock.developer-home-shell .home-content { padding-inline: 24px; } }
 @media (max-width: 820px) { .app-shell.has-chat-dock.developer-home-shell .home-content { min-height: calc(100dvh - 62px); padding: 24px 16px 32px; } }
+
+/* Workspace bar, product updates and info tabs follow the home palette. */
+.home-workspace-card, .home-updates-card { background: var(--home-panel); border-color: var(--home-line); }
+.home-workspace-title, .home-updates-title { color: var(--home-text); }
+.home-workspace-row { color: var(--home-text-2); }
+.home-workspace-row:hover { background: var(--home-hover); color: var(--home-text); }
+.home-workspace-row time, .home-workspace-chip, .home-workspace-group, .home-workspace-empty p, .home-workspace-block-error { color: var(--home-text-3); }
+.home-workspace-chip { background: var(--home-hover); }
+.home-workspace-badge { color: var(--home-on-accent); background: var(--home-accent); }
+.home-workspace-error { background: var(--home-warn-bg); border-color: var(--home-warn-line); color: var(--home-warn-text); }
+.home-workspace-error button { color: var(--home-warn-text); }
+.home-changelog-item, .home-skill-card { background: var(--home-panel-2); border-color: var(--home-line-2); }
+.home-changelog-category { color: var(--home-text-2); }
+.home-changelog-version { color: var(--home-accent-text); background: var(--home-accent-soft); }
+.home-changelog-text, .home-skill-summary { color: var(--home-text-2); }
+.home-skill-source { color: var(--home-text-3); }
+.home-skill-card:hover { border-color: var(--home-line-strong); box-shadow: var(--home-shadow-small); }
+.home-tablist { border-bottom-color: var(--home-line); }
+.home-tab { color: var(--home-text-2); background: transparent; }
+.home-tab:hover { background: var(--home-hover); color: var(--home-text); }
+.home-tab.on { color: var(--home-accent-text); border-bottom-color: var(--home-accent); }
