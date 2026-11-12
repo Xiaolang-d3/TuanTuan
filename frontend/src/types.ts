@@ -1,6 +1,7 @@
 export type Conversation = {
   id: number;
   model_profile_id?: string | null;
+  kernel?: "tuantuan" | "dsh";
   title: string;
   status: "active" | "archived";
   summary: string;
@@ -153,6 +154,7 @@ export type AgentSettings = {
   persona_role: string;
   response_style: "concise" | "balanced" | "detailed";
   custom_instructions: string;
+  default_kernel: "tuantuan" | "dsh";
   library_memory_enabled: boolean;
   conversation_memory_enabled: boolean;
   knowledge_memory_enabled: boolean;

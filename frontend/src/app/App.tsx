@@ -18,6 +18,7 @@ import { readConversationFolders, readIdList, readStringMap, writeConversationFo
 import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
 import { useConversations } from "../features/chat/useConversations";
+import { useKernels } from "../features/chat/useKernels";
 import { useLibrary } from "../features/library/useLibrary";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
@@ -252,6 +253,7 @@ export function App({
   const selectedSkillId = chatSkillSelection.scope === skillSelectionScope ? chatSkillSelection.id : undefined;
   const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
+  const kernels = useKernels(fetchJson);
   const [attachmentConfig, setAttachmentConfig] = useState<AttachmentConfig | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -309,11 +311,28 @@ export function App({
     refreshKey: savedAgentSettings.config_revision
   });
   const currentConversation = conversations.find((item) => item.id === currentConversationId) ?? null;
+  const currentKernel = currentConversation?.kernel ?? kernels.catalog?.default_kernel ?? "tuantuan";
+  const kernelLocked = (currentConversation?.message_count ?? 0) > 0;
   const activeModelProfiles = modelCatalog.catalog.profiles.filter(profile => profile.enabled && modelCatalog.catalog.connections.some(connection => connection.id === profile.connection_id && connection.enabled));
   const selectedModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === currentConversation?.model_profile_id);
   const defaultModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === (modelCatalog.catalog.effective_execution_profile_id || modelCatalog.catalog.default_profile_id));
   const currentModelName = selectedModelProfile?.model_name || defaultModelProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
   const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
+
+  const changeConversationKernel = useCallback(async (kernel: "tuantuan" | "dsh") => {
+    if (!currentConversationId) return;
+    try {
+      await fetchJson(`/conversations/${currentConversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kernel }),
+      });
+      await refreshConversations();
+      setNoticeMessage(kernel === "dsh" ? "已切换到 DeepSeek Harness 内核" : "已切换到团团内核");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "切换内核失败");
+    }
+  }, [currentConversationId, fetchJson, refreshConversations, setErrorMessage, setNoticeMessage]);
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
   const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections });
   const composerServiceCatalogs = composerDiscovery.catalogs.map(service => ({ ...service, models: service.models.filter(name => !modelCatalog.catalog.profiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name && !profile.enabled) || activeModelProfiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name)) }));
@@ -1345,6 +1364,11 @@ export function App({
             modelProfileUnavailable={modelProfileUnavailable}
             modelConfigured={capabilities ? capabilities.configured !== false : undefined}
             onModelProfileChange={selectConversationModel}
+            kernelChoices={kernels.catalog?.choices ?? []}
+            currentKernel={currentKernel}
+            kernelLocked={kernelLocked}
+            kernelBusy={kernels.busy}
+            onKernelChange={(kernel) => { void changeConversationKernel(kernel); }}
             messages={visibleChatMessages}
             selectedSkillId={selectedSkillId}
             onSelectSkill={(id) => setChatSkillSelection({ scope: skillSelectionScope, id })}

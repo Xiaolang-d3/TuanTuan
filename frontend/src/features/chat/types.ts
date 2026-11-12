@@ -162,6 +162,8 @@ export type ChatComposerDraft = {
 
 export type ServiceModelCatalog = { connection_id: string; connection_name: string; revision: number; model_protocol?: ModelProtocol; models: string[]; entries?: ModelCatalogEntry[]; busy: boolean; error: string };
 
+export type KernelChoice = { id: "tuantuan" | "dsh"; name: string; available: boolean; reason: string };
+
 export type ChatWorkspaceProps = ResultServices & {
   documentReviewService?: import("./document-review-service").DocumentReviewService;
   selectedSkillId?: string | null;
@@ -188,6 +190,11 @@ export type ChatWorkspaceProps = ResultServices & {
   modelUnavailable?: string | null;
   sendError?: string | null;
   onOpenModelSettings?: () => void;
+  kernelChoices?: KernelChoice[];
+  currentKernel?: string;
+  kernelLocked?: boolean;
+  kernelBusy?: boolean;
+  onKernelChange?: (kernel: "tuantuan" | "dsh") => void;
   messages: ChatMessage[];
   hiddenMessageCount: number;
   chatBusy: boolean;
