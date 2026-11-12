@@ -67,7 +67,7 @@
 
 已有消息的对话选择另一种内核时，团团会自动建立一个空白分支，并把原对话的摘要和最近文本作为只读上下文带入。原对话不会被修改或中断：即使它正在运行或等待确认，也会继续留在原处；尚未完成的本轮用户消息不会复制到分支。附件、待审批请求和工具执行状态也不会继承，需在分支中重新添加或确认。
 
-DSH 内核当前仅支持使用 DeepSeek 官方 `https://api.deepseek.com` 端点的已启用模型档案，且本期只提供对话、审批与用户提问能力；资料库、联网搜索、技能与团团自有原生工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 后，满足条件的 DSH 选项才可用；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`，子进程重建时会依据已保存的对话历史恢复上下文。
+DSH 内核支持使用任意 HTTPS 端点的已启用 DeepSeek 模型档案，例如官方 `https://api.deepseek.com` 或你自己配置的代理网关；API Key 会随 `DEEPSEEK_BASE_URL` 传给 DSH 子进程，请只使用你信任的端点。仿冒 DeepSeek 官方域名的地址（如 `api.deepseek.com.attacker.test`）和非 HTTPS 地址会被拒绝。本期只提供对话、审批与用户提问能力；资料库、联网搜索、技能与团团自有原生工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 后，满足条件的 DSH 选项才可用；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`，子进程重建时会依据已保存的对话历史恢复上下文。
 
 DeepSeek Harness 使用 MIT 许可证（Copyright (c) 2026 DeepSeek），目前处于开发者预览，接口可能发生不兼容变更；版本锁定在 `@deepseek-ai/dsh@0.2.2-rc.1`。
 
