@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..agent.settings import get_agent_settings
 from ..agent.snapshots import clear_run_snapshot
 from ..db import connect, row_to_dict, rows_to_dicts
 
@@ -163,6 +164,20 @@ def reset_conversation_context(
         ).fetchone()
     end_active_task(conversation_id, db_path)
     clear_run_snapshot(conversation_id, db_path)
+    try:
+        enabled = get_agent_settings(db_path).get("user_memory_enabled", True)
+    except Exception:
+        enabled = True
+    if enabled:
+        from ..agent.memory import extract_from_conversation
+        from ..workspace import spawn_thread
+
+        spawn_thread(
+            extract_from_conversation,
+            name=f"memory-extract-reset-{conversation_id}",
+            args=(conversation_id,),
+            kwargs={"db_path": db_path},
+        )
     return row_to_dict(row)
 
 

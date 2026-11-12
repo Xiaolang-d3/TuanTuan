@@ -297,4 +297,18 @@ def save_stream_result(conversation_id: int, task_id: int, user_message: dict[st
     else:
         assistant_message = save_chat_message("assistant", result.content, {"agent": public_result}, conversation_id, task_id)
     refresh_conversation_summary(conversation_id)
+    if result.status == "completed":
+        try:
+            enabled = get_agent_settings().get("user_memory_enabled", True)
+        except Exception:
+            enabled = True
+        if enabled:
+            from ..agent.memory import extract_from_conversation
+            from ..workspace import spawn_thread
+
+            spawn_thread(
+                extract_from_conversation,
+                name=f"memory-extract-{conversation_id}",
+                args=(conversation_id,),
+            )
     return {"user_message": user_message, "assistant_message": assistant_message}
