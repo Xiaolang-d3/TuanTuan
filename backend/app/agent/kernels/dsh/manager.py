@@ -11,7 +11,7 @@ from typing import Any
 
 from .... import db
 from ....workspace import current_user_id
-from ..base import KernelUnavailable, is_deepseek_official_endpoint
+from ..base import KernelUnavailable, is_dsh_safe_endpoint
 from .client import DshJsonRpcClient, DshLaunch
 from .composition import write_patch
 
@@ -43,8 +43,8 @@ def _vendored_bin_js() -> Path:
 def build_dsh_launch(connection: dict[str, Any], *, patch_path: Path, patch_args: tuple[str, ...] = ()) -> DshLaunch:
     """把团团模型连接映射为 DSH 子进程启动参数。"""
     base_url = str(connection.get("model_base_url") or "").strip()
-    if not is_deepseek_official_endpoint(base_url):
-        raise KernelUnavailable("DSH 内核暂仅支持 DeepSeek 官方端点")
+    if not is_dsh_safe_endpoint(base_url):
+        raise KernelUnavailable("DSH 内核需要安全的 HTTPS 端点")
     node = shutil.which("node")
     if node is None:
         raise KernelUnavailable("DSH 内核需要系统 Node（>= 24.9）")

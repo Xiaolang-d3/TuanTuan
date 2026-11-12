@@ -10,7 +10,8 @@ from ..db import connect, row_to_dict, rows_to_dicts
 from ..agent.kernels.base import (
     DEFAULT_KERNEL,
     KERNEL_DSH,
-    is_deepseek_official_endpoint,
+    is_deepseek_model_name,
+    is_dsh_safe_endpoint,
     is_valid_kernel,
     normalize_kernel,
 )
@@ -23,7 +24,7 @@ FORK_CONTEXT_MAX_CHARS = 12_000
 def _dsh_profile_id(conn: Any, preferred_profile_id: str | None = None) -> str | None:
     rows = conn.execute(
         """
-        SELECT profile.id, connection.base_url, connection.effective_base_url
+        SELECT profile.id, profile.model_name, connection.base_url, connection.effective_base_url
         FROM model_profiles AS profile
         JOIN model_connections AS connection ON connection.id = profile.connection_id
         WHERE profile.enabled = 1
@@ -41,8 +42,11 @@ def _dsh_profile_id(conn: Any, preferred_profile_id: str | None = None) -> str |
     ).fetchall()
     for row in rows:
         if (
-            is_deepseek_official_endpoint(row["base_url"])
-            or is_deepseek_official_endpoint(row["effective_base_url"])
+            is_deepseek_model_name(row["model_name"])
+            and (
+                is_dsh_safe_endpoint(row["base_url"])
+                or is_dsh_safe_endpoint(row["effective_base_url"])
+            )
         ):
             return str(row["id"])
     return None
@@ -51,7 +55,7 @@ def _dsh_profile_id(conn: Any, preferred_profile_id: str | None = None) -> str |
 def _is_dsh_profile(conn: Any, profile_id: str) -> bool:
     row = conn.execute(
         """
-        SELECT connection.base_url, connection.effective_base_url
+        SELECT profile.model_name, connection.base_url, connection.effective_base_url
         FROM model_profiles AS profile
         JOIN model_connections AS connection ON connection.id = profile.connection_id
         WHERE profile.id = ?
@@ -61,9 +65,9 @@ def _is_dsh_profile(conn: Any, profile_id: str) -> bool:
         """,
         (profile_id,),
     ).fetchone()
-    return row is not None and (
-        is_deepseek_official_endpoint(row["base_url"])
-        or is_deepseek_official_endpoint(row["effective_base_url"])
+    return row is not None and is_deepseek_model_name(row["model_name"]) and (
+        is_dsh_safe_endpoint(row["base_url"])
+        or is_dsh_safe_endpoint(row["effective_base_url"])
     )
 
 
