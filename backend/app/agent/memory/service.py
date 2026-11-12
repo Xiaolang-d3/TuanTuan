@@ -491,9 +491,9 @@ def extract_from_conversation(
         messages=[
             AgentMessage(
                 role="user",
-                content=EXTRACTION_PROMPT.format(
-                    existing=existing_text, conversation="\n".join(fragments)
-                ),
+                content=EXTRACTION_PROMPT.replace(
+                    "{existing}", existing_text
+                ).replace("{conversation}", "\n".join(fragments)),
             )
         ],
         tool_choice="none",
