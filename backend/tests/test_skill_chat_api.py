@@ -53,3 +53,31 @@ def test_ag_ui_accepts_skill_selection_and_reconnect_keeps_original_binding(tmp_
         request.update(runId="clear-original", forwardedProps={"skillId": None})
         assert client.post("/ag-ui", json=request).status_code == 200
         assert calls[-1].get("skill_binding") is None and calls[-1]["resume"] is None
+
+
+def test_ag_ui_accepts_builtin_ppt_skill(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tuantuan.db")
+    db.init_db()
+    calls = []
+
+    class Runtime:
+        async def run_stream(self, *args, **kwargs):
+            calls.append(kwargs)
+            yield AgentStreamEvent(type="completed", result=AgentRunResult(content="完成", provider="test", platform="manual", rounds=1))
+
+    monkeypatch.setattr(execution, "get_agent_runtime", lambda *args, **kwargs: Runtime())
+    with register_authenticated_client(app, "ppt-skill-chat@example.com") as client:
+        conversation = client.post("/conversations", json={"title": "内置技能测试"}).json()["id"]
+        request = {
+            "threadId": str(conversation),
+            "runId": "ppt-skill-run",
+            "state": {},
+            "messages": [{"id": "input", "role": "user", "content": "做一份季度复盘 PPT"}],
+            "tools": [],
+            "context": [],
+            "forwardedProps": {"skillId": "ppt-master"},
+        }
+        response = client.post("/ag-ui", json=request)
+        assert response.status_code == 200, response.text
+        assert calls[0]["skill_binding"]["id"] == "ppt-master"
+        assert calls[0]["skill_binding"]["user_id"] == client.get("/auth/me").json()["user"]["id"]

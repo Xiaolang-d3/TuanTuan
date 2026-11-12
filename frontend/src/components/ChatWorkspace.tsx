@@ -31,7 +31,7 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowUp, ArrowUpRight, CheckCircle2, Download, FileSliders, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
 
@@ -75,8 +75,6 @@ type ChatWorkspaceContentProps = ChatWorkspaceProps & {
 
 function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const { presentationService } = useExtensionPreview();
-  const [presentationRequest, setPresentationRequest] = useState<{ conversationId: number; revision: number } | null>(null);
-  const [presentationOpenError, setPresentationOpenError] = useState("");
   const [presentationContent, setPresentationContent] = useState<{ conversationId: number; hasContent: boolean } | null>(null);
   const [reviewContent, setReviewContent] = useState<{ conversationId: number | null; hasContent: boolean } | null>(null);
   const handleReviewContentChange = useCallback((hasContent: boolean) => {
@@ -85,26 +83,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const handlePresentationContentChange = useCallback((conversationId: number, hasContent: boolean) => {
     setPresentationContent(previous => previous?.conversationId === conversationId && previous.hasContent === hasContent ? previous : { conversationId, hasContent });
   }, []);
-  const hasConversationContent = props.messages.length > 0 || Boolean(presentationOpenError) || (presentationContent?.conversationId === props.currentConversationId && presentationContent?.hasContent) || (reviewContent?.conversationId === props.currentConversationId && reviewContent?.hasContent);
-  const presentationOpening = useRef(false);
-  const presentationMounted = useRef(true);
-  const presentationConversation = useRef(props.currentConversationId);
-  presentationConversation.current = props.currentConversationId;
-  useEffect(() => { presentationMounted.current = true; return () => { presentationMounted.current = false; }; }, []);
-  useEffect(() => { setPresentationOpenError(""); }, [props.currentConversationId]);
-  async function openPresentation() {
-    if (presentationOpening.current) return;
-    presentationOpening.current = true; setPresentationOpenError("");
-    const originalId = props.currentConversationId;
-    try {
-      const id = originalId ?? await props.onEnsurePresentationConversation?.();
-      if (!id) throw new Error("请先新建对话，再开始 PPT 制作。");
-      if (presentationMounted.current && (presentationConversation.current === originalId || presentationConversation.current === id)) {
-        setPresentationRequest(previous => ({ conversationId: id, revision: (previous?.revision ?? 0) + 1 }));
-      }
-    } catch (caught) { if (presentationMounted.current && presentationConversation.current === originalId) setPresentationOpenError(caught instanceof Error ? caught.message : "无法打开 PPT 制作"); }
-    finally { presentationOpening.current = false; }
-  }
+  const hasConversationContent = props.messages.length > 0 || (presentationContent?.conversationId === props.currentConversationId && presentationContent?.hasContent) || (reviewContent?.conversationId === props.currentConversationId && reviewContent?.hasContent);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const aui = useAui();
   const composerText = useAuiState((state) => state.composer.text);
@@ -464,8 +443,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <span>{props.modelSelectionFeedback.text}</span>
             <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
           </div>}
-          {presentationOpenError ? <p role="alert">{presentationOpenError}</p> : null}
-          {presentationService && props.currentConversationId ? <PresentationChat service={presentationService} conversationId={props.currentConversationId} request={presentationRequest?.conversationId === props.currentConversationId ? presentationRequest.revision : 0} modelScope={`${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`} disabled={Boolean(props.modelSelectionBusy)} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
+          {presentationService && props.currentConversationId ? <PresentationChat service={presentationService} conversationId={props.currentConversationId} request={props.selectedSkillId === "ppt-master" ? 1 : 0} modelScope={`${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`} disabled={Boolean(props.modelSelectionBusy)} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
             {props.documentReviewService && props.currentConversationId ? <DocumentReviewPanel service={props.documentReviewService} conversationId={props.currentConversationId} attachments={[...props.messages.flatMap(message => message.payload?.attachments ?? []), ...props.pendingAttachments]} onContentChange={handleReviewContentChange} /> : null}
           <div ref={props.chatEndRef} />
           </div>
@@ -670,8 +648,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <span id="composer-input-hint" className="sr-only"><span className="composer-keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span className="composer-touch-hint">回车换行，点击发送按钮发送</span></span>
             <div className="composer-footer">
               <div className="composer-tools-bar" role="group" aria-label="技能与外部工具">
-                {presentationService ? <button className="composer-tool composer-ppt-tool" type="button" onClick={() => void openPresentation()} title="在当前会话制作演示文稿"><FileSliders size={16} aria-hidden="true" /><span>制作 PPT</span></button> : null}
-                <SkillPicker selectedSkillId={props.selectedSkillId} onSelectSkill={props.onSelectSkill} onPresentation={presentationService ? () => void openPresentation() : undefined} />
+                <SkillPicker selectedSkillId={props.selectedSkillId} onSelectSkill={props.onSelectSkill} />
                 <a className="composer-tool composer-connections-tool" href="#/settings/extensions" title="管理插件与 MCP 外部连接">
                   <Plug size={16} aria-hidden="true" /><span>外部连接</span>
                 </a>

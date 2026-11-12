@@ -11,6 +11,10 @@
 - DSH 内核仅支持使用 DeepSeek 官方端点的已启用模型档案，本期提供对话、审批与用户提问；资料库、联网搜索、技能与团团自有原生工具暂不桥接。
 - DSH 需要 Node ≥ 24.9 并执行 vendor 脚本安装运行时，通过 `TUANTUAN_DSH_ENABLED=1` 启用；会话按用户与对话隔离，空闲自动回收，服务关闭时统一释放。
 
+### 扩展与技能
+
+- PPT 制作改为内置技能「PPT Master」：在聊天「技能」中选择后按对话创建制作任务，进度、确认与下载仍由任务卡呈现；移除扩展中心与技能菜单中的独立制作工作台和重复入口。
+
 ### 安全
 
 - 所有响应新增安全头：`Content-Security-Policy`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY` 与 `Referrer-Policy: no-referrer`，限制脚本、样式、字体、图片与连接来源，并禁止被第三方页面嵌套；PPT 确认页保留自身更严格的策略，不被全局默认覆盖。

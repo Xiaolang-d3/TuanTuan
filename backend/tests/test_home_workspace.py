@@ -55,7 +55,10 @@ def test_workspace_returns_all_blocks_without_store(api):
     assert body["weixin"]["connected"] is False and body["weixin"]["unread_count"] == 0
     assert len(body["changelog"]["items"]) == 6
     assert all({"category", "text", "version"} <= set(item) for item in body["changelog"]["items"])
-    assert body["skills"]["error"] is None and body["skills"]["items"] == []
+    # The packaged PPT skill is enabled by default, so a fresh workspace already
+    # has one discoverable skill.
+    assert body["skills"]["error"] is None
+    assert [item["name"] for item in body["skills"]["items"]] == ["PPT Master"]
     assert body["library_recent"]["error"] is None and body["library_recent"]["items"] == []
 
 
