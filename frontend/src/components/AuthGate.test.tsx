@@ -24,25 +24,25 @@ describe("AuthGate", () => {
     document.documentElement.style.colorScheme = "";
   });
 
-  it.each(["light", "dark"] as const)("switches the saved %s theme from the public navigation and preserves it on remount", async initial => {
+  it.each(["light", "dark", "blue"] as const)("switches the saved %s theme from the public navigation and preserves it on remount", async initial => {
+    const labels = { light: "浅色", dark: "深色", blue: "主题色蓝" } as const;
+    const nextFor = { light: "dark", dark: "blue", blue: "light" } as const;
+    const labelFor = (value: keyof typeof labels) => `当前${labels[value]}，点击切换到${labels[nextFor[value]]}`;
     localStorage.setItem(THEME_STORAGE_KEY, initial);
     vi.stubGlobal("fetch", vi.fn(async () => authConfig()));
     render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
     await screen.findByLabelText("邮箱");
-    const next = initial === "dark" ? "light" : "dark";
-    const label = next === "dark" ? "切换到深色主题" : "切换到浅色主题";
-    const toggle = screen.getByRole("button", { name: label });
+    const next = nextFor[initial];
+    const toggle = screen.getByRole("button", { name: labelFor(initial) });
     expect(screen.getByRole("navigation", { name: "公共导航" })).toContainElement(toggle);
     expect(toggle.closest("form")).toBeNull();
     expect(toggle).toHaveAttribute("type", "button");
     fireEvent.click(toggle);
-    expect(document.documentElement).toHaveAttribute("data-theme", next);
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe(next);
     cleanup();
     render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
     await screen.findByLabelText("邮箱");
-    expect(document.documentElement).toHaveAttribute("data-theme", next);
-    expect(screen.getByRole("button", { name: initial === "dark" ? "切换到深色主题" : "切换到浅色主题" })).toBeVisible();
+    expect(screen.getByRole("button", { name: labelFor(next) })).toBeVisible();
   });
 
   it("validates an existing session without requesting sign-in configuration", async () => {

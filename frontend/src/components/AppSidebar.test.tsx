@@ -34,21 +34,22 @@ describe("AppSidebar", () => {
     document.documentElement.style.colorScheme = "";
   });
 
-  it("switches the theme immediately and preserves the choice after a collapsed sidebar remount", () => {
-    localStorage.setItem(THEME_STORAGE_KEY, "dark");
+  it("cycles through the three theme colors and preserves the choice after a collapsed sidebar remount", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, "light");
     renderSidebar();
-    const light = screen.getByRole("button", { name: "切换到浅色主题" });
+    const light = screen.getByRole("button", { name: "当前浅色，点击切换到深色" });
     expect(light.closest(".sidebar-identity-slot")).toBeTruthy();
     fireEvent.click(light);
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    fireEvent.click(screen.getByRole("button", { name: "当前深色，点击切换到主题色蓝" }));
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("blue");
+    fireEvent.click(screen.getByRole("button", { name: "当前主题色蓝，点击切换到浅色" }));
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
     cleanup();
     renderSidebar(undefined, true);
-    const dark = screen.getByRole("button", { name: "切换到深色主题" });
-    expect(dark).toHaveAttribute("title", "切换到深色主题");
-    fireEvent.click(dark);
-    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    const reset = screen.getByRole("button", { name: "当前浅色，点击切换到深色" });
+    expect(reset).toHaveAttribute("title", "当前浅色，点击切换到深色");
   });
 
   it("returns to home from the brand mark", () => {
@@ -61,7 +62,7 @@ describe("AppSidebar", () => {
     const account = vi.fn();
     renderSidebar(<button type="button" aria-label="账号菜单" onClick={account}>账户</button>, collapsed);
     const trigger = screen.getByRole("button", { name: "账号菜单" });
-    const theme = screen.getByRole("button", { name: /切换到[深浅]色主题/ });
+    const theme = screen.getByRole("button", { name: /^当前(浅色|深色|主题色蓝)，点击切换到/ });
     expect(trigger.compareDocumentPosition(theme) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(theme.textContent).toBe("");
     expect(theme.querySelector('svg[aria-hidden="true"]')).toBeTruthy();

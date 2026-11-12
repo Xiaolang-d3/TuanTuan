@@ -99,20 +99,31 @@ def dsh_feature_enabled() -> bool:
     return env("TUANTUAN_DSH_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def is_deepseek_official_endpoint(value: Any) -> bool:
-    """Accept the official HTTPS API host only, before giving DSH an API key."""
+_DEEPSEEK_OFFICIAL_HOSTS = {"api.deepseek.com", "deepseek.com"}
+
+
+def is_dsh_safe_endpoint(value: Any) -> bool:
+    """DSH 会把 API Key 交给子进程，只接受 HTTPS 端点，
+    并拒绝仿冒 DeepSeek 官方域名的地址。"""
     try:
         parsed = urlparse(str(value or "").strip())
         port = parsed.port
     except ValueError:
         return False
+    hostname = (parsed.hostname or "").lower()
     return (
         parsed.scheme.lower() == "https"
-        and parsed.hostname == "api.deepseek.com"
+        and hostname
         and parsed.username is None
         and parsed.password is None
         and port in {None, 443}
+        and (hostname in _DEEPSEEK_OFFICIAL_HOSTS or "deepseek.com" not in hostname)
     )
+
+
+def is_deepseek_model_name(value: Any) -> bool:
+    name = str(value or "").strip().lower()
+    return name.startswith("deepseek")
 
 
 def has_deepseek_connection(db_path: str | Path | None = None) -> bool:
@@ -121,7 +132,7 @@ def has_deepseek_connection(db_path: str | Path | None = None) -> bool:
         with connect(db_path) as conn:
             rows = conn.execute(
                 """
-                SELECT connection.base_url, connection.effective_base_url
+                SELECT profile.model_name, connection.base_url, connection.effective_base_url
                 FROM model_connections AS connection
                 JOIN model_profiles AS profile ON profile.connection_id = connection.id
                 WHERE connection.enabled = 1
@@ -132,8 +143,8 @@ def has_deepseek_connection(db_path: str | Path | None = None) -> bool:
     except sqlite3.OperationalError:
         return False
     return any(
-        is_deepseek_official_endpoint(row["base_url"])
-        or is_deepseek_official_endpoint(row["effective_base_url"])
+        is_deepseek_model_name(row["model_name"])
+        and (is_dsh_safe_endpoint(row["base_url"]) or is_dsh_safe_endpoint(row["effective_base_url"]))
         for row in rows
     )
 

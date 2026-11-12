@@ -30,6 +30,15 @@
   --shadow: var(--shadow-md);
   --color-on-brand: #171717;
 }
+/* Brand-blue theme keeps the light surfaces while replacing the accent with the mascot blue. */
+:root[data-theme="blue"] {
+  color-scheme: light;
+  --color-brand: #2e90e0;
+  --color-brand-strong: #1c6fb9;
+  --color-brand-soft: #e4f1fc;
+  --focus-ring: 0 0 0 3px rgb(46 144 224 / 20%);
+  --color-on-brand: #ffffff;
+}
 /* Shared shell, overlays, and forms use semantic surfaces in every module. */
 :root[data-theme="dark"] body { background: var(--color-bg); }
 :root[data-theme="dark"] .app-shell { background: var(--color-bg); }
