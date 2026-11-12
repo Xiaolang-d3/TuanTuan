@@ -348,7 +348,6 @@ def reset_conversation_context(
         ).fetchone()
     end_active_task(conversation_id, db_path)
     clear_run_snapshot(conversation_id, db_path)
-    reset_conversation_kernel_state(conversation_id, db_path)
     try:
         enabled = get_agent_settings(db_path).get("user_memory_enabled", True)
     except Exception:
@@ -363,6 +362,7 @@ def reset_conversation_context(
             args=(conversation_id,),
             kwargs={"db_path": db_path},
         )
+    reset_conversation_kernel_state(conversation_id, db_path)
     return row_to_dict(row)
 
 
