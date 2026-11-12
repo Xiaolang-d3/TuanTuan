@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Agent 内核
+
+- 对话支持两种 Agent 内核：默认团团自研编排内核，可选开源的 DeepSeek Harness（DSH）。空白对话在输入框选择内核，设置 → 模型设置可配置新对话的默认内核。
+- 已有消息的对话切换内核时自动建立空白分支，把原对话的摘要和最近文本作为只读上下文带入；原对话保持不变，运行中或等待确认的任务继续留在原处，附件和未完成的本轮消息不复制到分支。
+- DSH 内核仅支持使用 DeepSeek 官方端点的已启用模型档案，本期提供对话、审批与用户提问；资料库、联网搜索、技能与团团自有原生工具暂不桥接。
+- DSH 需要 Node ≥ 24.9 并执行 vendor 脚本安装运行时，通过 `TUANTUAN_DSH_ENABLED=1` 启用；会话按用户与对话隔离，空闲自动回收，服务关闭时统一释放。
+
 ### 安全
 
 - 所有响应新增安全头：`Content-Security-Policy`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY` 与 `Referrer-Policy: no-referrer`，限制脚本、样式、字体、图片与连接来源，并禁止被第三方页面嵌套；PPT 确认页保留自身更严格的策略，不被全局默认覆盖。
