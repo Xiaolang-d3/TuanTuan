@@ -176,3 +176,23 @@ def test_v34_upgrade_preserves_jobs_and_is_repeatable(tmp_path):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert conn.execute("SELECT COUNT(*) FROM presentation_model_calls").fetchone() == (0,)
     assert (tmp_path / f".upgrade-backups/before-schema-v{db.DB_SCHEMA_VERSION}/upgrade.db").is_file()
+
+
+def test_definite_failure_resolves_reservation_without_fencing_next_calls(running):
+    ledger, repository, context, job, _ = running
+    repository.checkpoint(job["id"], job["owner_token"], {"stage": "outline"}, context)
+    request_id = ledger.reserve(job["id"], job["owner_token"], "outline", context)
+    ledger.mark_failed(request_id, job["owner_token"], context)
+    assert repository.get(job["id"], context)["checkpoint"] == {"stage": "outline"}
+    with db.connect() as conn:
+        call = conn.execute("SELECT state,definite_failure FROM presentation_model_calls WHERE id=?", (request_id,)).fetchone()
+        assert call["state"] == "unknown" and call["definite_failure"] == 1
+    # The settled definite failure never blocks the next reservation...
+    second = ledger.reserve(job["id"], job["owner_token"], "outline", context)
+    assert second != request_id
+    # ...and cannot be rewritten or completed afterwards.
+    ledger.mark_unknown(request_id, job["owner_token"], context)
+    with pytest.raises(JobConflict, match="不能自动改写"):
+        ledger.mark_failed(request_id, job["owner_token"], context)
+    with pytest.raises(JobConflict, match="不能自动改写"):
+        ledger.complete(request_id, job["owner_token"], "c" * 64, {"total_tokens": 0}, context)

@@ -131,3 +131,21 @@ def test_edit_retry_requires_new_confirmations_without_reusing_old_content(final
     assert load_final_contract(p.repository, job, p.context).final == finalized.result
     assert len(p.calls) == 4
     assert p.repository.get(job["id"], p.context)["request"]["topic"].startswith("新的具体主题")
+
+
+def test_definite_failure_retry_needs_no_acknowledgment(scope):
+    from app.presentations.service import public_presentation
+    app = service()
+    job = app.create(PresentationRequest(topic="大语言模型入门"), scope, "definite-original")
+    claimed = app.jobs.repository.claim(scope)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO presentation_model_calls(id,job_id,attempt,stage,state,definite_failure) VALUES(?,?,?,?,?,1)",
+            ("d" * 32, job["id"], claimed["owner_token"], "design_spec", "unknown"))
+    app.jobs.repository.checkpoint(job["id"], claimed["owner_token"], {"stage": "final_confirmed", "model_error_code": "provider_error"}, scope)
+    app.jobs.repository.release(job["id"], claimed["owner_token"], "failed", "模型服务返回异常状态（524）", scope)
+    failed = app.get(job["id"], scope)
+    public = public_presentation(failed)
+    assert public["retryable"] is True and public["retry_requires_confirmation"] is False
+    result = app.retry(job["id"], {"expected_revision": failed["revision"], "request_id": "definite-retry"}, scope)
+    assert result["status"] == "queued"

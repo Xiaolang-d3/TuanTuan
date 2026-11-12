@@ -221,6 +221,7 @@ def _map_litellm_error(exc: BaseException, protocol: str, secrets: tuple[str | N
             "service_unavailable",
             f"模型服务暂时不可用（{status or 503}）{('：' + detail[:160]) if detail else ''}，请稍后重试",
             retryable=True,
+            retry_safe=True,
         )
     if isinstance(exc, (litellm.BadRequestError, litellm.UnprocessableEntityError)):
         message = f"模型服务返回异常状态（{status or 400}）"
@@ -229,6 +230,7 @@ def _map_litellm_error(exc: BaseException, protocol: str, secrets: tuple[str | N
         message = f"模型服务返回异常状态（{status}）"
         return ModelProviderError(
             "provider_error", f"{message}：{detail}" if detail else message, retryable=status >= 500,
+            retry_safe=True,
         )
     if isinstance(exc, (litellm.APIConnectionError, litellm.APIError, litellm.InternalServerError, litellm.BadGatewayError)):
         return ModelProviderError(

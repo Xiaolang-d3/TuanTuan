@@ -101,6 +101,20 @@ def _output_failure_code(job: dict) -> str:
     return ""
 
 
+def _failed_stage(job: dict) -> str:
+    """Canonical model stage of the last failed call, for a precise failure label."""
+    if job["status"] != "failed":
+        return ""
+    from ..db import connect
+    from .retry import canonical_stage
+    with connect() as conn:
+        event = conn.execute("SELECT stage FROM model_service_events WHERE run_id=? AND status='error' ORDER BY id DESC LIMIT 1", (job["id"],)).fetchone()
+    if not event or not event["stage"]:
+        return ""
+    stage = event["stage"]
+    return canonical_stage(stage[4:] if stage.startswith("ppt.") else stage)
+
+
 def public_presentation(job: dict) -> dict:
     """An allowlist, unlike generic jobs' diagnostic checkpoint representation."""
     error_code = _model_failure_code(job) or _output_failure_code(job)
@@ -112,6 +126,7 @@ def public_presentation(job: dict) -> dict:
         "conversation_id": job["request"].get("conversation_id"),
         "model_name": job["snapshot"].get("model_selection", {}).get("model_name", ""),
         "error_code": error_code,
+        "error_stage": _failed_stage(job),
         "error": {**_MODEL_FAILURES, **OUTPUT_FAILURES}.get(error_code, job["error"]),
         "stage": job["checkpoint"].get("production", {}).get("stage", job["checkpoint"].get("stage", "queued")),
         "progress": public_progress(job),

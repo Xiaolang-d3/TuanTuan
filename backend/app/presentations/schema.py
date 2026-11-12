@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS presentation_model_calls (
     attempt TEXT NOT NULL,
     stage TEXT NOT NULL,
     state TEXT NOT NULL CHECK(state IN ('reserved','completed','unknown')),
+    definite_failure INTEGER NOT NULL DEFAULT 0,
     result_hash TEXT NOT NULL DEFAULT '',
     usage_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

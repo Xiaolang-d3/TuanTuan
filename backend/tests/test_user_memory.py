@@ -526,7 +526,8 @@ def test_migration_adds_memory_tables_and_column_from_v41() -> None:
             conn.execute("DROP TABLE memory_state")
             conn.execute("ALTER TABLE agent_settings DROP COLUMN user_memory_enabled")
             conn.execute(
-                "UPDATE schema_migrations SET version = 41, name = 'versioned_document_exports' WHERE version = 42"
+                "UPDATE schema_migrations SET version = 41, name = 'versioned_document_exports' WHERE version = ?",
+                (DB_SCHEMA_VERSION,),
             )
 
         upgraded = initialize_or_report(path)

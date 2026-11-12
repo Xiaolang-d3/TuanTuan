@@ -110,6 +110,29 @@ class ModelCallLedger:
             if call["state"] == "reserved":
                 conn.execute("UPDATE presentation_model_calls SET state='unknown' WHERE id=?", (request_id,))
 
+    def mark_failed(self, request_id: str, attempt: str, context: ExtensionContext) -> None:
+        """Resolve a reservation whose provider answered with a definite error.
+
+        An error response (e.g. an HTTP 5xx from the gateway) means no model
+        compute happened, so the outcome is known: the call is recorded as an
+        unknown-shaped row flagged ``definite_failure`` and the job checkpoint
+        fence is cleared like :meth:`complete` does. Unlike :meth:`mark_unknown`,
+        this never blocks a bounded automatic retry or a later user retry.
+        """
+        context.check_workspace()
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            call = self._call(conn, request_id, attempt)
+            if call["state"] != "reserved":
+                raise JobConflict("结果不明的模型请求不能自动改写")
+            checkpoint = json.loads(conn.execute("SELECT checkpoint_json FROM background_jobs WHERE id=?", (call["job_id"],)).fetchone()[0])
+            if checkpoint.get("model_request_id") != request_id:
+                raise JobConflict("模型请求检查点不匹配")
+            checkpoint.pop("model_request_id")
+            checkpoint.pop("external_outcome", None)
+            conn.execute("UPDATE presentation_model_calls SET state='unknown', definite_failure=1 WHERE id=?", (request_id,))
+            conn.execute("UPDATE background_jobs SET checkpoint_json=? WHERE id=?", (encoded(checkpoint), call["job_id"]))
+
     def start_activity(self, job_id: str, attempt: str, context: ExtensionContext) -> None:
         self._activity(job_id, attempt, context, operation="start")
 
