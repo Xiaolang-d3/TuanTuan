@@ -99,6 +99,26 @@ def agent_settings_get() -> dict[str, Any]:
     return get_agent_settings()
 
 
+@router.get("/agent/kernels")
+def agent_kernels_get() -> dict[str, Any]:
+    from ..agent.kernels.base import KERNEL_CHOICES, dsh_feature_enabled, has_deepseek_connection
+
+    def describe(kernel: str) -> dict[str, Any]:
+        if kernel == "tuantuan":
+            return {"id": kernel, "name": "团团内核", "available": True, "reason": ""}
+        if not dsh_feature_enabled():
+            return {"id": kernel, "name": "DeepSeek Harness", "available": False, "reason": "DSH 内核未启用"}
+        if not has_deepseek_connection():
+            return {"id": kernel, "name": "DeepSeek Harness", "available": False, "reason": "需要先添加并启用 DeepSeek 模型档案"}
+        return {"id": kernel, "name": "DeepSeek Harness", "available": True, "reason": ""}
+
+    default_kernel = str(get_agent_settings().get("default_kernel") or "tuantuan")
+    return {
+        "choices": [describe(kernel) for kernel in KERNEL_CHOICES],
+        "default_kernel": default_kernel,
+    }
+
+
 @router.put("/agent/settings")
 def agent_settings_put(payload: AgentSettingsIn) -> dict[str, Any]:
     try:

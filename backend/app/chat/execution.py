@@ -10,7 +10,12 @@ from ..agent import get_agent_runtime
 from .conversations import get_conversation
 from .contracts import ChatMessageIn
 from ..workspace import current_user_id
-from .conversations import end_active_task, ensure_active_task, maybe_title_from_first_message
+from .conversations import (
+    end_active_task,
+    ensure_active_task,
+    maybe_title_from_first_message,
+    reset_conversation_kernel_state,
+)
 from ..db import connect, json_dump, row_to_dict
 from ..config import get_settings
 from ..domain import AgentRunResult, ToolError, ToolEvent
@@ -18,6 +23,7 @@ from ..agent.resume_policy import should_abandon_snapshot
 from ..agent.snapshots import clear_run_snapshot, load_run_snapshot
 from ..agent.run_store import AgentRunStore, REPLAYABLE_RUN_STATUSES
 from ..agent.model_binding import internal_model_selection, is_bound_selection, is_legacy_selection
+from ..agent.kernels.base import KernelUnavailable, normalize_kernel, resolve_kernel_runtime, validate_kernel_selection
 from ..observability.model_context import public_model_selection
 from ..secret_store import SecretStoreUnavailable
 from ..search_options import WebSearchOptions, legacy_web_search_mode, normalize_web_search_options
@@ -82,6 +88,7 @@ async def cancel_current_agent_task(conversation_id: int | None = None) -> dict[
 
     end_active_task(resolved_id)
     clear_run_snapshot(resolved_id)
+    reset_conversation_kernel_state(resolved_id)
     return {"cancelled": cancelled}
 
 
@@ -178,6 +185,7 @@ async def stream_chat_response(
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or _default_conversation_id()
     conversation = require_conversation(conversation_id)
+    conversation_kernel = normalize_kernel(conversation.get("kernel"))
     active = _active_chat_runs.get(_chat_run_key(conversation_id))
     if active is not None and not active.done():
         raise HTTPException(status_code=409, detail="当前对话已有正在执行的任务")
@@ -361,6 +369,11 @@ async def stream_chat_response(
         history = []
         agent_input = str(persisted_run.get("user_content") or payload.content)
     else:
+        try:
+            validated_kernel = validate_kernel_selection(conversation_kernel)
+            kernel_runtime = resolve_kernel_runtime(validated_kernel, runtime)
+        except KernelUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         task_id = ensure_active_task(conversation_id)
         attachment_context, attachment_summaries, image_urls = _attachment_context(
             conversation_id, payload.attachment_ids, payload.vision_attachment_ids
@@ -381,6 +394,7 @@ async def stream_chat_response(
                 user_content=agent_input,
                 model_selection=model_selection,
                 web_search_options=search_options,
+                kernel=conversation_kernel,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -445,7 +459,7 @@ async def stream_chat_response(
                     conversation_id,
                     ag_ui_input.run_id,
                 )
-            async for stream_event in runtime.run_stream(
+            async for stream_event in kernel_runtime.run_stream(
                 agent_input,
                 history=history,
                 conversation_id=conversation_id,

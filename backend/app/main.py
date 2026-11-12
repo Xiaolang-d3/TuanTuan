@@ -52,15 +52,27 @@ async def lifespan(_: FastAPI):
     job_manager.start()
     from .api.presentations import maintain_confirmation_servers
     confirmation_maintenance = asyncio.create_task(maintain_confirmation_servers())
+    from .agent.kernels.dsh.adapter import close_dsh_runtime, reap_idle_dsh_sessions
+
+    async def maintain_dsh_runtime() -> None:
+        while True:
+            await asyncio.sleep(60)
+            reap_idle_dsh_sessions()
+
+    dsh_maintenance = asyncio.create_task(maintain_dsh_runtime())
     try:
         yield
     finally:
         from .api.presentations import confirmation_sessions, confirmation_servers
         confirmation_maintenance.cancel()
+        dsh_maintenance.cancel()
         with suppress(asyncio.CancelledError):
             await confirmation_maintenance
+        with suppress(asyncio.CancelledError):
+            await dsh_maintenance
         confirmation_sessions.close_all()
         await confirmation_servers.close_all()
+        await close_dsh_runtime()
         await job_manager.close()
         await manager.close()
 

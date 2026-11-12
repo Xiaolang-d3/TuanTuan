@@ -56,3 +56,56 @@
 .model-menu-footer:hover { color: var(--color-text, inherit); background: color-mix(in srgb, var(--color-text-muted) 8%, transparent); }
 @media (pointer: coarse) { .model-option, .model-menu-footer { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .model-menu { animation: none; } .model-pill-caret { transition: none; } }
+
+.kernel-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.kernel-pill:disabled { opacity: 0.6; cursor: default; }
+
+.kernel-pill--locked {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
+}
+
+.kernel-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface, #fff);
+  box-shadow: 0 8px 28px rgba(20, 24, 33, 0.12);
+}
+
+.kernel-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.kernel-option:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text-muted) 8%, transparent); }
+.kernel-option:disabled { opacity: 0.55; cursor: default; }
+.kernel-option.is-selected { background: color-mix(in srgb, var(--color-brand) 12%, transparent); }
+.kernel-option-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.kernel-option-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kernel-option-note { display: block; color: var(--color-text-muted); font-size: 11px; }
+.kernel-option-check { flex: none; color: var(--color-brand); }

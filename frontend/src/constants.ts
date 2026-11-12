@@ -6,6 +6,7 @@ export const defaultAgentSettings: AgentSettings = {
   persona_role: "主动、清晰、基于用户资料协助分析、研究和内容创作的 AI 伙伴",
   response_style: "concise",
   custom_instructions: "",
+  default_kernel: "tuantuan",
   library_memory_enabled: true,
   conversation_memory_enabled: true,
   knowledge_memory_enabled: true,

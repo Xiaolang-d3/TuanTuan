@@ -612,6 +612,8 @@ def remove_model_connection(connection_id: str, values: dict[str, Any], db_path:
 
 def save_default_agent_settings(values: dict[str, Any], db_path: str | Path | None = None) -> dict[str, Any]:
     def operation(conn, candidates):
+        if "default_kernel" in values and values["default_kernel"] not in {"tuantuan", "dsh"}:
+            raise ValueError("内核类型无效")
         row = dict(conn.execute("SELECT * FROM agent_settings WHERE id=1").fetchone())
         if values.get("expected_revision") is not None and int(values["expected_revision"]) != row["config_revision"]:
             raise settings.AgentSettingsConflict("设置已在其他页面更新，请重新读取后保存")

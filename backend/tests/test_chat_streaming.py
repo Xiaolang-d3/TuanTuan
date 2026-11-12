@@ -504,6 +504,5 @@ class ChatCancellationTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["cancelled"])
         self.assertTrue(task.cancelled())
 
-
 if __name__ == "__main__":
     unittest.main()

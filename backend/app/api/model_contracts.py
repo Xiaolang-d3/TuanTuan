@@ -71,6 +71,7 @@ class PurposeDefaultIn(BaseModel):
 
 class ConversationModelUpdate(ConversationUpdate):
     model_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
+    kernel: Literal["tuantuan", "dsh"] | None = None
 
 
 class RoutingPolicyIn(RoutingPolicy):

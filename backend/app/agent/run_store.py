@@ -79,16 +79,17 @@ class AgentRunStore:
         user_content: str,
         model_selection: dict[str, Any] | None = None,
         web_search_options: WebSearchOptions | None = None,
+        kernel: str = "tuantuan",
     ) -> dict:
         with connect(self._db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO agent_execution_runs
-                    (run_id, conversation_id, task_id, user_content, status, model_selection_json, checkpoint_json)
-                VALUES (?, ?, ?, ?, 'queued', ?, ?)
+                    (run_id, conversation_id, task_id, user_content, status, kernel, model_selection_json, checkpoint_json)
+                VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)
                 ON CONFLICT(run_id) DO NOTHING
                 """,
-                (run_id, conversation_id, task_id, user_content, json.dumps(internal_model_selection(model_selection)),
+                (run_id, conversation_id, task_id, user_content, kernel, json.dumps(internal_model_selection(model_selection)),
                  json.dumps({"binding_only": True, "web_search_options": web_search_options.model_dump()})
                  if web_search_options is not None else "{}"),
             )

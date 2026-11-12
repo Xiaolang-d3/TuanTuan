@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse, FileResponse, Response
 from pydantic import ValidationError
 from .dependencies import require_conversation
 from ..chat.contracts import ChatMessageIn, RestoreChatMessagesIn
-from ..chat.conversations import end_active_task
+from ..chat.conversations import end_active_task, reset_conversation_kernel_state
 from ..db import connect, json_dump, row_to_dict, rows_to_dicts
 from ..agent.snapshots import clear_run_snapshot
 from ..chat.service import (
@@ -115,6 +115,7 @@ def rewind_chat_messages(message_id: int, conversation_id: int | None = None) ->
 
     end_active_task(resolved_id)
     clear_run_snapshot(resolved_id)
+    reset_conversation_kernel_state(resolved_id)
     _refresh_conversation_summary(resolved_id)
     return {
         "rewound": True,
@@ -170,7 +171,8 @@ def delete_chat_turn(message_id: int, conversation_id: int | None = None) -> dic
 
     if end_exclusive is None:
         end_active_task(resolved_id)
-        clear_run_snapshot(resolved_id)
+    clear_run_snapshot(resolved_id)
+    reset_conversation_kernel_state(resolved_id)
     _refresh_conversation_summary(resolved_id)
     return {"deleted": len(removed), "messages": removed}
 
@@ -226,6 +228,8 @@ def restore_chat_messages(payload: RestoreChatMessagesIn) -> dict[str, Any]:
                 )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail="这些消息无法按原编号恢复") from exc
+    clear_run_snapshot(payload.conversation_id)
+    reset_conversation_kernel_state(payload.conversation_id)
     _refresh_conversation_summary(payload.conversation_id)
     return {"restored": len(payload.messages)}
 

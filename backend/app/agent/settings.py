@@ -45,6 +45,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "model_base_url": "",
     "model_protocol": "auto",
     "model_api_key": "",
+    "default_kernel": "tuantuan",
 }
 _SAVE_FIELDS = tuple(key for key in DEFAULT_AGENT_SETTINGS if key not in {"id", "model_api_key"})
 _MEMORY_FIELDS = ("library_memory_enabled", "conversation_memory_enabled", "knowledge_memory_enabled", "summary_enabled", "user_memory_enabled")

@@ -1,0 +1,92 @@
+.agent-kernel-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 14px 20px;
+  align-items: center;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-kernel-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.agent-kernel-settings-heading > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+}
+
+.agent-kernel-settings h3,
+.agent-kernel-settings p {
+  margin: 0;
+}
+
+.agent-kernel-settings h3 {
+  font-size: 14px;
+}
+
+.agent-kernel-settings-heading p,
+.agent-kernel-settings-note,
+.agent-kernel-settings-warning {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.agent-kernel-settings-heading p {
+  margin-top: 3px;
+}
+
+.agent-kernel-settings > label {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-kernel-settings select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.agent-kernel-settings select:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.agent-kernel-settings-note,
+.agent-kernel-settings-warning {
+  grid-column: 1 / -1;
+}
+
+.agent-kernel-settings-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--color-warning);
+}
+
+@media (max-width: 600px) {
+  .agent-kernel-settings {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+}

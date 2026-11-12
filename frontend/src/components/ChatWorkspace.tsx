@@ -1,5 +1,6 @@
 import { useConversationScroll } from "../features/chat/useConversationScroll";
 import { ComposerModelPicker } from "../features/chat/ComposerModelPicker";
+import { KernelPicker } from "../features/chat/KernelPicker";
 import { SkillPicker } from "../features/extensions/SkillPicker";
 import { PresentationChat } from "../features/extensions/PresentationChat";
 import { DocumentReviewPanel } from "../features/chat/DocumentReviewPanel";
@@ -627,6 +628,13 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                   <ChatContextChips context={props.sessionContext} />
                 </div>
                 <div className="composer-primary-actions">
+                  <KernelPicker
+                    choices={props.kernelChoices ?? []}
+                    selected={props.currentKernel ?? "tuantuan"}
+                    locked={props.kernelLocked ?? false}
+                    busy={props.kernelBusy ?? props.chatBusy}
+                    onChange={(kernel) => { void props.onKernelChange?.(kernel); }}
+                  />
                   <ComposerModelPicker
                     configured={props.modelConfigured !== false}
                     modelSettings={props.modelSettings}

@@ -1,10 +1,70 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 from ..agent.settings import get_agent_settings
 from ..agent.snapshots import clear_run_snapshot
 from ..db import connect, row_to_dict, rows_to_dicts
+from ..agent.kernels.base import (
+    DEFAULT_KERNEL,
+    KERNEL_DSH,
+    is_deepseek_official_endpoint,
+    is_valid_kernel,
+    normalize_kernel,
+)
+
+
+FORK_CONTEXT_MESSAGE_LIMIT = 12
+FORK_CONTEXT_MAX_CHARS = 12_000
+
+
+def _dsh_profile_id(conn: Any, preferred_profile_id: str | None = None) -> str | None:
+    rows = conn.execute(
+        """
+        SELECT profile.id, connection.base_url, connection.effective_base_url
+        FROM model_profiles AS profile
+        JOIN model_connections AS connection ON connection.id = profile.connection_id
+        WHERE profile.enabled = 1
+          AND connection.enabled = 1
+          AND (connection.deleted_at IS NULL OR connection.deleted_at = '')
+        ORDER BY
+            CASE WHEN profile.id = ? THEN 0 ELSE 1 END,
+            CASE WHEN profile.id = (
+                SELECT default_model_profile_id FROM agent_settings WHERE id = 1
+            ) THEN 0 ELSE 1 END,
+            profile.created_at ASC,
+            profile.id ASC
+        """,
+        (preferred_profile_id,),
+    ).fetchall()
+    for row in rows:
+        if (
+            is_deepseek_official_endpoint(row["base_url"])
+            or is_deepseek_official_endpoint(row["effective_base_url"])
+        ):
+            return str(row["id"])
+    return None
+
+
+def _is_dsh_profile(conn: Any, profile_id: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT connection.base_url, connection.effective_base_url
+        FROM model_profiles AS profile
+        JOIN model_connections AS connection ON connection.id = profile.connection_id
+        WHERE profile.id = ?
+          AND profile.enabled = 1
+          AND connection.enabled = 1
+          AND (connection.deleted_at IS NULL OR connection.deleted_at = '')
+        """,
+        (profile_id,),
+    ).fetchone()
+    return row is not None and (
+        is_deepseek_official_endpoint(row["base_url"])
+        or is_deepseek_official_endpoint(row["effective_base_url"])
+    )
 
 
 def list_conversations(db_path: str | Path | None = None, *, query: str | None = None) -> list[dict]:
@@ -50,11 +110,16 @@ def get_conversation(conversation_id: int, db_path: str | Path | None = None) ->
     return row_to_dict(row)
 
 
-def create_conversation(title: str = "新对话", db_path: str | Path | None = None) -> dict:
+def create_conversation(title: str = "新对话", db_path: str | Path | None = None, *, kernel: str = DEFAULT_KERNEL) -> dict:
     clean_title = title.strip()[:80] or "新对话"
+    normalized_kernel = normalize_kernel(kernel)
+    if not is_valid_kernel(kernel):
+        raise ValueError("内核类型无效")
     with connect(db_path) as conn:
+        model_profile_id = _dsh_profile_id(conn) if normalized_kernel == KERNEL_DSH else None
         cursor = conn.execute(
-            "INSERT INTO conversations (title) VALUES (?)", (clean_title,)
+            "INSERT INTO conversations (title, kernel, model_profile_id) VALUES (?, ?, ?)",
+            (clean_title, normalized_kernel, model_profile_id),
         )
         conversation_id = cursor.lastrowid
         conn.execute(
@@ -63,6 +128,98 @@ def create_conversation(title: str = "新对话", db_path: str | Path | None = N
         )
         row = conn.execute(
             "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+    return row_to_dict(row)
+
+
+def _fork_title(source_title: str) -> str:
+    return f"{(source_title.strip() or '新对话')[:76]}（分支）"[:80]
+
+
+def _fork_context_snapshot(source: Any, rows: list[Any]) -> str:
+    summary = str(source["summary"] or "").strip()
+    parts: list[str] = []
+    if summary:
+        parts.append(f"原对话摘要：{summary[:2400]}")
+    has_attachments = False
+    for row in rows:
+        content = " ".join(str(row["content"] or "").split())
+        if content:
+            label = "用户" if row["role"] == "user" else "团团"
+            parts.append(f"{label}：{content[:1600]}")
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        if isinstance(payload, dict) and payload.get("attachments"):
+            has_attachments = True
+    if has_attachments:
+        parts.append("注：原对话中的附件没有继承；如需使用，请在新对话中重新添加。")
+    return "\n".join(parts)[:FORK_CONTEXT_MAX_CHARS]
+
+
+def fork_conversation(
+    conversation_id: int,
+    *,
+    kernel: str,
+    exclude_from_message_id: int | None = None,
+    db_path: str | Path | None = None,
+) -> dict:
+    """Create an empty, kernel-pinned branch with a read-only text context seed."""
+    if not is_valid_kernel(kernel):
+        raise ValueError("内核类型无效")
+    with connect(db_path) as conn:
+        source = conn.execute(
+            "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        if source is None:
+            raise ValueError("对话不存在")
+        where = [
+            "conversation_id = ?",
+            "id > ?",
+            "role IN ('user', 'assistant')",
+        ]
+        params: list[object] = [
+            conversation_id,
+            source["context_cutoff_message_id"],
+        ]
+        if exclude_from_message_id is not None:
+            where.append("id < ?")
+            params.append(exclude_from_message_id)
+        params.append(FORK_CONTEXT_MESSAGE_LIMIT)
+        rows = conn.execute(
+            f"""
+            SELECT id, role, content, payload_json FROM chat_messages
+            WHERE {' AND '.join(where)}
+            ORDER BY id DESC LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        snapshot = _fork_context_snapshot(source, list(reversed(rows)))
+        target_kernel = normalize_kernel(kernel)
+        target_profile_id = source["model_profile_id"]
+        if target_kernel == KERNEL_DSH:
+            target_profile_id = _dsh_profile_id(conn, source["model_profile_id"])
+        cursor = conn.execute(
+            "INSERT INTO conversations (title, kernel, model_profile_id) VALUES (?, ?, ?)",
+            (_fork_title(str(source["title"])), target_kernel, target_profile_id),
+        )
+        fork_id = int(cursor.lastrowid)
+        conn.execute(
+            "INSERT INTO conversation_tasks (conversation_id, title) VALUES (?, ?)",
+            (fork_id, "当前任务"),
+        )
+        if snapshot:
+            conn.execute(
+                """
+                INSERT INTO conversation_context_seeds
+                    (conversation_id, source_conversation_id, content)
+                VALUES (?, ?, ?)
+                """,
+                (fork_id, conversation_id, snapshot),
+            )
+        row = conn.execute(
+            "SELECT * FROM conversations WHERE id = ?", (fork_id,)
         ).fetchone()
     return row_to_dict(row)
 
@@ -93,6 +250,8 @@ def update_conversation(
     status: str | None = None,
     model_profile_id: str | None = None,
     model_profile_selected: bool = False,
+    kernel: str | None = None,
+    kernel_selected: bool = False,
     db_path: str | Path | None = None,
 ) -> dict | None:
     fields: list[str] = []
@@ -113,10 +272,35 @@ def update_conversation(
                 raise ValueError("模型档案不存在或已停用")
         fields.append("model_profile_id = ?")
         values.append(model_profile_id)
+    if kernel_selected:
+        if not is_valid_kernel(kernel):
+            raise ValueError("内核类型无效")
+        fields.append("kernel = ?")
+        values.append(normalize_kernel(kernel))
     if not fields:
         return get_conversation(conversation_id, db_path)
-    fields.append("updated_at = CURRENT_TIMESTAMP")
     with connect(db_path) as conn:
+        existing = conn.execute(
+            "SELECT kernel, model_profile_id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if existing is None:
+            return None
+        if kernel_selected and conn.execute(
+            "SELECT 1 FROM chat_messages WHERE conversation_id = ? LIMIT 1", (conversation_id,)
+        ).fetchone():
+            raise ValueError("对话已有消息，内核不可更改")
+        effective_kernel = normalize_kernel(kernel) if kernel_selected else normalize_kernel(existing["kernel"])
+        if effective_kernel == KERNEL_DSH and (kernel_selected or model_profile_selected):
+            selected_profile_id = model_profile_id if model_profile_selected else _dsh_profile_id(
+                conn, existing["model_profile_id"]
+            )
+            if selected_profile_id is None or not _is_dsh_profile(conn, selected_profile_id):
+                raise ValueError("DSH 内核需要选择已启用的 DeepSeek 模型档案")
+            if not model_profile_selected and selected_profile_id != existing["model_profile_id"]:
+                fields.append("model_profile_id = ?")
+                values.append(selected_profile_id)
+        fields.append("updated_at = CURRENT_TIMESTAMP")
         conn.execute(
             f"UPDATE conversations SET {', '.join(fields)} WHERE id = ?",
             (*values, conversation_id),
@@ -178,13 +362,26 @@ def reset_conversation_context(
             args=(conversation_id,),
             kwargs={"db_path": db_path},
         )
+    reset_conversation_kernel_state(conversation_id, db_path)
     return row_to_dict(row)
 
 
 def delete_conversation(conversation_id: int, db_path: str | Path | None = None) -> bool:
+    reset_conversation_kernel_state(conversation_id, db_path)
     with connect(db_path) as conn:
         cursor = conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
     return cursor.rowcount > 0
+
+
+def reset_conversation_kernel_state(
+    conversation_id: int, db_path: str | Path | None = None
+) -> None:
+    conversation = get_conversation(conversation_id, db_path)
+    if conversation is None or normalize_kernel(conversation.get("kernel")) != KERNEL_DSH:
+        return
+    from ..agent.kernels.dsh.adapter import reset_dsh_conversation_state
+
+    reset_dsh_conversation_state(conversation_id)
 
 
 def maybe_title_from_first_message(

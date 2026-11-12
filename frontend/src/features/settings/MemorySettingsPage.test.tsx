@@ -22,6 +22,7 @@ const agentSettings: AgentSettings = {
   model_protocol: "auto",
   api_key: "",
   api_key_configured: false,
+  default_kernel: "tuantuan",
   config_revision: 7
 };
 

@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    43: "conversation_kernel_forks",
     42: "user_memory",
     41: "versioned_document_exports",
     40: "authored_document_versions",
@@ -105,6 +106,7 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                 "model_secret_ref": "TEXT NOT NULL DEFAULT ''",
                 "model_config_initialized": "INTEGER NOT NULL DEFAULT 0",
                 "default_model_profile_id": "TEXT NOT NULL DEFAULT ''",
+                "default_kernel": "TEXT NOT NULL DEFAULT 'tuantuan'",
             }.items():
                 if name not in columns:
                     conn.execute(f"ALTER TABLE agent_settings ADD COLUMN {name} {definition}")
@@ -120,9 +122,13 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             conversation_columns = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
             if "model_profile_id" not in conversation_columns:
                 conn.execute("ALTER TABLE conversations ADD COLUMN model_profile_id TEXT")
+            if "kernel" not in conversation_columns:
+                conn.execute("ALTER TABLE conversations ADD COLUMN kernel TEXT NOT NULL DEFAULT 'tuantuan'")
             run_columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_execution_runs)")}
             if "model_selection_json" not in run_columns:
                 conn.execute("ALTER TABLE agent_execution_runs ADD COLUMN model_selection_json TEXT NOT NULL DEFAULT '{}'")
+            if "kernel" not in run_columns:
+                conn.execute("ALTER TABLE agent_execution_runs ADD COLUMN kernel TEXT NOT NULL DEFAULT 'tuantuan'")
             event_columns = {row[1] for row in conn.execute("PRAGMA table_info(model_service_events)")}
             for name, definition in {
                 "run_id": "TEXT NOT NULL DEFAULT ''", "call_id": "TEXT NOT NULL DEFAULT ''",

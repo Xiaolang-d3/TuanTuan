@@ -26,6 +26,12 @@ class PasswordChangeIn(BaseModel):
 
 class ConversationIn(BaseModel):
     title: str = Field(default="新对话", max_length=80)
+    kernel: Literal["tuantuan", "dsh"] | None = None
+
+
+class ConversationForkIn(BaseModel):
+    kernel: Literal["tuantuan", "dsh"]
+
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=80)
@@ -36,6 +42,7 @@ class AgentSettingsIn(BaseModel):
     persona_role: str = Field(min_length=1, max_length=300)
     response_style: Literal["concise", "balanced", "detailed"] = "concise"
     custom_instructions: str = Field(default="", max_length=1000)
+    default_kernel: Literal["tuantuan", "dsh"] = "tuantuan"
     library_memory_enabled: bool = True
     conversation_memory_enabled: bool = True
     knowledge_memory_enabled: bool = True

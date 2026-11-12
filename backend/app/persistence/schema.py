@@ -42,8 +42,16 @@ CREATE TABLE IF NOT EXISTS conversations (
                 summary TEXT NOT NULL DEFAULT '',
                 context_cutoff_message_id INTEGER NOT NULL DEFAULT 0,
                 model_profile_id TEXT,
+                kernel TEXT NOT NULL DEFAULT 'tuantuan',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+CREATE TABLE IF NOT EXISTS conversation_context_seeds (
+                conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+                source_conversation_id INTEGER NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
 CREATE TABLE IF NOT EXISTS conversation_tasks (
@@ -122,6 +130,7 @@ CREATE TABLE IF NOT EXISTS agent_settings (
                 model_secret_ref TEXT NOT NULL DEFAULT '',
                 model_config_initialized INTEGER NOT NULL DEFAULT 0,
                 default_model_profile_id TEXT NOT NULL DEFAULT '',
+                default_kernel TEXT NOT NULL DEFAULT 'tuantuan',
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -270,6 +279,7 @@ CREATE TABLE IF NOT EXISTS agent_execution_runs (
     resumed_by_run_id TEXT,
     user_content TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'queued',
+    kernel TEXT NOT NULL DEFAULT 'tuantuan',
     route_kind TEXT NOT NULL DEFAULT '',
     round_number INTEGER NOT NULL DEFAULT 0,
     checkpoint_json TEXT NOT NULL DEFAULT '',
