@@ -39,6 +39,7 @@ class AgentSettingsIn(BaseModel):
     library_memory_enabled: bool = True
     conversation_memory_enabled: bool = True
     knowledge_memory_enabled: bool = True
+    user_memory_enabled: bool = True
     summary_enabled: bool = True
     context_message_limit: int = Field(default=12, ge=4, le=30)
     model_name: str = Field(default="", max_length=120)
@@ -95,3 +96,17 @@ class LibraryKnowledgeReviewIn(BaseModel):
 
 class LibraryKnowledgeMergeIn(BaseModel):
     target_fact_id: int = Field(ge=1)
+
+
+class MemoryItemIn(BaseModel):
+    kind: Literal["fact", "preference"]
+    summary: str = Field(min_length=1, max_length=500)
+
+
+class MemoryRuleIn(BaseModel):
+    rule: str = Field(min_length=1, max_length=300)
+
+
+class MemoryRuleUpdate(BaseModel):
+    rule: str | None = Field(default=None, min_length=1, max_length=300)
+    enabled: bool | None = None
