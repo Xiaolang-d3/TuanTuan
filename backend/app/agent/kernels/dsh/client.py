@@ -70,6 +70,10 @@ class DshJsonRpcClient:
     def stderr_tail(self) -> list[str]:
         return list(self._stderr_tail)
 
+    @property
+    def running(self) -> bool:
+        return self._process is not None and self._process.returncode is None
+
     async def start(self) -> None:
         if self._process is not None:
             return
