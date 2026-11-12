@@ -1194,6 +1194,7 @@ export function App({
               accountKey={userEmail}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
+              weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}
             />
           </Suspense>
         ) : null}

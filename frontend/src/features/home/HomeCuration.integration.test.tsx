@@ -1,7 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { HomePage } from "./HomePage";
-import type { FetchJson, HomeFeedResponse } from "./types";
+import type { FetchJson, HomeFeedResponse, HomeWorkspaceResponse } from "./types";
+
+const fixtureWorkspace = (): HomeWorkspaceResponse => ({
+  generated_at: "2026-10-08T02:00:00Z",
+  conversations: { items: [], error: null },
+  jobs: { running: [], pending_confirmations: [] },
+  weixin: { connected: false, unread_count: 0 },
+  changelog: { items: [], error: null },
+  skills: { items: [], error: null },
+  library_recent: { items: [], error: null }
+});
 
 function setup(enabled = true) {
   let feed: HomeFeedResponse = {
@@ -12,6 +22,7 @@ function setup(enabled = true) {
     refreshing: false, last_synced_at: null
   };
   const client = vi.fn<FetchJson>(async (path, options) => {
+    if (path === "/home/workspace") return structuredClone(fixtureWorkspace()) as never;
     if (path === "/agent/model-connections") return { connections: [{ id: "c1", enabled: true }], profiles: [{ id: "p1", model_name: "text-model", connection_id: "c1", enabled: true }] } as never;
     if (path === "/home/preferences") feed = { ...feed, preferences: JSON.parse(String(options?.body)) };
     if (path === "/home/feed/curation") feed = { ...feed, curation: { ...feed.curation!, status: "generating" } };
@@ -33,7 +44,7 @@ describe("homepage daily curation integration", () => {
     expect(checkbox).not.toBeChecked();
     expect(within(dialog).getByText(/仅发送关注方向与公开内容/)).toHaveTextContent("现有搜索服务");
     expect(within(dialog).getByText(/每天最多 3 次搜索和 1 次文本模型调用/)).toHaveTextContent("应用运行并打开首页");
-    expect(client.mock.calls.map(([path]) => path)).toEqual(["/home/feed", "/agent/model-connections"]);
+    expect(client.mock.calls.map(([path]) => path)).toEqual(["/home/feed", "/home/workspace", "/agent/model-connections"]);
     fireEvent.click(checkbox);
     fireEvent.click(within(dialog).getByRole("button", { name: "保存设置" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("请先选择日报模型，再启用每日资讯精选");
@@ -47,7 +58,7 @@ describe("homepage daily curation integration", () => {
   it("places today's curation above the existing digest and posts once only after explicit regeneration", async () => {
     const client = setup();
     const region = await screen.findByRole("region", { name: /今日值得看/ });
-    await waitFor(() => expect(client).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(client).toHaveBeenCalledTimes(2));
     const digest = screen.getByRole("region", { name: /今日 AI 日报/ });
     expect(region.compareDocumentPosition(digest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const button = within(region).getByRole("button", { name: "重新筛选" });
