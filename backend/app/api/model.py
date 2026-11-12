@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, HTTPException, Response
 from ..agent import get_agent_capabilities
@@ -17,7 +19,7 @@ from ..db import connect
 from ..observability.model_monitor import get_model_monitor_snapshot, record_model_service_event
 from ..observability.model_context import model_call_scope
 from ..models import ModelProviderError, OpenAICompatibleProvider, build_model_provider
-from ..models.catalog_discovery import all_model_kinds, normalize_catalog, store_discovery
+from ..models.catalog_discovery import all_model_kinds, normalize_catalog, read_cached_catalog, store_discovery
 from ..model_protocol import connection_protocol_label, normalize_model_protocol, protocol_requires_api_key
 from .schemas import AgentSettingsIn, ModelCapabilitiesIn, ModelDiscoveryIn
 from .model_contracts import CapabilityOverridesIn, ConnectionCreateIn, ConnectionUpdateIn, DefaultProfileIn, FallbackPolicyIn, ProfileCreateIn, ProfileUpdateIn, RoutingPolicyIn, ServiceModelIn, PurposeDefaultIn
@@ -170,6 +172,20 @@ def model_connections_get() -> dict[str, Any]:
     return get_model_catalog()
 
 
+@router.get("/agent/model-connections/{connection_id}/catalog")
+def model_connection_catalog(connection_id: str, response: Response) -> dict[str, Any]:
+    """Return persisted discovery for the current live version, without credentials."""
+    headers = {"Cache-Control": "no-store"}
+    response.headers.update(headers)
+    try:
+        with connect() as conn:
+            return read_cached_catalog(conn, connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc), headers=headers) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="模型目录缓存暂不可读取", headers=headers) from exc
+
+
 @router.post("/agent/model-connections/{connection_id}/reveal-key")
 def model_connection_reveal_key(connection_id: str, response: Response) -> dict[str, str]:
     from ..agent.model_catalog import get_service_connection
@@ -290,6 +306,7 @@ async def discover_models(payload: ModelDiscoveryIn) -> dict[str, Any]:
 
 
 async def _discover_connection(connection: dict[str, Any], *, remember: bool = True) -> dict[str, Any]:
+    started_at = datetime.now(timezone.utc)
     api_key = connection["api_key"]
     base_url = connection["model_base_url"]
     model_name = connection["model_name"]
@@ -330,10 +347,25 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
         )
     provider_name = provider.name
     normalized_base = base_url.rstrip("/")
-    entries = getattr(models, "entries", None) or normalize_catalog(models)
+    entries = getattr(models, "entries", None) or normalize_catalog(models, api_key=api_key)
+    # A provider must not echo credentials into the persisted or returned catalog.
+    # Treat truncated key prefixes as sensitive as well as a complete key.
+    def contains_key(value: str) -> bool:
+        return bool(api_key) and (api_key in value or any(value.endswith(api_key[:length]) for length in range(8, min(len(api_key), len(value)) + 1)))
+
+    models = [name for name in models if isinstance(name, str) and name.strip() == name and 0 < len(name) <= 120 and not contains_key(name)]
+    if not models:
+        raise HTTPException(status_code=502, detail="模型服务未返回有效的模型名称，请检查服务配置。")
+    allowed_models = set(models)
+    entries = [dict(entry) for entry in entries if isinstance(entry, dict) and entry.get("id") in allowed_models]
+    for entry in entries:
+        for field in ("display_name", "owned_by"):
+            value = entry.get(field)
+            if isinstance(value, str) and contains_key(value):
+                entry.pop(field, None)
     if remember and connection.get("connection_id") and connection.get("connection_revision"):
         with connect() as conn:
-            if not store_discovery(conn, connection["connection_id"], connection["connection_revision"], entries):
+            if not store_discovery(conn, connection["connection_id"], connection["connection_revision"], entries, api_key=api_key, started_at=started_at):
                 raise HTTPException(status_code=409, detail="连接已更新，请重新读取模型目录")
     return {
         "models": models,

@@ -688,6 +688,11 @@ class AgentRuntime:
 
         conversation_history = relevant_clarification_history(history or [], route.allowed_tools, library_read_allowed=library_read_allowed)
         messages = [*conversation_history]
+        try:
+            from .memory.context import memory_context_messages
+            messages.extend(memory_context_messages(user_content))
+        except Exception:
+            pass
         retained = [card for message in conversation_history if message.role == "user" for card in message.payload.get("evidence", [])]
         if retained:
             from ..library.evidence import bounded_evidence_data

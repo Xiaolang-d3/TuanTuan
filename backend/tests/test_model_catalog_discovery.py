@@ -90,6 +90,47 @@ def test_cached_evidence_bound_to_service_revision_and_never_from_name_guess(tmp
         assert not store_discovery(conn, "s1", 1, entries)
 
 
+def test_late_discovery_cannot_replace_a_newer_directory(tmp_path):
+    from datetime import datetime, timezone
+    from app.models.catalog_discovery import read_cached_catalog
+
+    path = tmp_path / "race.db"
+    init_db(path)
+    old = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+    new = datetime(2025, 1, 1, 12, 1, tzinfo=timezone.utc)
+    with connect(path) as conn:
+        conn.execute("INSERT INTO model_connections (id,name,effective_base_url,data_boundary) VALUES ('s1','One','https://example.test','one')")
+    with connect(path) as conn:
+        assert store_discovery(conn, "s1", 1, [{"id": "new-model"}], started_at=new)
+    with connect(path) as conn:
+        assert store_discovery(conn, "s1", 1, [{"id": "old-model"}], started_at=old)
+        assert read_cached_catalog(conn, "s1")["models"] == ["new-model"]
+
+
+def test_catalog_redacts_credentials_before_truncating_display_fields():
+    secret = "key-" + "x" * 100
+    entries = normalize_catalog([{"id": "safe-model", "display_name": "a" * 100 + secret, "owned_by": "b" * 100 + secret}], api_key=secret)
+    assert entries[0]["id"] == "safe-model"
+    assert "display_name" not in entries[0] and "owned_by" not in entries[0]
+
+
+def test_cached_discovery_never_persists_known_credentials(tmp_path):
+    from app.models.catalog_discovery import read_cached_catalog
+
+    path = tmp_path / "secret.db"
+    init_db(path)
+    with connect(path) as conn:
+        conn.execute("INSERT INTO model_connections (id,name,effective_base_url,data_boundary) VALUES ('s1','One','https://example.test','one')")
+    with connect(path) as conn:
+        assert store_discovery(conn, "s1", 1, [
+            {"id": "secret-token", "output_types": ["chat"]},
+            {"id": "safe-model", "display_name": "Bearer secret-token", "owned_by": "secret-token", "api_key": "secret-token"},
+        ], api_key="secret-token")
+        result = read_cached_catalog(conn, "s1")
+        assert result["models"] == ["safe-model"]
+        assert "secret-token" not in str(result)
+
+
 def test_v35_upgrade_keeps_existing_connections_and_adds_cache(tmp_path):
     path = tmp_path / "upgrade.db"
     init_db(path)

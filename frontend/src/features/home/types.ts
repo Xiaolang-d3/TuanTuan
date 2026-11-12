@@ -195,3 +195,57 @@ export type HomeMediaBoard = {
   error: string | null;
   collected_at: string | null;
 };
+
+export type HomeWorkspaceConversation = {
+  id: number;
+  title: string;
+  last_message_at: string | null;
+  task_status: string;
+};
+
+export type HomeJobBrief = {
+  id: string;
+  kind: string;
+  display_title: string;
+  status: string;
+  created_at: string | null;
+};
+
+export type HomeChangelogItem = {
+  category: string;
+  text: string;
+  version: string;
+};
+
+export type HomeSkillItem = {
+  name: string;
+  summary: string;
+  source: string;
+};
+
+export type HomeLibraryRecentItem = {
+  id: number;
+  title: string;
+  kind: string;
+  created_at: string | null;
+};
+
+export type HomeWorkspaceWeixin = {
+  connected: boolean;
+  unread_count: number;
+};
+
+export type HomeWorkspaceBlock<T> = {
+  items: T[];
+  error: string | null;
+};
+
+export type HomeWorkspaceResponse = {
+  generated_at: string | null;
+  conversations: HomeWorkspaceBlock<HomeWorkspaceConversation>;
+  jobs: { running: HomeJobBrief[]; pending_confirmations: HomeJobBrief[] };
+  weixin: HomeWorkspaceWeixin;
+  changelog: HomeWorkspaceBlock<HomeChangelogItem>;
+  skills: HomeWorkspaceBlock<HomeSkillItem>;
+  library_recent: HomeWorkspaceBlock<HomeLibraryRecentItem>;
+};

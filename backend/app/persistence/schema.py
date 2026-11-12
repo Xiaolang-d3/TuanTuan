@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS agent_settings (
                 model_base_url TEXT NOT NULL DEFAULT '',
                 model_protocol TEXT NOT NULL DEFAULT 'auto',
                 model_api_key TEXT NOT NULL DEFAULT '',
+                user_memory_enabled INTEGER NOT NULL DEFAULT 1,
                 connection_id TEXT NOT NULL DEFAULT '',
                 config_revision INTEGER NOT NULL DEFAULT 0,
                 last_save_request_id TEXT NOT NULL DEFAULT '',
@@ -405,6 +406,34 @@ CREATE INDEX IF NOT EXISTS idx_tasks_conversation ON conversation_tasks(conversa
 CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge_chunks(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_conversation ON attachments(conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_service_events_created_at ON model_service_events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS memory_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL CHECK (kind IN ('fact', 'preference')),
+    summary TEXT NOT NULL,
+    source_conversation_id INTEGER,
+    embedding_json TEXT NOT NULL DEFAULT '[]',
+    embedding_backend TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_memory_summaries_kind ON memory_summaries(kind);
+
+CREATE TABLE IF NOT EXISTS memory_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL DEFAULT 0,
+    rule TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS memory_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_extracted_message_id INTEGER NOT NULL DEFAULT 0,
+    last_extraction_at TEXT NOT NULL DEFAULT ''
+);
 
 """ + LIBRARY_CORE_SCHEMA + EXTENSION_SCHEMA + JOB_SCHEMA + PRESENTATION_SCHEMA + MODEL_CATALOG_SCHEMA + VERSION_SCHEMA + AUTHORED_DOCUMENT_SCHEMA
 

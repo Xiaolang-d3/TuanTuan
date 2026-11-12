@@ -20,6 +20,7 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
     case "settings":
       if (route.page === "extensions") return [];
       if (route.page === "channels") return [];
+      if (route.page === "memory") return [];
       if (route.page === "library") return ["library"];
       if (route.page === "appearance") return [];
       if (route.page === "agent") return ["agentOperations", "conversations", "capabilities", "attachmentConfig"];

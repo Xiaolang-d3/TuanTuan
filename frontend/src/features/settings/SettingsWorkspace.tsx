@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   Blocks,
+  Brain,
   CheckCircle2,
   ChevronRight,
   Cpu,
@@ -30,7 +31,8 @@ const pageLabels: Record<Exclude<SettingsPage, "overview">, string> = {
   account: "账号与安全",
   library: "文件库管理",
   model: "模型设置",
-  agent: "Agent 执行记录"
+  agent: "Agent 执行记录",
+  memory: "记忆与个性化"
 };
 
 export function SettingsWorkspace({ page, children, onBack }: WorkspaceProps) {
@@ -112,6 +114,11 @@ export function SettingsOverview({
               </em>
             </span>
           </span>
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
+        <button className="settings-entry-card memory" type="button" onClick={() => onOpen("memory")}>
+          <span className="settings-entry-icon"><Brain size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-copy"><span className="settings-entry-title"><strong>记忆与个性化</strong></span><span className="settings-entry-primary">跨会话记住你的事实与偏好，仅存本地</span></span>
           <ChevronRight size={17} aria-hidden="true" />
         </button>
         <button className="settings-entry-card appearance" type="button" onClick={() => onOpen("appearance")}>

@@ -15,6 +15,7 @@ import { DocumentLibraryDialog } from "../features/chat/DocumentLibraryDialog";
 import { PageLoading } from "../components/PageLoading";
 import { downloadConversationMarkdown } from "../features/chat/conversationActions";
 import { composerModelSources } from "./model-sources";
+import { composerCatalogsWithSavedModels } from "./composer-catalogs";
 import { readConversationFolders, readIdList, readStringMap, writeConversationFolders, writeIdList, writeStringMap, type ConversationFolder } from "../features/chat/localChatPreferences";
 import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
@@ -84,6 +85,8 @@ const loadLibraryPage = () => import("../features/library/LibraryPage");
 
 const loadAccountSettingsPage = () => import("../features/settings/AccountSettingsPage");
 
+const loadMemorySettingsPage = () => import("../features/settings/MemorySettingsPage");
+
 const ChatWorkspace = lazy(() => loadChatWorkspace().then((module) => ({
   default: module.ChatWorkspace
 })));
@@ -114,6 +117,10 @@ const AccountSettingsPage = lazy(() => loadAccountSettingsPage().then((module) =
   default: module.AccountSettingsPage
 })));
 
+const MemorySettingsPage = lazy(() => loadMemorySettingsPage().then((module) => ({
+  default: module.MemorySettingsPage
+})));
+
 const ModelConnectionManager = lazy(() => import("../features/settings/ModelConnectionManager").then((module) => ({ default: module.ModelConnectionManager })));
 const UnifiedModelManager = lazy(() => import("../features/settings/UnifiedModelManager").then((module) => ({ default: module.UnifiedModelManager })));
 const ModelRoutingPanel = lazy(() => import("../features/settings/ModelRoutingPanel").then((module) => ({ default: module.ModelRoutingPanel })));
@@ -128,6 +135,7 @@ const pagePrefetcher = createPagePrefetcher({
   chat: loadChatWorkspace,
   library: () => Promise.all([loadSettingsWorkspace(), loadLibraryPage()]),
   account: () => Promise.all([loadSettingsWorkspace(), loadAccountSettingsPage()]),
+  memory: () => Promise.all([loadSettingsWorkspace(), loadMemorySettingsPage()]),
   dashboard: loadHomePage,
   settings: loadSettingsWorkspace
 });
@@ -343,8 +351,9 @@ export function App({
     }
   }, [conversationBusy, currentConversationId, currentKernel, fetchJson, forkConversation, kernelLocked, navigateRoute, refreshConversations, setErrorMessage, setNoticeMessage]);
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
-  const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections });
-  const composerServiceCatalogs = composerDiscovery.catalogs.map(service => ({ ...service, models: service.models.filter(name => !modelCatalog.catalog.profiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name && !profile.enabled) || activeModelProfiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name)) }));
+  const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections, restoreCached: true });
+  const currentPickerProfile = selectedModelProfile || defaultModelProfile;
+  const composerServiceCatalogs = composerCatalogsWithSavedModels(composerDiscovery.catalogs, modelCatalog.catalog.profiles, currentPickerProfile?.id);
   const defaultModelHasDraft = Boolean(agentSettings.api_key.trim()) || agentSettings.model_name !== savedAgentSettings.model_name
     || agentSettings.model_base_url !== savedAgentSettings.model_base_url || agentSettings.model_protocol !== savedAgentSettings.model_protocol;
 
@@ -1037,7 +1046,8 @@ export function App({
       account: { title: "账号与安全", description: "管理跟随登录账号的昵称、头像和密码" },
       library: { title: "文件库管理", description: "整理文件、阅读原件，选取资料用于对话" },
       model: { title: "模型设置", description: "填写服务地址、API Key，选择使用的模型" },
-      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" }
+      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" },
+      memory: { title: "记忆与个性化", description: "跨会话记住你的事实与偏好，仅存本地" }
     }[appRoute.page]
     : pageMeta[appRoute.section];
 
@@ -1251,6 +1261,7 @@ export function App({
               accountKey={userEmail}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
+              weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}
             />
           </Suspense>
         ) : null}
@@ -1290,6 +1301,7 @@ export function App({
                   onPasswordChanged={updateSession}
                 />
               ) : null}
+              {appRoute.page === "memory" ? <MemorySettingsPage fetchJson={fetchJson} /> : null}
               {appRoute.page === "library" ? libraryModule : null}
               {appRoute.page === "model" ? (
                 modelSettingsReady ? (

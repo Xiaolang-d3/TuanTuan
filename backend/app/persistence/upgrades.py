@@ -19,7 +19,7 @@ _upgrade_lock = threading.RLock()
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
     43: "conversation_kernel_forks",
-    42: "agent_kernel_selection",
+    42: "user_memory",
     41: "versioned_document_exports",
     40: "authored_document_versions",
     39: "generic_job_model_budgets",
@@ -99,6 +99,7 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             if "profile_memory_enabled" in columns:
                 conn.execute("ALTER TABLE agent_settings RENAME COLUMN profile_memory_enabled TO library_memory_enabled")
             for name, definition in {
+                "user_memory_enabled": "INTEGER NOT NULL DEFAULT 1",
                 "connection_id": "TEXT NOT NULL DEFAULT ''",
                 "config_revision": "INTEGER NOT NULL DEFAULT 0",
                 "last_save_request_id": "TEXT NOT NULL DEFAULT ''",

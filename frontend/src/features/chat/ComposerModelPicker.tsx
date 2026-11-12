@@ -6,7 +6,7 @@ import { ComposerModelParameters, type ComposerModelSettings } from "./ComposerM
 import { MODEL_CATEGORIES, modelCategories, type ModelCategory } from "./model-categories";
 
 type ModelProfileOption = { id: string; model_name: string; connection_name: string; connection_id?: string; capabilities?: Record<string, unknown> | null };
-type ModelOption = { id?: string; model_name: string; categories: ModelCategory[] };
+type ModelOption = { id?: string; model_name: string; categories: ModelCategory[]; savedOnly: boolean };
 
 type Props = {
   configured: boolean;
@@ -15,7 +15,7 @@ type Props = {
   profiles: ModelProfileOption[];
   serviceModels?: ChatWorkspaceProps["serviceModels"];
   additionalServiceModels?: ChatWorkspaceProps["additionalServiceModels"];
-  onDiscover?: (refresh?: boolean) => Promise<void>;
+  onDiscover?: (refresh?: boolean, connectionId?: string) => Promise<void>;
   onServiceChange?: ChatWorkspaceProps["onServiceModelChange"];
   selectedProfileId: string | null;
   profileDisabled: boolean;
@@ -82,15 +82,18 @@ export function ComposerModelPicker(props: Props) {
   }
 
   const label = props.currentModelName || props.defaultModelName || "默认模型";
+  const currentServiceName = currentProfile?.connection_name || (!props.selectedProfileId ? props.serviceModels?.connection_name : undefined);
   const warning = props.profileDisabled ? "已停用" : props.serviceUnavailable ? "服务不可用" : "";
-  const allGroups = services.map(service => ({ service, models: Array.from(new Set(service.models)).map((name): ModelOption => {
+  const allGroups = services.map(service => ({ service, models: Array.from(new Set([...service.models, ...(service.savedOnly ?? [])])).map((name): ModelOption => {
     const matching = props.profiles.filter(profile => profile.connection_id === service.connection_id && profile.model_name === name);
     const profile = matching.find(profile => profile.id === props.selectedProfileId) ?? matching[0];
     const entry = service.entries?.find(value => value.id === name);
     const overridden = ["chat", "image_generation", "video_generation"].some(key => ["supported", "unsupported"].includes(String(profile?.capabilities?.[key])));
-    return { id: profile?.id, model_name: name, categories: entry && !overridden ? entry.output_types : modelCategories(name, service.model_protocol, profile?.capabilities) };
+    // Legacy cache rows may contain only an id; infer a usable category rather
+    // than hiding the model when no output evidence survived the cache read.
+    return { id: profile?.id, model_name: name, savedOnly: !service.models.includes(name), categories: entry?.output_types.length && !overridden ? entry.output_types : modelCategories(name, service.model_protocol, profile?.capabilities) };
   }) }));
-  const groups = allGroups.map(group => ({ ...group, models: group.models.filter(model => model.categories.includes(category)) })).filter(group => group.models.length || group.service.busy || group.service.error);
+  const groups = allGroups.map(group => ({ ...group, models: group.models.filter(model => model.categories.includes(category)) })).filter(group => group.models.length || group.service.busy || group.service.error || group.service.source === "cache" || (!group.service.source && !group.service.models.length && group.service.savedOnly !== undefined));
   const disabled = props.busy || !props.canSelect;
 
   const choose = (profileId: string) => {
@@ -111,13 +114,17 @@ export function ComposerModelPicker(props: Props) {
     if (event.key === "ArrowDown") { event.preventDefault(); items[(index + 1) % items.length]?.focus(); }
     else if (event.key === "ArrowUp") { event.preventDefault(); items[(index - 1 + items.length) % items.length]?.focus(); }
   };
-  const option = (id: string | undefined, name: string, service: ServiceModelCatalog) => {
-    const selected = id !== undefined ? props.selectedProfileId === id : !props.selectedProfileId && props.currentModelName === name && props.serviceModels?.connection_id === service.connection_id;
+  const option = (model: ModelOption, service: ServiceModelCatalog, groupIndex: number, modelIndex: number) => {
+    const { id, model_name: name, savedOnly } = model;
+    const noteId = `${listId}-note-${groupIndex}-${modelIndex}`;
+    const selected = Boolean(id && props.selectedProfileId === id) || (!props.selectedProfileId && props.currentModelName === name && props.serviceModels?.connection_id === service.connection_id);
+    const missingCurrent = selected && savedOnly && Boolean(service.source || service.models.length);
+    const notes = [savedOnly ? "已保存" : "", missingCurrent ? "当前选择服务未返回" : "", category === "video" ? "暂未接入" : ""].filter(Boolean).join(" · ");
     return (
-      <button key={name} type="button" role="option" aria-label={name} aria-selected={selected} disabled={disabled || category === "video"} className={`model-option${selected ? " is-selected" : ""}`} onClick={() => id === undefined ? chooseService(name, service.connection_id) : choose(id)} title={category === "video" ? "视频生成接口暂未接入" : name}>
+      <button key={name} type="button" role="option" aria-label={name} aria-describedby={notes ? noteId : undefined} aria-selected={selected} disabled={disabled || category === "video"} className={`model-option${selected ? " is-selected" : ""}`} onClick={() => id === undefined ? chooseService(name, service.connection_id) : choose(id)} title={category === "video" ? "视频生成接口暂未接入" : name}>
         <span className="model-option-copy">
           <span className="model-option-name">{name}</span>
-          {category === "video" ? <small className="model-option-note">暂未接入</small> : null}
+          {notes ? <small className="model-option-note" id={noteId}>{notes}</small> : null}
         </span>
         {selected ? <Check size={15} className="model-option-check" aria-hidden="true" /> : null}
       </button>
@@ -151,11 +158,13 @@ export function ComposerModelPicker(props: Props) {
                 {props.profileDisabled ? "当前模型已停用，请换一个模型" : "当前模型服务不可用，可以换一个模型或检查设置"}
               </p>
             ) : null}
-            {groups.map(({ service, models }) => <div key={service.connection_id} className="model-menu-group" role="group" aria-label={service.connection_name}>
+            {groups.map(({ service, models }, groupIndex) => <div key={service.connection_id} className="model-menu-group" role="group" aria-label={service.connection_name}>
               {groups.length > 1 ? <p className="model-menu-group-title">{service.connection_name}</p> : null}
-              {service.busy ? <p className="model-menu-status" role="status">{service.models.length ? "正在更新模型列表…" : "正在读取服务模型…"}</p> : null}
-              {service.error ? <p className="model-menu-status model-menu-error" role="alert">{service.models.length ? "更新失败，显示上次读取的模型。" : "读取失败。"} {service.error} <button type="button" disabled={service.busy || disabled} onClick={() => void props.onDiscover?.(true)}>重试</button></p> : null}
-              {models.map(profile => option(profile.id, profile.model_name, service))}
+              {service.source === "cache" ? <p className="model-menu-status" title={service.discoveredAt ? `获取时间：${service.discoveredAt}` : undefined}>上次获取，可能不是最新</p> : null}
+              {!service.source && !service.models.length && service.savedOnly !== undefined ? <p className="model-menu-status">{service.savedOnly.length ? "显示已保存模型，尚未读取服务目录" : "尚未读取服务目录"}</p> : null}
+              {service.busy ? <p className="model-menu-status" role="status">{service.models.length || service.savedOnly?.length ? "正在更新模型列表…" : "正在读取服务模型…"}</p> : null}
+              {service.error ? <p className="model-menu-status model-menu-error" role="alert">{service.models.length ? "更新失败，显示上次读取的模型。" : service.savedOnly?.length ? "读取失败，显示已保存模型。" : "读取失败。"} {service.error} {props.onDiscover ? <button type="button" disabled={service.busy || disabled} onClick={() => void props.onDiscover?.(true, service.connection_id)}>重试</button> : null}</p> : null}
+              {models.map((model, modelIndex) => option(model, service, groupIndex, modelIndex))}
             </div>)}
             {groups.every(({ service, models }) => !models.length && !service.busy && !service.error) ? <p className="model-menu-status">{category === "chat" ? "服务尚未返回可选模型，可刷新列表或前往管理模型" : category === "image" ? "暂无图片模型，可前往管理模型添加生图服务" : "暂无视频模型"}</p> : null}
           </div>
@@ -173,12 +182,12 @@ export function ComposerModelPicker(props: Props) {
       <button
         type="button"
         className={`model-pill${warning ? " model-pill--warning" : ""}${open ? " is-open" : ""}`}
-        aria-label={`切换模型，当前 ${label}${warning ? `（${warning}）` : ""}`}
+        aria-label={`切换模型，当前 ${label}${currentServiceName ? `，服务 ${currentServiceName}` : ""}${warning ? `（${warning}）` : ""}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         disabled={disabled}
-        title={warning ? `当前模型${warning}` : props.canSelect ? `当前模型：${label}` : "开始对话后可切换模型"}
+        title={`当前模型：${label}${currentServiceName ? `；当前服务：${currentServiceName}` : ""}${warning ? `；${warning}` : ""}${!props.canSelect ? "；开始对话后可切换模型" : ""}`}
         onClick={() => { if (!open) setCategory(currentCategory); setOpen((value) => !value); }}
       >
         <span className="model-pill-name">{label}</span>

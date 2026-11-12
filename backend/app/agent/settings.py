@@ -38,6 +38,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "library_memory_enabled": True,
     "conversation_memory_enabled": True,
     "knowledge_memory_enabled": True,
+    "user_memory_enabled": True,
     "summary_enabled": True,
     "context_message_limit": 12,
     "model_name": "",
@@ -47,7 +48,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     "default_kernel": "tuantuan",
 }
 _SAVE_FIELDS = tuple(key for key in DEFAULT_AGENT_SETTINGS if key not in {"id", "model_api_key"})
-_MEMORY_FIELDS = ("library_memory_enabled", "conversation_memory_enabled", "knowledge_memory_enabled", "summary_enabled")
+_MEMORY_FIELDS = ("library_memory_enabled", "conversation_memory_enabled", "knowledge_memory_enabled", "summary_enabled", "user_memory_enabled")
 _locks: dict[str, threading.RLock] = {}
 _locks_guard = threading.Lock()
 _ENVIRONMENT_REF = "environment:OPENAI_API_KEY"

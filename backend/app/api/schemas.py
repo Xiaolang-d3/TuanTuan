@@ -46,6 +46,7 @@ class AgentSettingsIn(BaseModel):
     library_memory_enabled: bool = True
     conversation_memory_enabled: bool = True
     knowledge_memory_enabled: bool = True
+    user_memory_enabled: bool = True
     summary_enabled: bool = True
     context_message_limit: int = Field(default=12, ge=4, le=30)
     model_name: str = Field(default="", max_length=120)
@@ -102,3 +103,58 @@ class LibraryKnowledgeReviewIn(BaseModel):
 
 class LibraryKnowledgeMergeIn(BaseModel):
     target_fact_id: int = Field(ge=1)
+
+
+class MemoryItemIn(BaseModel):
+    kind: Literal["fact", "preference"]
+    summary: str = Field(min_length=1, max_length=500)
+
+
+class MemoryRuleIn(BaseModel):
+    rule: str = Field(min_length=1, max_length=300)
+
+
+class MemoryRuleUpdate(BaseModel):
+    rule: str | None = Field(default=None, min_length=1, max_length=300)
+    enabled: bool | None = None
+
+
+class HomeWorkspaceConversation(BaseModel):
+    id: int
+    title: str
+    last_message_at: str | None = None
+    task_status: str = "active"
+
+
+class HomeWorkspaceJob(BaseModel):
+    id: str
+    kind: str
+    display_title: str
+    status: str
+    created_at: str
+
+
+class HomeWorkspaceBlock(BaseModel):
+    items: list[dict[str, Any]] = []
+    error: str | None = None
+
+
+class HomeWorkspaceJobs(BaseModel):
+    running: list[HomeWorkspaceJob] = []
+    pending_confirmations: list[HomeWorkspaceJob] = []
+
+
+class HomeWorkspaceWeixin(BaseModel):
+    connected: bool = False
+    unread_count: int = 0
+    error: str | None = None
+
+
+class HomeWorkspaceResponse(BaseModel):
+    generated_at: str
+    conversations: HomeWorkspaceBlock
+    jobs: HomeWorkspaceJobs
+    weixin: HomeWorkspaceWeixin
+    changelog: HomeWorkspaceBlock
+    skills: HomeWorkspaceBlock
+    library_recent: HomeWorkspaceBlock
