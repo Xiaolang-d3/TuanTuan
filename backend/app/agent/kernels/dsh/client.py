@@ -180,8 +180,12 @@ class DshJsonRpcClient:
         self._process.stdin.write(data.encode("utf-8"))
         await self._process.stdin.drain()
 
-    async def next_notification(self) -> Notification:
-        item = await self._notifications.get()
+    async def next_notification(self, *, timeout: float | None = None) -> Notification:
+        item: Notification | None
+        try:
+            item = await asyncio.wait_for(self._notifications.get(), timeout)
+        except TimeoutError as exc:
+            raise DshTimeoutError("等待通知超时") from exc
         if item is None:
             raise DshClientError("DeepSeek Harness 运行时已关闭")
         return item

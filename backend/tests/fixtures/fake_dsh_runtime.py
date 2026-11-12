@@ -43,6 +43,18 @@ def main() -> None:
         elif method == "session/query":
             session_id = params["sessionId"]
             send({"jsonrpc": "2.0", "id": request_id, "result": {"kind": "prompt", "messageId": "msg-1"}})
+            if os.environ.get("FAKE_DSH_APPROVE_DURING_TURN") == "1":
+                send({"jsonrpc": "2.0", "method": "approval/request", "params": {
+                    "requestId": "req-turn-1", "sessionId": session_id, "toolName": "ping", "reason": "测试审批",
+                }})
+                for reply_line in sys.stdin:
+                    try:
+                        reply = json.loads(reply_line.strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if reply.get("method") is None and ("result" in reply or "error" in reply):
+                        record(reply)
+                        break
             send({"jsonrpc": "2.0", "method": "session.event", "params": {
                 "sessionId": session_id, "event": {"type": "assistant/message", "data": {
                     "message": {"content": [{"type": "text", "text": "你好，中文回复"}]},

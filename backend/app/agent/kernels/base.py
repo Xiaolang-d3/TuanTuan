@@ -65,6 +65,10 @@ def resolve_kernel_runtime(kernel: str, agent_runtime: Any) -> KernelRuntime:
 
         return BuiltinKernelRuntime(agent_runtime)
     factory = _kernel_factories.get(normalized)
+    if factory is None and normalized == KERNEL_DSH:
+        from .dsh import adapter  # noqa: F401  导入即注册 dsh 内核工厂
+
+        factory = _kernel_factories.get(normalized)
     if factory is None:
         raise KernelUnavailable(f"内核 {normalized} 运行时不可用")
     return factory(agent_runtime)

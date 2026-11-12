@@ -65,6 +65,7 @@ class DshSession:
         self.client = client
         self.home = home
         self.last_active = time.monotonic()
+        self.initialized = False
 
 
 class DshRuntimeManager:
