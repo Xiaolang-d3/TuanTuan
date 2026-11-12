@@ -26,7 +26,10 @@ def conversations_index(q: str | None = None) -> list[dict[str, Any]]:
 
 @router.post("/conversations")
 def conversations_create(payload: ConversationIn) -> dict[str, Any]:
-    return create_conversation(payload.title)
+    try:
+        return create_conversation(payload.title, kernel=payload.kernel)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -42,6 +45,8 @@ def conversations_update(
             status=payload.status,
             model_profile_id=payload.model_profile_id,
             model_profile_selected="model_profile_id" in payload.model_fields_set,
+            kernel=payload.kernel,
+            kernel_selected="kernel" in payload.model_fields_set,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

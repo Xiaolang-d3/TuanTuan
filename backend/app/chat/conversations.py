@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ..agent.snapshots import clear_run_snapshot
 from ..db import connect, row_to_dict, rows_to_dicts
+from ..agent.kernels.base import DEFAULT_KERNEL, is_valid_kernel, normalize_kernel
 
 
 def list_conversations(db_path: str | Path | None = None, *, query: str | None = None) -> list[dict]:
@@ -49,11 +50,14 @@ def get_conversation(conversation_id: int, db_path: str | Path | None = None) ->
     return row_to_dict(row)
 
 
-def create_conversation(title: str = "新对话", db_path: str | Path | None = None) -> dict:
+def create_conversation(title: str = "新对话", db_path: str | Path | None = None, *, kernel: str = DEFAULT_KERNEL) -> dict:
     clean_title = title.strip()[:80] or "新对话"
+    normalized_kernel = normalize_kernel(kernel)
+    if not is_valid_kernel(kernel):
+        raise ValueError("内核类型无效")
     with connect(db_path) as conn:
         cursor = conn.execute(
-            "INSERT INTO conversations (title) VALUES (?)", (clean_title,)
+            "INSERT INTO conversations (title, kernel) VALUES (?, ?)", (clean_title, normalized_kernel)
         )
         conversation_id = cursor.lastrowid
         conn.execute(
@@ -92,6 +96,8 @@ def update_conversation(
     status: str | None = None,
     model_profile_id: str | None = None,
     model_profile_selected: bool = False,
+    kernel: str | None = None,
+    kernel_selected: bool = False,
     db_path: str | Path | None = None,
 ) -> dict | None:
     fields: list[str] = []
@@ -112,10 +118,19 @@ def update_conversation(
                 raise ValueError("模型档案不存在或已停用")
         fields.append("model_profile_id = ?")
         values.append(model_profile_id)
+    if kernel_selected:
+        if not is_valid_kernel(kernel):
+            raise ValueError("内核类型无效")
+        fields.append("kernel = ?")
+        values.append(normalize_kernel(kernel))
     if not fields:
         return get_conversation(conversation_id, db_path)
     fields.append("updated_at = CURRENT_TIMESTAMP")
     with connect(db_path) as conn:
+        if kernel_selected and conn.execute(
+            "SELECT 1 FROM chat_messages WHERE conversation_id = ? LIMIT 1", (conversation_id,)
+        ).fetchone():
+            raise ValueError("对话已有消息，内核不可更改")
         conn.execute(
             f"UPDATE conversations SET {', '.join(fields)} WHERE id = ?",
             (*values, conversation_id),
