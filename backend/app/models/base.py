@@ -15,10 +15,15 @@ class ModelProviderError(RuntimeError):
     :meth:`redact` to also mask the exact key of the failing connection.
     """
 
-    def __init__(self, code: str, message: str, retryable: bool = False) -> None:
+    def __init__(self, code: str, message: str, retryable: bool = False, retry_safe: bool = False) -> None:
         super().__init__(redact_secrets(message))
         self.code = code
         self.retryable = retryable
+        # True only when the provider answered with an error response (no model
+        # compute happened). A bounded automatic retry is then safe and cannot
+        # double-bill; uncertain outcomes (timeouts, mid-request disconnects)
+        # must keep retry_safe=False so the unknown-outcome fence stays.
+        self.retry_safe = retry_safe
 
     def redact(self, *secrets: str | None) -> "ModelProviderError":
         self.args = (redact_secrets(str(self), secrets),)

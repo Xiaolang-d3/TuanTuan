@@ -29,6 +29,18 @@ def model_timeout_seconds() -> int:
     return seconds if 30 <= seconds <= 600 else 300
 
 
+def model_retry_attempts() -> int:
+    # Bounded automatic retries after a definite provider gateway failure such
+    # as an HTTP 502/524. Only error responses the provider already returned
+    # are retried; timeouts and mid-request disconnects keep their unknown
+    # outcome and still wait for an explicit user decision.
+    try:
+        attempts = int(env("TUANTUAN_PPT_MODEL_RETRIES", "2"))
+    except (TypeError, ValueError):
+        return 2
+    return attempts if 0 <= attempts <= 5 else 2
+
+
 def build_bound_provider(selection: dict, *, timeout_seconds: float | None = None):
     from ..agent.bootstrap import get_profile_connection
     from ..models.configured import configure_model_provider
@@ -92,26 +104,43 @@ class PptModelRunner:
             parameters={"max_output_tokens": 16000},
         )
         job_id, attempt = self.job["id"], self.job["owner_token"]
-        request_id = self.ledger.reserve(job_id, attempt, stage, self.context)
-        try:
-            with model_call_scope(selection, run_id=job_id, stage=f"ppt.{stage}"):
-                try:
-                    response = await asyncio.wait_for(provider.generate(request), timeout=timeout + 30)
-                except TimeoutError as exc:
-                    raise ModelProviderError("request_timeout", "PPT 模型调用等待超时，请先核对原请求结果") from exc
-            # Store the actual response durably before clearing the unknown fence.
-            # This file contains model output only, never provider metadata or keys.
-            content = response.content.encode("utf-8")
-            self.repository.check_owner(job_id, attempt, self.context)
-            self.files.write(f"model_responses/{request_id}.json", content)
-            self.ledger.complete(request_id, attempt, hashlib.sha256(content).hexdigest(), response.usage.model_dump() if response.usage else {}, self.context)
-        except BaseException:
-            # If the lease was lost, reserve() already left a durable fence.
+        total_attempts = 1 + model_retry_attempts()
+        for attempt_no in range(1, total_attempts + 1):
+            request_id = self.ledger.reserve(job_id, attempt, stage, self.context)
             try:
-                self.ledger.mark_unknown(request_id, attempt, self.context)
-            except Exception:
-                pass
-            raise
+                with model_call_scope(selection, run_id=job_id, stage=f"ppt.{stage}"):
+                    try:
+                        response = await asyncio.wait_for(provider.generate(request), timeout=timeout + 30)
+                    except TimeoutError as exc:
+                        raise ModelProviderError("request_timeout", "PPT 模型调用等待超时，请先核对原请求结果") from exc
+                # Store the actual response durably before clearing the unknown fence.
+                # This file contains model output only, never provider metadata or keys.
+                content = response.content.encode("utf-8")
+                self.repository.check_owner(job_id, attempt, self.context)
+                self.files.write(f"model_responses/{request_id}.json", content)
+                self.ledger.complete(request_id, attempt, hashlib.sha256(content).hexdigest(), response.usage.model_dump() if response.usage else {}, self.context)
+                break
+            except ModelProviderError as exc:
+                # A definite provider error response resolves the reservation;
+                # everything else keeps the unknown-outcome fence. Settling
+                # failures must never mask the original exception.
+                try:
+                    if exc.retry_safe:
+                        self.ledger.mark_failed(request_id, attempt, self.context)
+                    else:
+                        self.ledger.mark_unknown(request_id, attempt, self.context)
+                except Exception:
+                    pass
+                if not (exc.retry_safe and exc.retryable and attempt_no < total_attempts):
+                    raise
+                await asyncio.sleep(2 * attempt_no)
+            except BaseException:
+                # If the lease was lost, reserve() already left a durable fence.
+                try:
+                    self.ledger.mark_unknown(request_id, attempt, self.context)
+                except Exception:
+                    pass
+                raise
         if response.tool_calls or response.images:
             raise ValueError("PPT 阶段只接受 JSON 数据，不能调用工具或生成图片")
         return self._parse(response.content)

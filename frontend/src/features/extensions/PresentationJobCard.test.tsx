@@ -92,3 +92,18 @@ it("shows uncertain outcome guidance only when explicitly reported on a stopped 
   expect(screen.getByText(/原要求已保留/)).toBeVisible();
   expect(screen.queryByText(/本次请求已等待/)).not.toBeInTheDocument();
 });
+
+it.each([
+  ["design_spec", "编写设计规格"],
+  ["page.p03", "页面编排"],
+  ["speaker_notes", "讲稿编写"],
+  ["stage2", "拟定设计方案"],
+] as const)("names the precise failed stage %s when the backend reports it", (stage, label) => {
+  render(view({ ...running, status: "failed", error_stage: stage }));
+  expect(screen.getByText(`失败阶段：${label}。原要求已保留。`)).toBeVisible();
+});
+
+it("falls back to the coarse phase label without a reported stage", () => {
+  render(view({ ...running, status: "failed", stage: "final_confirmed" }));
+  expect(screen.getByText("失败阶段：页面与讲稿。原要求已保留。")).toBeVisible();
+});

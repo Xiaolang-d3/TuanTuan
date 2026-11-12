@@ -46,7 +46,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         migrations = dict(conn.execute("SELECT version, name FROM schema_migrations"))
         assert migrations[old_version] == ("litellm_model_layer" if version == "29_litellm" else "independent_library")
-        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "conversation_kernel_forks"
+        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "ppt_definite_failure_retry"
         # No existing row is lost (schema_migrations gains one row).
         for table, count in before_counts.items():
             expected = count + 1 if table == "schema_migrations" else count
@@ -77,7 +77,7 @@ def test_fresh_workspace_records_named_current_migration(tmp_path):
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [
-            (DB_SCHEMA_VERSION, "conversation_kernel_forks"),
+            (DB_SCHEMA_VERSION, "ppt_definite_failure_retry"),
         ]
 
 

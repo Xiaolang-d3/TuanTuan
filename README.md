@@ -35,6 +35,65 @@ DSH 内核当前仅支持使用 DeepSeek 官方 `https://api.deepseek.com` 端�
 
 DeepSeek Harness 使用 MIT 许可证（Copyright (c) 2026 DeepSeek），目前处于开发者预览，接口可能发生不兼容变更；版本锁定在 `@deepseek-ai/dsh@0.2.2-rc.1`。
 
+## 项目架构
+
+下图是团团的分层架构：前端只负责交互，FastAPI 在本机完成编排、资料与成果管理；模型、搜索与微信通过外部服务接入。
+
+```mermaid
+flowchart TB
+  subgraph clients["客户端"]
+    Web["Web 前端<br/>React 19 + assistant-ui"]
+    Desktop["桌面端<br/>Tauri 2 + Rust"]
+    WeChat["微信"]
+  end
+
+  subgraph local["本机 · FastAPI 服务"]
+    API["API 层<br/>REST / SSE / 鉴权 / 用户工作区"]
+    Channel["微信渠道"]
+    Kernel["Agent 内核<br/>自研编排 / DSH 可选"]
+    Library["资料库<br/>导入 / 解析 / 检索"]
+    Tools["工具与技能<br/>联网 / PPT / 图像 / 文档"]
+    Jobs["任务与审批<br/>后台作业 / 成果归档"]
+    Gateway["模型网关<br/>LiteLLM + OpenAI SDK"]
+  end
+
+  subgraph data["本地数据"]
+    SQLite[("SQLite + sqlite-vec")]
+    Files[("附件 / 成果 / 导出文件")]
+    MinIO[("MinIO（可选）")]
+  end
+
+  subgraph external["模型、搜索与微信"]
+    Models["模型服务<br/>OpenAI 兼容 / Anthropic / Gemini / Ollama"]
+    Search["搜索与网页"]
+    ILINK["微信 iLink"]
+  end
+
+  Web --> API
+  Desktop --> API
+  WeChat --> ILINK
+  ILINK --> Channel
+  Channel --> API
+  API --> Kernel
+  Kernel --> Library
+  Kernel --> Tools
+  Kernel --> Jobs
+  Kernel --> Gateway
+  Tools --> Gateway
+  Gateway --> Models
+  Tools --> Search
+  API --> SQLite
+  Kernel --> SQLite
+  Library --> SQLite
+  Jobs --> SQLite
+  Library --> Files
+  Tools --> Files
+  Jobs --> Files
+  Files -.-> MinIO
+```
+
+一次任务从客户端进入 API，由内核规划并调用资料库、工具与模型；结果写入任务与成果，附件和导出文件留在本地。
+
 ## 技术栈
 
 - **前端**：React 19、TypeScript、Vite、Vitest、Playwright；聊天界面基于 assistant-ui

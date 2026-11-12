@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    44: "ppt_definite_failure_retry",
     43: "conversation_kernel_forks",
     42: "user_memory",
     41: "versioned_document_exports",
@@ -142,6 +143,11 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             }.items():
                 if name not in event_columns:
                     conn.execute(f"ALTER TABLE model_service_events ADD COLUMN {name} {definition}")
+            # v43: definite provider failures (received HTTP error responses) are
+            # recorded so they never fence a retry like unknown outcomes do.
+            ppt_call_columns = {row[1] for row in conn.execute("PRAGMA table_info(presentation_model_calls)")}
+            if "definite_failure" not in ppt_call_columns:
+                conn.execute("ALTER TABLE presentation_model_calls ADD COLUMN definite_failure INTEGER NOT NULL DEFAULT 0")
             conn.execute("UPDATE attachments SET kind = CASE kind WHEN 'resume' THEN 'document' WHEN 'job_screenshot' THEN 'image' ELSE kind END")
             for row in conn.execute("SELECT id, payload_json FROM chat_messages WHERE payload_json LIKE '%attachments%'").fetchall():
                 payload = json.loads(row["payload_json"] or "{}")

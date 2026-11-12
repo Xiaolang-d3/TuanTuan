@@ -16,10 +16,21 @@ function phase(job: PresentationJob) {
   if (["stage1_confirmed", "stage2_recommended"].includes(job.stage)) return 2;
   return job.stage === "stage1_recommended" ? 1 : 0;
 }
+function failedStageLabel(job: PresentationJob) {
+  const stage = job.error_stage;
+  if (!stage) return steps[Math.min(phase(job), 4)];
+  if (stage === "stage1") return "整理资料";
+  if (stage === "stage2") return "拟定设计方案";
+  if (stage === "design_spec") return "编写设计规格";
+  if (["design_spec_audit", "spec_lock", "spec_lock_audit"].includes(stage)) return "设计合同校验";
+  if (/^page\./.test(stage)) return "页面编排";
+  if (stage === "speaker_notes") return "讲稿编写";
+  return steps[Math.min(phase(job), 4)];
+}
 function description(job: PresentationJob) {
   if (job.cancel_requested) return "正在停止制作，请稍候。";
   if (job.status === "succeeded") return "演示文稿已制作完成，可查看逐页预览或下载可编辑文件。";
-  if (job.status === "failed") return `失败阶段：${steps[Math.min(phase(job), 4)]}。原要求已保留。`;
+  if (job.status === "failed") return `失败阶段：${failedStageLabel(job)}。原要求已保留。`;
   if (job.status === "cancelled") return "任务已停止，原要求已保留，可以编辑后重新制作。";
   if (job.status === "interrupted") return "制作已中断。恢复前会核对原任务状态，不能安全恢复时请编辑后重做。";
   if (job.confirmation_required) return job.stage === "stage1_recommended" ? "请审核内容方向和需求，提交确认后继续拟定设计方案。" : "请审核设计方案与制作参数，提交确认后开始编排页面。";

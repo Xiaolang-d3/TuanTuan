@@ -237,3 +237,116 @@ def test_total_deadline_failure_is_classified_and_cannot_replay(running):
     with pytest.raises(JobConflict, match="结果不明"):
         asyncio.run(runner.generate_stage("design_spec", {}, selection(), instructions="JSON"))
     assert len(calls) == 1
+
+
+def test_definite_gateway_failure_is_retried_within_the_stage(running):
+    from app.presentations.model_runner import PptModelRunner
+    repository, context, job, root, monkeypatch = running
+
+    async def no_sleep(_):
+        return None
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+    calls = []
+    pending = [ModelProviderError("provider_error", "模型服务返回异常状态（524）", retryable=True, retry_safe=True),
+               ModelProviderError("provider_error", "模型服务返回异常状态（502）", retryable=True, retry_safe=True)]
+
+    class Provider:
+        async def generate(self, request):
+            calls.append(request)
+            if pending:
+                raise pending.pop(0)
+            return ModelResponse(content='{"title":"重试成功"}', usage=ModelUsage(total_tokens=30))
+
+    runner = PptModelRunner(repository, job, context, root, provider_factory=lambda bound: Provider())
+    result = asyncio.run(runner.generate_stage("design_spec", {}, selection(), instructions="JSON"))
+    assert result == {"title": "重试成功"}
+    assert len(calls) == 3
+    with db.connect() as conn:
+        rows = [tuple(row) for row in conn.execute("SELECT state,definite_failure FROM presentation_model_calls ORDER BY created_at,rowid")]
+    assert rows == [("unknown", 1), ("unknown", 1), ("completed", 0)]
+    assert repository.get(job["id"], context)["checkpoint"].get("external_outcome") is None
+
+
+def test_definite_but_non_retryable_error_fails_fast_without_unknown_fence(running):
+    from app.presentations.model_runner import PptModelRunner
+    repository, context, job, root, _ = running
+    calls = []
+
+    class Provider:
+        async def generate(self, request):
+            calls.append(request)
+            raise ModelProviderError("provider_error", "模型服务返回异常状态（422）", retryable=False, retry_safe=True)
+
+    runner = PptModelRunner(repository, job, context, root, provider_factory=lambda bound: Provider())
+    with pytest.raises(ModelProviderError) as caught:
+        asyncio.run(runner.generate_stage("outline", {}, selection(), instructions="JSON"))
+    assert caught.value.code == "provider_error" and len(calls) == 1
+    with db.connect() as conn:
+        row = conn.execute("SELECT state,definite_failure FROM presentation_model_calls").fetchone()
+        assert row[0] == "unknown" and row[1] == 1
+    assert repository.get(job["id"], context)["checkpoint"].get("external_outcome") is None
+
+
+def test_exhausted_definite_retries_resolve_without_unknown_fence(running):
+    from app.presentations.model_runner import PptModelRunner
+    repository, context, job, root, monkeypatch = running
+
+    async def no_sleep(_):
+        return None
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+    calls = []
+
+    class Provider:
+        async def generate(self, request):
+            calls.append(request)
+            raise ModelProviderError("provider_error", "模型服务返回异常状态（524）", retryable=True, retry_safe=True)
+
+    runner = PptModelRunner(repository, job, context, root, provider_factory=lambda bound: Provider())
+    with pytest.raises(ModelProviderError) as caught:
+        asyncio.run(runner.generate_stage("design_spec", {}, selection(), instructions="JSON"))
+    assert caught.value.code == "provider_error"
+    assert len(calls) == 3
+    with db.connect() as conn:
+        rows = conn.execute("SELECT state,definite_failure FROM presentation_model_calls").fetchall()
+    assert len(rows) == 3 and all(row[0] == "unknown" and row[1] == 1 for row in rows)
+    checkpoint = repository.get(job["id"], context)["checkpoint"]
+    assert checkpoint.get("external_outcome") is None and checkpoint.get("model_request_id") is None
+
+
+def test_connection_failure_is_definitely_not_auto_retried(running):
+    from app.presentations.model_runner import PptModelRunner
+    repository, context, job, root, _ = running
+    calls = []
+
+    class Provider:
+        async def generate(self, request):
+            calls.append(request)
+            raise ModelProviderError("service_unavailable", "无法连接模型服务，请检查网关地址或网络状态", retryable=True, retry_safe=False)
+
+    runner = PptModelRunner(repository, job, context, root, provider_factory=lambda bound: Provider())
+    with pytest.raises(ModelProviderError) as caught:
+        asyncio.run(runner.generate_stage("outline", {}, selection(), instructions="JSON"))
+    assert caught.value.code == "service_unavailable" and len(calls) == 1
+    with db.connect() as conn:
+        row = conn.execute("SELECT state,definite_failure FROM presentation_model_calls").fetchone()
+        assert row[0] == "unknown" and row[1] == 0
+    assert repository.get(job["id"], context)["checkpoint"]["external_outcome"] == "unknown"
+    with pytest.raises(JobConflict, match="结果不明"):
+        asyncio.run(runner.generate_stage("outline", {}, selection(), instructions="JSON"))
+
+
+def test_retry_budget_knob_disables_automatic_retries(running):
+    import app.presentations.model_runner as module
+    repository, context, job, root, monkeypatch = running
+    monkeypatch.setenv("TUANTUAN_PPT_MODEL_RETRIES", "0")
+    calls = []
+
+    class Provider:
+        async def generate(self, request):
+            calls.append(request)
+            raise ModelProviderError("provider_error", "模型服务返回异常状态（524）", retryable=True, retry_safe=True)
+
+    runner = module.PptModelRunner(repository, job, context, root, provider_factory=lambda bound: Provider())
+    with pytest.raises(ModelProviderError):
+        asyncio.run(runner.generate_stage("design_spec", {}, selection(), instructions="JSON"))
+    assert len(calls) == 1

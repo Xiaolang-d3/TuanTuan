@@ -275,3 +275,32 @@ def test_legacy_failed_design_plan_is_diagnosed_from_its_own_verified_output(sco
     assert "model_responses" not in str(public)
     if not tampered:
         assert "主题" in public["error"] and "ValueError" not in public["error"]
+
+
+def test_failed_job_exposes_precise_model_failure_stage(scope):
+    from app.presentations.service import public_presentation
+    app = service()
+    job = app.create(PresentationRequest(topic="智能体架构设计讲解"), scope, "stage-label")
+    claimed = app.jobs.repository.claim(scope)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO model_service_events(request_kind,status,error_code,error_message,model_name,base_url,protocol,stage,run_id,call_id,backend) "
+            "VALUES('ppt.generate','error','provider_error','模型服务返回异常状态（524）','gpt-6.1-sol','https://www.fastaitoken.com/v1','openai','ppt.retry9.design_spec',?,?, 'litellm')",
+            (job["id"], "e" * 32))
+    app.jobs.repository.checkpoint(job["id"], claimed["owner_token"], {"stage": "final_confirmed", "model_error_code": "provider_error"}, scope)
+    app.jobs.repository.release(job["id"], claimed["owner_token"], "failed", "模型服务返回异常状态（524）", scope)
+    public = public_presentation(app.get(job["id"], scope))
+    assert public["error_code"] == "provider_error"
+    assert public["error_stage"] == "design_spec"
+    assert public["error"].startswith("模型服务发生异常")
+
+
+def test_output_failure_has_no_model_stage_label(scope):
+    from app.presentations.service import public_presentation
+    app = service()
+    job = app.create(PresentationRequest(topic="季度复盘"), scope, "output-failure")
+    claimed = app.jobs.repository.claim(scope)
+    app.jobs.repository.checkpoint(job["id"], claimed["owner_token"], {"stage": "final_confirmed", "presentation_error_code": "presentation_plan_invalid"}, scope)
+    app.jobs.repository.release(job["id"], claimed["owner_token"], "failed", "ValueError：任务执行失败", scope)
+    public = public_presentation(app.get(job["id"], scope))
+    assert public["error_stage"] == ""

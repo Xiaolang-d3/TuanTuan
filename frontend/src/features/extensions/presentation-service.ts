@@ -7,7 +7,7 @@ export const PRESENTATION_SETUP_TIMEOUT_MS = 120_000;
 export type PresentationJob = Pick<BackgroundJob, "id" | "status" | "revision" | "cancel_requested" | "error" | "prompt"> & {
   stage: string; confirmation_required: boolean; generation_available: boolean;
   topic?: string; page_count?: number; conversation_id?: number | null; model_name?: string;
-  error_code?: string; created_at?: string;
+  error_code?: string; error_stage?: string; created_at?: string;
   retryable?: boolean; retry_requires_confirmation?: boolean;
   delivery_artifacts?: Array<Pick<FileArtifact, "id" | "version" | "filename">>;
   progress?: {

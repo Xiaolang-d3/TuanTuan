@@ -37,7 +37,9 @@ def stage_name(stage, state):
 
 def unresolved_calls(conn, job_id):
     acknowledged = set(retry_state(conn, job_id)["acknowledged_requests"])
-    return [row for row in conn.execute("SELECT id,stage,state FROM presentation_model_calls WHERE job_id=? AND state IN ('reserved','unknown')", (job_id,)) if row["id"] not in acknowledged]
+    # Definite failures (the provider answered with an error response) are
+    # resolved: they never fence a retry, unlike reserved or unknown calls.
+    return [row for row in conn.execute("SELECT id,stage,state FROM presentation_model_calls WHERE job_id=? AND state IN ('reserved','unknown') AND definite_failure=0", (job_id,)) if row["id"] not in acknowledged]
 
 
 def public_retry(job):
