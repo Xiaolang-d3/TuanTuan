@@ -8,8 +8,10 @@ from app.chat.conversations import (
     create_conversation,
     end_active_task,
     ensure_active_task,
+    fork_conversation,
     list_conversations,
 )
+from app.chat.service import agent_history
 from app.db import connect, init_db
 
 
@@ -54,6 +56,43 @@ class ConversationTest(unittest.TestCase):
 
         self.assertNotEqual(first_task, next_task)
         self.assertGreaterEqual(len(list_conversations(self.db_path)), 2)
+
+    def test_fork_creates_an_empty_target_with_read_only_context_snapshot(self) -> None:
+        source = create_conversation("产品方案", self.db_path, kernel="tuantuan")
+        task_id = ensure_active_task(source["id"], self.db_path)
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO chat_messages (conversation_id, task_id, role, content) VALUES (?, ?, 'user', ?)",
+                (source["id"], task_id, "先比较两个内核"),
+            )
+            conn.execute(
+                "INSERT INTO chat_messages (conversation_id, task_id, role, content) VALUES (?, ?, 'assistant', ?)",
+                (source["id"], task_id, "已经整理了兼容性差异"),
+            )
+
+        forked = fork_conversation(source["id"], kernel="dsh", db_path=self.db_path)
+
+        self.assertEqual(forked["kernel"], "dsh")
+        self.assertNotEqual(forked["id"], source["id"])
+        with connect(self.db_path) as conn:
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) AS count FROM chat_messages WHERE conversation_id = ?",
+                    (source["id"],),
+                ).fetchone()["count"],
+                2,
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT COUNT(*) AS count FROM chat_messages WHERE conversation_id = ?",
+                    (forked["id"],),
+                ).fetchone()["count"],
+                0,
+            )
+        history = agent_history(forked["id"], 10**9, self.db_path)
+        self.assertEqual(history[0].role, "system")
+        self.assertIn("先比较两个内核", history[0].content)
+        self.assertIn("已经整理了兼容性差异", history[0].content)
 
 
 if __name__ == "__main__":

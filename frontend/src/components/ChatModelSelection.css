@@ -73,7 +73,7 @@
 .kernel-pill:disabled { opacity: 0.6; cursor: default; }
 
 .kernel-pill--locked {
-  cursor: default;
+  cursor: pointer;
   background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
 }
 

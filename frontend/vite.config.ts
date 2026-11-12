@@ -1,4 +1,6 @@
 import { defineConfig } from "vitest/config";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 
 // Defaults keep the dev server on loopback. Set BIND_HOST=0.0.0.0 plus
@@ -18,6 +20,10 @@ const allowedHosts = [
     .map((host) => host.trim())
     .filter(Boolean)
 ];
+const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
+// A Git worktree may link node_modules to the primary checkout. Keep Vite's
+// strict file serving enabled while allowing assets resolved through that link.
+const nodeModulesRoot = realpathSync(fileURLToPath(new URL("./node_modules", import.meta.url)));
 
 export default defineConfig({
   plugins: [react()],
@@ -58,6 +64,9 @@ export default defineConfig({
     host: devHost,
     // Only hosts named in PUBLIC_HOSTS may reach the dev server by name.
     allowedHosts: allowedHosts,
+    fs: {
+      allow: [frontendRoot, nodeModulesRoot]
+    },
     // Keep the backend on the development machine. Phones use the same Vite
     // origin and Vite forwards API traffic locally, avoiding LAN CORS issues.
     proxy: {

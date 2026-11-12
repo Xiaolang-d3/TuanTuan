@@ -106,12 +106,18 @@ def test_deleted_attachment_is_not_reinserted_into_ordinary_history(uploaded):
 def test_attachment_history_respects_conversation_memory_controls(uploaded, monkeypatch, boundary):
     cid, _, _, _, path = uploaded
     if boundary == "disabled":
-        monkeypatch.setattr("app.chat.service.get_agent_settings", lambda: {"conversation_memory_enabled": False})
+        monkeypatch.setattr(
+            "app.chat.service.get_agent_settings",
+            lambda db_path=None: {"conversation_memory_enabled": False},
+        )
     elif boundary == "cutoff":
         with db.connect(path) as conn:
             conn.execute("update conversations set context_cutoff_message_id=9999 where id=?", (cid,))
     else:
-        monkeypatch.setattr("app.chat.service.get_agent_settings", lambda: {"conversation_memory_enabled": True, "context_message_limit": 4, "summary_enabled": False})
+        monkeypatch.setattr(
+            "app.chat.service.get_agent_settings",
+            lambda db_path=None: {"conversation_memory_enabled": True, "context_message_limit": 4, "summary_enabled": False},
+        )
         for i in range(5):
             save_chat_message("user", f"其他问题 {i}", conversation_id=cid)
     current = save_chat_message("user", "继续", conversation_id=cid)

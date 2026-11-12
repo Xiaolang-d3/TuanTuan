@@ -13,3 +13,23 @@ it("PPT conversation creation does not override a newer user selection", async (
   expect(result.current.currentConversationId).toBe(2);
   expect(await pending).toBeUndefined();
 });
+
+it("forks a used conversation into a new kernel without changing the source", async () => {
+  const fetchJson = vi.fn()
+    .mockResolvedValueOnce({ id: 9, title: "方案（分支）", kernel: "dsh" })
+    .mockResolvedValueOnce([{ id: 9, title: "方案（分支）", kernel: "dsh" }]);
+  const { result } = renderHook(() => useConversations({
+    fetchJson, setActiveView: vi.fn(), setErrorMessage: vi.fn(), setNoticeMessage: vi.fn(),
+  }));
+
+  let created;
+  await act(async () => { created = await result.current.forkConversation(3, "dsh"); });
+
+  expect(fetchJson).toHaveBeenNthCalledWith(1, "/conversations/3/fork", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kernel: "dsh" }),
+  });
+  expect(created).toMatchObject({ id: 9, kernel: "dsh" });
+  expect(result.current.currentConversationId).toBe(9);
+});

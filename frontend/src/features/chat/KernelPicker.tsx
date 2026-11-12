@@ -22,14 +22,6 @@ export function KernelPicker(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const current = props.choices.find((choice) => choice.id === props.selected);
-  if (props.locked) {
-    return (
-      <button type="button" className="kernel-pill kernel-pill--locked" title="内核在对话创建后不可更改，可新建对话换内核">
-        <Cpu size={15} aria-hidden="true" />
-        <span>{current?.name ?? "团团内核"}</span>
-      </button>
-    );
-  }
   const choose = (kernel: "tuantuan" | "dsh") => {
     setOpen(false);
     props.onChange(kernel);
@@ -38,12 +30,12 @@ export function KernelPicker(props: Props) {
     <div className="kernel-picker" ref={rootRef}>
       <button
         type="button"
-        className="kernel-pill"
+        className={props.locked ? "kernel-pill kernel-pill--locked" : "kernel-pill"}
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={props.busy}
         onClick={() => setOpen((value) => !value)}
-        title="选择 Agent 内核"
+        title={props.locked ? "当前对话的内核已锁定；选择其他内核会新建对话" : "选择 Agent 内核"}
       >
         <Cpu size={15} aria-hidden="true" />
         <span>{current?.name ?? "团团内核"}</span>
@@ -57,14 +49,15 @@ export function KernelPicker(props: Props) {
                   type="button"
                   role="option"
                   aria-selected={choice.id === props.selected}
-                  disabled={props.busy || !choice.available}
+                  disabled={props.busy || !choice.available || (props.locked && choice.id === props.selected)}
                   className={`kernel-option${choice.id === props.selected ? " is-selected" : ""}`}
-                  title={choice.available ? choice.name : choice.reason}
+                  title={!choice.available ? choice.reason : props.locked && choice.id !== props.selected ? "将新建对话并继承文本上下文" : choice.name}
                   onClick={() => choose(choice.id)}
                 >
                   <span className="kernel-option-copy">
                     <span className="kernel-option-name">{choice.name}</span>
                     {!choice.available ? <small className="kernel-option-note">{choice.reason}</small> : null}
+                    {choice.available && props.locked && choice.id !== props.selected ? <small className="kernel-option-note">将在新对话中继续</small> : null}
                   </span>
                   {choice.id === props.selected ? <Check size={15} className="kernel-option-check" aria-hidden="true" /> : null}
                 </button>

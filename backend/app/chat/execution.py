@@ -10,7 +10,12 @@ from ..agent import get_agent_runtime
 from .conversations import get_conversation
 from .contracts import ChatMessageIn
 from ..workspace import current_user_id
-from .conversations import end_active_task, ensure_active_task, maybe_title_from_first_message
+from .conversations import (
+    end_active_task,
+    ensure_active_task,
+    maybe_title_from_first_message,
+    reset_conversation_kernel_state,
+)
 from ..db import connect, json_dump, row_to_dict
 from ..config import get_settings
 from ..domain import AgentRunResult, ToolError, ToolEvent
@@ -83,6 +88,7 @@ async def cancel_current_agent_task(conversation_id: int | None = None) -> dict[
 
     end_active_task(resolved_id)
     clear_run_snapshot(resolved_id)
+    reset_conversation_kernel_state(resolved_id)
     return {"cancelled": cancelled}
 
 

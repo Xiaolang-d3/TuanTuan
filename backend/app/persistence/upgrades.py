@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    43: "conversation_kernel_forks",
     42: "agent_kernel_selection",
     41: "versioned_document_exports",
     40: "authored_document_versions",

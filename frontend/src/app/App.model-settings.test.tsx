@@ -596,7 +596,9 @@ describe("App model settings", () => {
     expect(screen.queryByRole("option", { name: /legacy-image/ })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "聊天与工作默认模型" }), { target: { value: "p2" } });
     fireEvent.click(screen.getByRole("button", { name: "保存聊天与工作规则" }));
-    await waitFor(() => expect(screen.queryByRole("combobox")).not.toBeInTheDocument());
+    await waitFor(() => expect(
+      screen.queryByRole("combobox", { name: "聊天与工作默认模型" }),
+    ).not.toBeInTheDocument());
     expect(screen.getByText("second-model", { selector: ".model-usage-value" })).toBeInTheDocument();
     expect(api.fetchJson.mock.calls.some(([path, options]) => path === "/agent/settings" && options?.method === "PUT")).toBe(false);
     expect(api.fetchJson.mock.calls.some(([path]) => path.includes("c2/discover"))).toBe(false);

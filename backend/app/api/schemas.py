@@ -26,7 +26,12 @@ class PasswordChangeIn(BaseModel):
 
 class ConversationIn(BaseModel):
     title: str = Field(default="新对话", max_length=80)
-    kernel: Literal["tuantuan", "dsh"] = "tuantuan"
+    kernel: Literal["tuantuan", "dsh"] | None = None
+
+
+class ConversationForkIn(BaseModel):
+    kernel: Literal["tuantuan", "dsh"]
+
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=80)

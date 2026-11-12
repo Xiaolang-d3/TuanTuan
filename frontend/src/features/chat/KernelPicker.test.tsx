@@ -32,11 +32,18 @@ describe("KernelPicker", () => {
     expect(screen.getByText("需要先添加 DeepSeek 模型连接")).toBeInTheDocument();
   });
 
-  it("renders a read-only badge when the conversation is locked", () => {
-    setup({ locked: true, selected: "dsh" });
-    const badge = screen.getByRole("button", { name: /DeepSeek Harness/ });
-    expect(badge).toHaveAttribute("title", "内核在对话创建后不可更改，可新建对话换内核");
+  it("starts a new-conversation flow when a locked conversation chooses another kernel", () => {
+    const availableChoices = choices.map((choice) => choice.id === "dsh" ? { ...choice, available: true, reason: "" } : choice);
+    const { onChange } = setup({ choices: availableChoices, locked: true });
+    const badge = screen.getByRole("button", { name: /团团内核/ });
     fireEvent.click(badge);
-    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(screen.getByText("将在新对话中继续")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: /DeepSeek Harness/ }));
+    expect(onChange).toHaveBeenCalledWith("dsh");
+  });
+
+  it("disables the picker while a kernel change is in progress", () => {
+    setup({ busy: true });
+    expect(screen.getByRole("button", { name: /团团内核/ })).toBeDisabled();
   });
 });

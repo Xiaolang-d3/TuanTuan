@@ -4,6 +4,7 @@ import { useComposerModelDiscovery } from "../features/chat/useComposerModelDisc
 import { useModelDiscovery } from "../features/settings/useModelDiscovery";
 import { useTheme } from "../features/appearance/ThemeProvider";
 import { AppearanceSettingsPage } from "../features/settings/AppearanceSettingsPage";
+import { AgentKernelSettings } from "../features/settings/AgentKernelSettings";
 import { WeixinSettingsPage } from "../features/settings/WeixinSettingsPage";
 import { useWeixinBot } from '../features/chat/useWeixinBot';
 import { useWeixinStatus } from '../features/chat/useWeixinStatus';
@@ -179,7 +180,7 @@ export function App({
   const [visibleMessageCount, setVisibleMessageCount] = useState(12);
   const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
-  const { invalidateConversationReads, conversations, setConversations, currentConversationId, setCurrentConversationId, conversationBusy, setConversationBusy, conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, archiveConversation, renameConversation, removeConversation } = useConversations({ fetchJson, setActiveView, setErrorMessage, setNoticeMessage });
+  const { invalidateConversationReads, conversations, setConversations, currentConversationId, setCurrentConversationId, conversationBusy, setConversationBusy, conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, forkConversation, archiveConversation, renameConversation, removeConversation } = useConversations({ fetchJson, setActiveView, setErrorMessage, setNoticeMessage });
   const { libraryEditor, librarySources, libraryFolders, libraryCollections, createLibraryCollection, renameLibraryCollection, deleteLibraryCollection, updateLibraryCollectionSources, organizeLibrarySource, createLibraryFolder, loadLibraryOriginal, searchLibrarySources, confirmedKnowledge, confirmedKnowledgeCount, sourceCount, pendingKnowledge, libraryLoaded, libraryBusy, sourceImportBusy, enhancedDocumentParse, setLibraryEditor, setEnhancedDocumentParse, refreshLibrary, saveLibraryMetadata, importLibraryFiles, createPastedSource, updateLibrarySource, downloadLibrarySource, deleteLibrarySource } = useLibrary({ fetchJson, apiBase, accessToken, setErrorMessage, setNoticeMessage });
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
@@ -320,7 +321,15 @@ export function App({
   const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
 
   const changeConversationKernel = useCallback(async (kernel: "tuantuan" | "dsh") => {
-    if (!currentConversationId) return;
+    if (!currentConversationId || kernel === currentKernel || conversationBusy) return;
+    if (kernelLocked) {
+      const created = await forkConversation(currentConversationId, kernel);
+      if (created) {
+        navigateRoute({ section: "chat", conversationId: created.id });
+        setNoticeMessage(kernel === "dsh" ? "已新建 DeepSeek Harness 对话，原对话保持不变" : "已新建团团内核对话，原对话保持不变");
+      }
+      return;
+    }
     try {
       await fetchJson(`/conversations/${currentConversationId}`, {
         method: "PATCH",
@@ -332,7 +341,7 @@ export function App({
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "切换内核失败");
     }
-  }, [currentConversationId, fetchJson, refreshConversations, setErrorMessage, setNoticeMessage]);
+  }, [conversationBusy, currentConversationId, currentKernel, fetchJson, forkConversation, kernelLocked, navigateRoute, refreshConversations, setErrorMessage, setNoticeMessage]);
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
   const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections });
   const composerServiceCatalogs = composerDiscovery.catalogs.map(service => ({ ...service, models: service.models.filter(name => !modelCatalog.catalog.profiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name && !profile.enabled) || activeModelProfiles.some(profile => profile.connection_id === service.connection_id && profile.model_name === name)) }));
@@ -823,6 +832,45 @@ export function App({
     }
   }
 
+  async function changeDefaultKernel(kernel: "tuantuan" | "dsh") {
+    if (!modelSettingsReady || agentSettingsBusy || modelSaveUnknown || modelSettingsEditing) return;
+    if (!kernels.catalog?.choices.find((choice) => choice.id === kernel && choice.available)) return;
+    const request = beginModelRequest("save");
+    setAgentSettingsBusy(true);
+    setErrorMessage("");
+    try {
+      const saved = await fetchJson<AgentSettings>("/agent/settings", {
+        method: "PUT",
+        signal: request.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          default_kernel: kernel,
+          expected_revision: savedAgentSettings.config_revision,
+          request_id: crypto.randomUUID()
+        })
+      });
+      if (!request.current()) return;
+      applySavedModelSettings(saved);
+      routeDataCacheRef.current.invalidate("agentSettings");
+      await kernels.refresh();
+      if (request.current()) {
+        setNoticeMessage(kernel === "dsh" ? "新对话默认使用 DeepSeek Harness" : "新对话默认使用团团内核");
+      }
+    } catch (error) {
+      if (!request.current()) return;
+      const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : null;
+      if (status === 409) {
+        setErrorMessage("设置已在其他页面更新，请重新读取后再试。");
+        await refreshAgentSettings().catch(() => undefined);
+      } else {
+        setErrorMessage(error instanceof Error ? error.message : "保存默认内核失败");
+      }
+    } finally {
+      if (request.current()) setAgentSettingsBusy(false);
+      request.finish();
+    }
+  }
+
   async function selectConversationModel(profileId: string | null, serviceModel?: { connectionId: string; modelName: string; revision: number }) {
     const conversationId = currentConversationId;
     if (!conversationId || chatBusy || modelSelectionBusy) return;
@@ -1247,6 +1295,12 @@ export function App({
                 modelSettingsReady ? (
                   <ModelSettingsPage
                     fetchJson={fetchJson}
+                    kernelSettings={<AgentKernelSettings
+                      choices={kernels.catalog?.choices ?? []}
+                      defaultKernel={savedAgentSettings.default_kernel}
+                      busy={!modelSettingsReady || agentSettingsBusy || modelSettingsEditing || Boolean(modelSaveUnknown) || kernels.busy}
+                      onChange={(kernel) => { void changeDefaultKernel(kernel); }}
+                    />}
                     manager={modelCatalog.catalog.purpose_defaults ? advanced => <UnifiedModelManager
                       key={userEmail} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
                       busy={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} error={modelCatalog.error}
@@ -1367,7 +1421,7 @@ export function App({
             kernelChoices={kernels.catalog?.choices ?? []}
             currentKernel={currentKernel}
             kernelLocked={kernelLocked}
-            kernelBusy={kernels.busy}
+            kernelBusy={kernels.busy || conversationBusy}
             onKernelChange={(kernel) => { void changeConversationKernel(kernel); }}
             messages={visibleChatMessages}
             selectedSkillId={selectedSkillId}

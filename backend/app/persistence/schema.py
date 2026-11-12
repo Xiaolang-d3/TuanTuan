@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS conversations (
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+CREATE TABLE IF NOT EXISTS conversation_context_seeds (
+                conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+                source_conversation_id INTEGER NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
 CREATE TABLE IF NOT EXISTS conversation_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 conversation_id INTEGER NOT NULL,

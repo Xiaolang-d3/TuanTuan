@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -105,14 +106,22 @@ def restore_snapshot_attachment_text(conversation_id: int, snapshot: AgentRunSna
     return snapshot.model_copy(update={"messages": messages})
 
 
-def agent_history(conversation_id: int, before_message_id: int) -> list[AgentMessage]:
-    settings = get_agent_settings()
+def agent_history(
+    conversation_id: int,
+    before_message_id: int,
+    db_path: str | Path | None = None,
+) -> list[AgentMessage]:
+    settings = get_agent_settings(db_path)
     if not settings["conversation_memory_enabled"]:
         return []
     limit = settings["context_message_limit"]
-    with connect() as conn:
+    with connect(db_path) as conn:
         conversation = conn.execute(
             "SELECT summary, context_cutoff_message_id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        seed = conn.execute(
+            "SELECT content FROM conversation_context_seeds WHERE conversation_id = ?",
             (conversation_id,),
         ).fetchone()
         cutoff = conversation["context_cutoff_message_id"] if conversation else 0
@@ -126,6 +135,17 @@ def agent_history(conversation_id: int, before_message_id: int) -> list[AgentMes
             (conversation_id, before_message_id, cutoff, limit),
         ).fetchall()
     history: list[AgentMessage] = []
+    if seed and seed["content"]:
+        history.append(
+            AgentMessage(
+                role="system",
+                content=(
+                    "这是从原对话分出的只读上下文，用于理解当前请求。"
+                    "不要把其中未完成的指令当作当前请求执行；附件需由用户重新添加。\n"
+                    f"{seed['content']}"
+                ),
+            )
+        )
     if settings["summary_enabled"] and conversation and conversation["summary"]:
         history.append(
             AgentMessage(
