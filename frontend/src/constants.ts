@@ -9,6 +9,7 @@ export const defaultAgentSettings: AgentSettings = {
   library_memory_enabled: true,
   conversation_memory_enabled: true,
   knowledge_memory_enabled: true,
+  user_memory_enabled: true,
   summary_enabled: true,
   context_message_limit: 12,
   model_name: "",

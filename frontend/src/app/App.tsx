@@ -83,6 +83,8 @@ const loadLibraryPage = () => import("../features/library/LibraryPage");
 
 const loadAccountSettingsPage = () => import("../features/settings/AccountSettingsPage");
 
+const loadMemorySettingsPage = () => import("../features/settings/MemorySettingsPage");
+
 const ChatWorkspace = lazy(() => loadChatWorkspace().then((module) => ({
   default: module.ChatWorkspace
 })));
@@ -113,6 +115,10 @@ const AccountSettingsPage = lazy(() => loadAccountSettingsPage().then((module) =
   default: module.AccountSettingsPage
 })));
 
+const MemorySettingsPage = lazy(() => loadMemorySettingsPage().then((module) => ({
+  default: module.MemorySettingsPage
+})));
+
 const ModelConnectionManager = lazy(() => import("../features/settings/ModelConnectionManager").then((module) => ({ default: module.ModelConnectionManager })));
 const UnifiedModelManager = lazy(() => import("../features/settings/UnifiedModelManager").then((module) => ({ default: module.UnifiedModelManager })));
 const ModelRoutingPanel = lazy(() => import("../features/settings/ModelRoutingPanel").then((module) => ({ default: module.ModelRoutingPanel })));
@@ -127,6 +133,7 @@ const pagePrefetcher = createPagePrefetcher({
   chat: loadChatWorkspace,
   library: () => Promise.all([loadSettingsWorkspace(), loadLibraryPage()]),
   account: () => Promise.all([loadSettingsWorkspace(), loadAccountSettingsPage()]),
+  memory: () => Promise.all([loadSettingsWorkspace(), loadMemorySettingsPage()]),
   dashboard: loadHomePage,
   settings: loadSettingsWorkspace
 });
@@ -972,7 +979,8 @@ export function App({
       account: { title: "账号与安全", description: "管理跟随登录账号的昵称、头像和密码" },
       library: { title: "文件库管理", description: "整理文件、阅读原件，选取资料用于对话" },
       model: { title: "模型设置", description: "填写服务地址、API Key，选择使用的模型" },
-      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" }
+      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" },
+      memory: { title: "记忆与个性化", description: "跨会话记住你的事实与偏好，仅存本地" }
     }[appRoute.page]
     : pageMeta[appRoute.section];
 
@@ -1225,6 +1233,7 @@ export function App({
                   onPasswordChanged={updateSession}
                 />
               ) : null}
+              {appRoute.page === "memory" ? <MemorySettingsPage fetchJson={fetchJson} /> : null}
               {appRoute.page === "library" ? libraryModule : null}
               {appRoute.page === "model" ? (
                 modelSettingsReady ? (

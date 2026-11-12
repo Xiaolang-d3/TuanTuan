@@ -156,6 +156,7 @@ export type AgentSettings = {
   library_memory_enabled: boolean;
   conversation_memory_enabled: boolean;
   knowledge_memory_enabled: boolean;
+  user_memory_enabled: boolean;
   summary_enabled: boolean;
   context_message_limit: number;
   model_name: string;
@@ -174,6 +175,29 @@ export type AgentSettings = {
   last_save_request_id?: string | null;
   secret_storage?: "keyring" | "environment" | "memory" | "encrypted";
   secret_migration_warning?: string;
+};
+
+export type MemorySummary = {
+  id: number;
+  kind: "fact" | "preference";
+  summary: string;
+  source_conversation_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemoryRule = {
+  id: number;
+  rule: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemoryOverview = {
+  enabled: boolean;
+  items: MemorySummary[];
+  rules: MemoryRule[];
 };
 
 type ModelServiceEvent = {
