@@ -98,7 +98,7 @@ flowchart TB
 
 - **前端**：React 19、TypeScript、Vite、Vitest、Playwright；聊天界面基于 assistant-ui
 - **后端**：Python 3.11+、FastAPI、Uvicorn、Pydantic；模型接入统一走 LiteLLM 与 OpenAI SDK
-- **桌面端**：Tauri 2、Rust
+- **桌面端**：Tauri 2、Rust；在 [独立仓库](https://github.com/Xiaolang-d3/TuanTuan-Desktop)维护，使用固定版本的本仓库前后端
 - **数据与存储**：SQLite、sqlite-vec，可选 MinIO
 - **评测**：Promptfoo
 
@@ -113,9 +113,6 @@ TuanTuan/
 │   ├── src/             # 页面、组件与状态
 │   ├── e2e/             # Playwright 端到端测试
 │   └── public/          # 静态资源
-├── desktop/             # Tauri 桌面端
-│   ├── src-tauri/       # Rust 主程序与打包配置
-│   └── scripts/         # sidecar 打包与冒烟脚本
 ├── evals/               # 离线评测
 │   ├── cases/           # 评测用例
 │   └── providers/       # 评测服务适配

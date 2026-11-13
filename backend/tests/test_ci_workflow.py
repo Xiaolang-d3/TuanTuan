@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from fnmatch import fnmatchcase
-import json
 from pathlib import Path
 import os
 import shutil
@@ -104,9 +103,6 @@ def triggers_for(name, path):
     "backend/tests/test_document_blocks.py",
     "backend/tests/test_ci_workflow.py",
     "backend/tests/conftest.py",
-    "desktop/scripts/dev.mjs",
-    "desktop/scripts/dev.test.mjs",
-    "desktop/package-lock.json",
     ".github/workflows/platform-checks.yml",
 ])
 def test_platform_checks_cover_relevant_files(path):
@@ -164,57 +160,9 @@ def test_windows_document_tests_keep_hash_install_and_both_encoding_modes():
     assert report["with"]["path"] == "backend/platform-*.xml"
 
 
-def test_windows_desktop_scripts_run_on_windows_with_node24():
-    steps = workflow("platform-checks")["jobs"]["desktop-windows-scripts"]["steps"]
-    node = next(step for step in steps if step.get("uses", "").startswith("actions/setup-node@"))
-    assert node["with"]["node-version"] == "24"
-    commands = [step for step in steps if "run" in step]
-    assert [(step["working-directory"], step["run"]) for step in commands] == [
-        ("desktop", "npm ci"), ("desktop", "npm test"),
-    ]
-
-
-@pytest.mark.parametrize("path", [
-    "desktop/scripts/package-sidecar.py",
-    "backend/app/desktop_server.py",
-    "desktop/scripts/dev.mjs",
-    "desktop/src-tauri/src/main.rs",
-    "backend/requirements-lock.txt",
-    "backend/requirements-build-lock.txt",
-    "backend/requirements-dev-lock.txt",
-    "backend/scripts/install_deps.sh",
-    "backend/scripts/scan_pth.py",
-    ".github/workflows/desktop-macos.yml",
-])
-def test_mac_package_checks_cover_desktop_and_build_inputs(path):
-    assert triggers_for("desktop-macos", path)
-
-
-@pytest.mark.parametrize("path", [
-    "frontend/src/App.tsx",
-    "frontend/package-lock.json",
-    "backend/app/agent/runtime.py",
-    "backend/app/documents/parser.py",
-    "backend/tests/test_library_sources.py",
-    "README.md",
-])
-def test_mac_package_is_not_built_for_every_web_business_change(path):
-    assert not triggers_for("desktop-macos", path)
-
-
-def test_mac_package_cancels_superseded_runs_and_tests_desktop_scripts():
-    config = workflow("desktop-macos")
-    assert set(config["on"]) == {"workflow_dispatch", "pull_request"}
-    assert config["permissions"] == {"contents": "read"}
-    assert config["concurrency"]["cancel-in-progress"] == "true"
-    assert "${{ github.ref }}" in config["concurrency"]["group"]
-    steps = config["jobs"]["build-macos-arm64"]["steps"]
-    commands = [(step.get("working-directory"), step["run"]) for step in steps if "run" in step]
-    assert ("desktop", "npm test") in commands
-    assert ("desktop", "npm run build") in commands
-    # Tauri builds frontend once through its hook, not once here and once again.
-    assert ("frontend", "npm run build") not in commands
-    tauri = json.loads((ROOT / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
-    assert tauri["build"]["beforeBuildCommand"] == "cd ../frontend && npm run build"
-    assert any("smoke-sidecar.py" in command for _, command in commands)
-    assert any("cargo fmt --check" in command and "cargo test" in command for _, command in commands)
+def test_desktop_builds_are_owned_by_the_separate_repository():
+    config = workflow("platform-checks")
+    assert "desktop-windows-scripts" not in config["jobs"]
+    assert not any(path.startswith("desktop/") for path in config["on"]["pull_request"]["paths"])
+    assert not (ROOT / ".github/workflows/desktop-macos.yml").exists()
+    assert not (ROOT / "desktop").exists()
