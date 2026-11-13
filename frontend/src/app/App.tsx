@@ -853,6 +853,7 @@ export function App({
         signal: request.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...savedAgentSettings,
           default_kernel: kernel,
           expected_revision: savedAgentSettings.config_revision,
           request_id: crypto.randomUUID()

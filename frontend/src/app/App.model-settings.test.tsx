@@ -604,4 +604,28 @@ describe("App model settings", () => {
     expect(api.fetchJson.mock.calls.some(([path]) => path.includes("c2/discover"))).toBe(false);
   });
 
+  it("sends the full saved settings when switching the default kernel", async () => {
+    mockApi(Promise.resolve({ ...savedSettings, credential_status: "saved_unverified" }));
+    replaceApi((path) => path === "/agent/kernels"
+      ? Promise.resolve({
+          choices: [
+            { id: "tuantuan", name: "团团内核", available: true, reason: "" },
+            { id: "dsh", name: "DeepSeek Harness", available: true, reason: "" }
+          ],
+          default_kernel: "tuantuan"
+        })
+      : undefined);
+    renderApp();
+    fireEvent.change(await screen.findByLabelText("新对话默认内核"), { target: { value: "dsh" } });
+
+    await waitFor(() => expect(
+      api.fetchJson.mock.calls.some(([path, options]) => path === "/agent/settings" && options?.method === "PUT")
+    ).toBe(true));
+    const saveBody = JSON.parse(String(
+      api.fetchJson.mock.calls.find(([path, options]) => path === "/agent/settings" && options?.method === "PUT")?.[1]?.body
+    ));
+    expect(saveBody.default_kernel).toBe("dsh");
+    expect(saveBody.persona_role).toBe(savedSettings.persona_role);
+  });
+
 });
