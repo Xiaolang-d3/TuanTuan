@@ -2,7 +2,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSubscriber } from "@ag-ui/client";
 import type { createApiClient } from "../../api/client";
-import type { ChatMessage } from "./types";
+import type { AgentRunResult, ChatMessage } from "./types";
 import { useChatRun } from "./useChatRun";
 
 const client = vi.hoisted(() => ({ runAgent: vi.fn(), abortRun: vi.fn() }));
@@ -402,4 +402,36 @@ it("uses server-resolved automatic search options when a new turn needs retry", 
   });
   await act(() => result.current.sendChatMessage("查一下最新消息"));
   expect(result.current.retryChatDraft).toMatchObject({ webSearch: true, webSearchTopic: "auto", webSearchSourcePreference: "none", webSearchProvider: "tavily" });
+});
+
+it("preserves current and legacy plan risks in streamed events and the final snapshot", async () => {
+  const risks = [
+    "read_only", "derived_analysis", "local_pending_write", "confirmed_local_write",
+    "external_read", "analysis", "local_write", "user_input"
+  ] as const;
+  const plan: NonNullable<AgentRunResult["plan"]> = {
+    goal: "test", route: "test", requires_confirmation: false,
+    steps: risks.map((risk, index) => ({
+      id: `step-${index}`, title: "step", tool_name: "tool", risk, status: "pending"
+    }))
+  };
+  const event = {
+    round: 1, tool_call_id: "plan", tool_name: "agent_planner", status: "done",
+    message: "planned", data: { plan }
+  };
+  const finalMessage: ChatMessage = { ...assistantMessage, payload: { agent: {
+    provider: "test", platform: "local", rounds: 1, status: "done", events: [event], plan
+  } } };
+  const { result, finish } = setup();
+  let pending!: Promise<void | false>;
+  act(() => { pending = result.current.sendChatMessage(userMessage.content); });
+  await waitFor(() => expect(client.runAgent).toHaveBeenCalledOnce());
+  act(() => emit("onCustomEvent", { event: { name: "tuantuan.agent_event", value: event } }));
+  expect(result.current.chatMessages[1].payload?.agent?.events[0].data?.plan).toEqual(plan);
+
+  act(() => emit("onStateSnapshotEvent", { event: { snapshot: { tuantuan: {
+    status: "done", userMessage, assistantMessage: finalMessage
+  } } } }));
+  expect(result.current.chatMessages[1].payload?.agent?.plan?.steps.map((step) => step.risk)).toEqual(risks);
+  await act(async () => { finish(); await pending; });
 });
