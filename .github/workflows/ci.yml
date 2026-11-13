@@ -138,12 +138,13 @@ jobs:
               print(f"::error file={where}::{name} - {detail}")
           PY
       - name: Upload backend test report
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: backend-pytest-report
           path: backend/pytest-report.xml
           if-no-files-found: ignore
+          retention-days: 7
 
   frontend-unit:
     needs: validate-ref
@@ -170,10 +171,12 @@ jobs:
         working-directory: frontend
         run: npm run build
       - name: Upload frontend dist
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: frontend/dist
+          retention-days: 14
 
   frontend-e2e:
     name: frontend-e2e
