@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type { AgentCapabilities, Conversation, ModelCatalogEntry, ModelProtocol } from "../../types";
 import type { ResultServices } from "./result-types";
 import type { ComposerModelSettings } from "./ComposerModelParameters";
+import type { AgentPlanRisk } from "./agent-plan-risk.generated";
 
 export type WebSearchTopic = "auto" | "general" | "news" | "finance";
 export type WebSearchSourcePreference = "none" | "technical";
@@ -66,7 +67,7 @@ export type AgentRunResult = {
       id: string;
       title: string;
       tool_name: string;
-      risk: "read_only" | "analysis" | "local_write" | "user_input";
+      risk: AgentPlanRisk;
       status: "pending" | "running" | "done" | "failed" | "blocked";
     }>;
   } | null;
