@@ -10,7 +10,8 @@ from app.agent.kernels.base import (
     KernelUnavailable,
     dsh_feature_enabled,
     has_deepseek_connection,
-    is_deepseek_official_endpoint,
+    is_deepseek_model_name,
+    is_dsh_safe_endpoint,
     is_kernel_available,
     is_valid_kernel,
     normalize_kernel,
@@ -112,12 +113,51 @@ class KernelSelectionTest(unittest.TestCase):
         self.assertFalse(dsh_feature_enabled())
         self.assertFalse(is_kernel_available("dsh", self.db_path))
 
-    def test_only_the_official_deepseek_api_host_is_accepted(self) -> None:
-        self.assertTrue(is_deepseek_official_endpoint("https://api.deepseek.com"))
-        self.assertTrue(is_deepseek_official_endpoint("https://api.deepseek.com/v1"))
-        self.assertFalse(is_deepseek_official_endpoint("http://api.deepseek.com"))
-        self.assertFalse(is_deepseek_official_endpoint("https://api.deepseek.com.attacker.test"))
-        self.assertFalse(is_deepseek_official_endpoint("https://api.deepseek.com@attacker.test"))
+    def test_dsh_endpoint_policy_accepts_configured_https_and_rejects_deception(self) -> None:
+        self.assertTrue(is_dsh_safe_endpoint("https://api.deepseek.com"))
+        self.assertTrue(is_dsh_safe_endpoint("https://api.deepseek.com/v1"))
+        self.assertTrue(is_dsh_safe_endpoint("https://www.fastaitoken.com/v1"))
+        self.assertFalse(is_dsh_safe_endpoint("http://api.deepseek.com"))
+        self.assertFalse(is_dsh_safe_endpoint("http://www.fastaitoken.com/v1"))
+        self.assertFalse(is_dsh_safe_endpoint("https://api.deepseek.com.attacker.test"))
+        self.assertFalse(is_dsh_safe_endpoint("https://api.deepseek.com@attacker.test"))
+        self.assertTrue(is_deepseek_model_name("deepseek-v4-flash"))
+        self.assertTrue(is_deepseek_model_name("DeepSeek-Chat"))
+        self.assertFalse(is_deepseek_model_name("gpt-6.1-sol"))
+
+    def test_dsh_availability_needs_a_deepseek_model_profile(self) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO model_connections (id, name, base_url, effective_base_url, protocol, data_boundary)
+                VALUES ('official-1', 'Official', 'https://api.deepseek.com', 'https://api.deepseek.com', 'auto', 'official-1')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO model_profiles (id, connection_id, model_name, name)
+                VALUES ('gpt-profile', 'official-1', 'gpt-6.1-sol', 'GPT')
+                """
+            )
+        self.assertFalse(has_deepseek_connection(self.db_path))
+        self.assertFalse(is_kernel_available("dsh", self.db_path))
+
+    def test_proxy_endpoint_with_deepseek_profile_enables_dsh(self) -> None:
+        with connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO model_connections (id, name, base_url, effective_base_url, protocol, data_boundary)
+                VALUES ('proxy-1', 'Proxy', 'https://www.fastaitoken.com/v1', 'https://www.fastaitoken.com/v1', 'auto', 'proxy-1')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO model_profiles (id, connection_id, model_name, name)
+                VALUES ('proxy-profile', 'proxy-1', 'deepseek-v4-flash', 'DeepSeek Flash')
+                """
+            )
+        self.assertTrue(has_deepseek_connection(self.db_path))
+        self.assertTrue(is_kernel_available("dsh", self.db_path))
 
     def test_switching_or_forking_to_dsh_binds_a_deepseek_profile(self) -> None:
         with connect(self.db_path) as conn:

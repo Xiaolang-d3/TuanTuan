@@ -34,7 +34,7 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
     "/attachments/config": { storage: "local", vision_enabled: false, checks: [] },
     "/conversations": [conversation(1), conversation(2)], "/chat/messages": [], "/agent/runs/current": { run: null },
     "/document-reviews": { jobs: [] },
-    "/extensions": { extensions: [{ id: "ppt-master", kind: "skill", name: "PPT Master", enabled: true, user_invocable: false, permissions: [], source: "builtin" }], connections: [], execution: { available: true, reason: "AI PPT 制作已就绪" } },
+    "/extensions": { extensions: [{ id: "ppt-master", kind: "skill", name: "PPT Master", enabled: true, user_invocable: true, permissions: [], source: "builtin" }], connections: [], execution: { available: true, reason: "AI PPT 制作已就绪" } },
     "/presentations/capabilities": { available: true, reason: "AI PPT 制作已就绪", model_name: "会话文本模型", limits: { min_pages: 1, max_pages: 20, language: "zh-CN", canvas: "ppt169" } }
   };
   const errors: string[] = [];
@@ -78,7 +78,8 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/#/chat/1", { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "制作 PPT", exact: true }).click();
+  await page.getByRole("button", { name: "技能", exact: true }).click();
+  await page.getByRole("button", { name: "PPT Master", exact: true }).click();
   const form = page.getByRole("form", { name: "PPT 制作要求" });
   await form.getByRole("button", { name: "知识分享", exact: true }).click();
   await expect(form.getByLabel("演示主题与要求")).toHaveValue(/【请填写分享主题】/);

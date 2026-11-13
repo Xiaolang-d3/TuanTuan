@@ -48,7 +48,6 @@ for (const theme of ["light", "dark"] as const) {
       await expect(option).toHaveText("周报助手");
       await expect(option).toHaveAttribute("title", skill.description);
       await expect(picker.getByRole("heading")).toHaveCount(0);
-      await expect(picker.getByRole("button", { name: "PPT Master 制作 PPT", exact: true })).toBeVisible();
       await expect(picker).toBeInViewport();
       expect(await picker.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
       const box = (await picker.boundingBox())!;

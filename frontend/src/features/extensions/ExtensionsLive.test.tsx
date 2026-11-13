@@ -73,7 +73,6 @@ it("persists imported skills through the API and selects an enabled skill for ch
   expect(screen.getByRole("switch", { name: "停用 周报助手" })).toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "技能" }));
   expect(screen.queryByRole("button", { name: "仅模型调用" })).not.toBeInTheDocument();
-  expect(within(screen.getByRole("region", { name: "可用技能" })).getByRole("button", { name: /PPT Master.*制作 PPT/ })).toHaveAttribute("title", "缺少隔离环境");
   fireEvent.click(await screen.findByRole("button", { name: "周报助手" }));
   expect(select).toHaveBeenCalledWith("server-skill");
 });

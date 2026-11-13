@@ -7,14 +7,14 @@ import { ExtensionPreviewProvider } from "./ExtensionPreviewContext";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("extensions UI", () => {
-  it("shares enablement with the chat entry and resets it for a different session", () => {
-    const view = render(<ExtensionPreviewProvider key="one"><ExtensionsPage /><SkillPicker /></ExtensionPreviewProvider>);
-    fireEvent.click(screen.getByRole("switch", { name: "停用 PPT Master" }));
-    fireEvent.click(screen.getByRole("button", { name: "技能" }));
-    expect(screen.getByRole("button", { name: /PPT Master.*仅预览/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /PPT Master.*仅预览/ })).toHaveAttribute("title", "请先在扩展中心启用");
-    view.rerender(<ExtensionPreviewProvider key="two"><ExtensionsPage /><SkillPicker /></ExtensionPreviewProvider>);
+  it("toggles the built-in PPT skill preview without opening a separate workbench", () => {
+    render(<ExtensionPreviewProvider key="one"><ExtensionsPage /></ExtensionPreviewProvider>);
     expect(screen.getByRole("switch", { name: "停用 PPT Master" })).toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: "停用 PPT Master" }));
+    expect(screen.getByRole("switch", { name: "启用 PPT Master" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("switch", { name: "启用 PPT Master" }));
+    expect(screen.getByRole("switch", { name: "停用 PPT Master" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: "体验流程" })).not.toBeInTheDocument();
   });
 
   it("supports keyboard tabs and a searchable empty state", () => {
@@ -86,21 +86,6 @@ describe("extensions UI", () => {
     expect(screen.queryByText("资料服务")).not.toBeInTheDocument();
   });
 
-  it("opens the PPT workflow from chat, requires confirmation and restores focus", async () => {
-    render(<SkillPicker />);
-    const trigger = screen.getByRole("button", { name: "技能" });
-    fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("button", { name: /PPT Master/ }));
-    expect(screen.getByRole("dialog", { name: "PPT 制作预览" })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("演示主题"), { target: { value: "季度复盘" } });
-    fireEvent.click(screen.getByRole("button", { name: "预览大纲" }));
-    expect(screen.getByRole("button", { name: "确认大纲，开始预览" })).toBeInTheDocument();
-    expect(screen.queryByText("预览完成")).not.toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
-  });
-
   it("presents only skill icons and names without a separate normal conversation option", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       extensions: [{ id: "weekly", kind: "skill", name: "周报助手", description: "归纳每周工作并整理行动项", source: "user", enabled: true, permissions: [], user_invocable: true }],
@@ -120,7 +105,6 @@ describe("extensions UI", () => {
     expect(skill).toHaveAttribute("title", "归纳每周工作并整理行动项");
     expect(within(picker).queryByText("归纳每周工作并整理行动项")).not.toBeInTheDocument();
     expect(within(picker).queryByText("已连接")).not.toBeInTheDocument();
-    expect(within(picker).getByRole("button", { name: /PPT Master.*制作 PPT/ })).toHaveAttribute("title", "执行环境未配置");
     expect(within(picker).getByRole("link", { name: "管理技能" })).toHaveAttribute("href", "#/settings/extensions");
   });
 

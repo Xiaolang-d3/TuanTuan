@@ -75,10 +75,13 @@ def _build_tool_registry(settings: Any) -> ToolRegistry:
         from ..extensions.contracts import ExtensionContext
         from ..extensions.skills import SkillService
         from ..tools.load_skill import LoadSkillTool
+        from ..tools.presentation import CreatePresentationTool, GetPresentationTool
         context = ExtensionContext.current()
         catalog = SkillService().list(context, enabled_only=True)
         if any(item.get("model_invocable", True) for item in catalog):
             tools.register_handler(LoadSkillTool(catalog, context), scope=context.user_id)
+        tools.register_handler(CreatePresentationTool(), scope=context.user_id)
+        tools.register_handler(GetPresentationTool(), scope=context.user_id)
     return tools
 
 

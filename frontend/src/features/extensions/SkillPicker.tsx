@@ -1,21 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, BookOpen, FileSliders } from "lucide-react";
+import { ArrowUpRight, BookOpen } from "lucide-react";
 import { useExtensionPreview } from "./ExtensionPreviewContext";
-import { PresentationWorkbench } from "./PresentationWorkbench";
 import "./extensions.css";
 
-export function SkillPicker({ selectedSkillId, onSelectSkill, onPresentation }: { selectedSkillId?: string | null; onSelectSkill?: (id: string | null) => void; onPresentation?: () => void }) {
+export function SkillPicker({ selectedSkillId, onSelectSkill }: { selectedSkillId?: string | null; onSelectSkill?: (id: string | null) => void }) {
   const preview = useExtensionPreview();
   const [open, setOpen] = useState(false);
-  const [pptOpen, setPptOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const available = preview.items.find((item) => item.id === "ppt-master")?.enabled;
   const selected = preview.items.find((item) => item.id === selectedSkillId);
   const skills = preview.isPreview ? [] : preview.items.filter((item) => item.kind === "skill" && item.enabled && item.user_invocable !== false);
-  const pptReason = preview.isPreview
-    ? available ? "体验需求与大纲流程，不会生成文件" : "请先在扩展中心启用"
-    : preview.executionReason || "执行环境尚未接入；当前仅可预览流程";
 
   useEffect(() => {
     if (!open) return;
@@ -41,13 +35,7 @@ export function SkillPicker({ selectedSkillId, onSelectSkill, onPresentation }: 
         </button></li>)}
       </ul>
       {!preview.isPreview && !skills.length && !preview.loading && !preview.error ? <p className="extension-skill-empty">暂无启用的技能</p> : null}
-      <div className="extension-skill-tools">
-        <button className="extension-skill-option" type="button" title={pptReason} disabled={preview.isPreview && !available} onClick={() => { trigger.current?.focus(); setOpen(false); if (onPresentation) onPresentation(); else setPptOpen(true); }}>
-          <span className="extension-skill-option-icon" aria-hidden="true"><FileSliders size={16} /></span><span className="extension-skill-option-name">PPT Master</span><span className="extension-skill-preview-tag">{preview.isPreview ? "仅预览" : "制作 PPT"}</span>
-        </button>
-      </div>
       <a className="extension-skill-manage" href="#/settings/extensions" onClick={() => setOpen(false)}>管理技能<ArrowUpRight size={14} aria-hidden="true" /></a>
     </div> : null}
-    {pptOpen ? <PresentationWorkbench onClose={() => setPptOpen(false)} /> : null}
   </div>;
 }

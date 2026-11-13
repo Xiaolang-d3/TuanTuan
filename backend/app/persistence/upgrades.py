@@ -76,6 +76,9 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                 _backup(path, f"before-schema-v{DB_SCHEMA_VERSION}-catalog-repair")
                 with connect(path) as conn:
                     conn.executescript(MODEL_CATALOG_SCHEMA)
+            from ..extensions.seed import seed_builtin_extensions
+            if "extension_catalog" in tables:
+                seed_builtin_extensions(path)
             return
         if version > DB_SCHEMA_VERSION:
             raise ValueError("数据库来自更新版本，请升级应用后打开")
@@ -184,3 +187,5 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                 "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)",
                 (DB_SCHEMA_VERSION, migration_name(DB_SCHEMA_VERSION)),
             )
+        from ..extensions.seed import seed_builtin_extensions
+        seed_builtin_extensions(path)

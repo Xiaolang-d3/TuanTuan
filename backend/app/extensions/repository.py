@@ -28,7 +28,8 @@ class ExtensionRepository:
     def list(self, context: ExtensionContext) -> list[dict]:
         context.check_workspace()
         with connect() as conn:
-            return [_decode(row) for row in conn.execute("SELECT * FROM extension_catalog WHERE deleted=0 ORDER BY created_at, id")]
+            rows = conn.execute("SELECT * FROM extension_catalog WHERE deleted=0 ORDER BY json_extract(metadata_json, '$.source') = 'builtin', created_at, id")
+            return [_decode(row) for row in rows]
 
     def get(self, item_id: str, context: ExtensionContext, *, revision: str | None = None, include_deleted: bool = False) -> dict:
         context.check_workspace()
@@ -51,6 +52,28 @@ class ExtensionRepository:
             conn.execute("INSERT INTO extension_catalog(id,kind,revision,metadata_json,content,status) VALUES(?,?,?,?,?,?)", (item_id, kind, revision, json.dumps(metadata, ensure_ascii=False), content, status))
             conn.executemany("INSERT INTO extension_files(extension_id,path,content) VALUES(?,?,?)", [(item_id, path, data) for path, data in files.items()])
         return self.get(item_id, context)
+
+    def seed_builtin(self, kind: str, item_id: str, metadata: dict, content: str, *, db_path=None) -> None:
+        """Create or refresh a packaged extension without taking ownership.
+
+        enabled/deleted stay untouched after the first install so a user's
+        choice survives application upgrades.
+        """
+        digest = hashlib.sha256(content.encode())
+        revision = digest.hexdigest()
+        payload = json.dumps({"source": "builtin", **metadata}, ensure_ascii=False)
+        with connect(db_path) as conn:
+            row = conn.execute("SELECT revision, deleted FROM extension_catalog WHERE id=?", (item_id,)).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO extension_catalog(id,kind,revision,metadata_json,content,enabled,status) VALUES(?,?,?,?,?,1,'installed')",
+                    (item_id, kind, revision, payload, content),
+                )
+            elif not row["deleted"] and row["revision"] != revision:
+                conn.execute(
+                    "UPDATE extension_catalog SET revision=?, metadata_json=?, content=?, status='installed' WHERE id=?",
+                    (revision, payload, content, item_id),
+                )
 
     def set_enabled(self, item_id: str, enabled: bool, context: ExtensionContext) -> dict:
         item = self.get(item_id, context)

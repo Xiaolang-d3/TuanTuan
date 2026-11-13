@@ -6,7 +6,7 @@ export type ExtensionSummary = {
   name: string;
   description: string;
   version?: string;
-  source: "example" | "import" | "user" | "github";
+  source: "example" | "import" | "user" | "github" | "builtin";
   origin?: { repository: string; commit: string; path: string; skill_id: string };
   enabled: boolean;
   permissions: string[];
