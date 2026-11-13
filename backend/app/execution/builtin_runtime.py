@@ -16,6 +16,10 @@ from ..extensions.manifest import safe_resource_path
 from .workspace_files import reject_links
 
 UPSTREAM_COMMIT = "492a52b2b845927b0924b6eaaa495fc0dfc8f646"
+RUNTIME_MISSING_MESSAGE = (
+    "PPT 本机运行包尚未准备好。旧版升级请将 tmp/ppt-runtime 完整复制到应用数据目录的 "
+    "ppt-runtime，或设置 TUANTUAN_PPT_RUNTIME；新安装请先构建运行包。"
+)
 _HASH = re.compile(r"[a-f0-9]{64}\Z")
 
 
@@ -26,7 +30,10 @@ def platform_tag() -> str:
 
 def runtime_root() -> Path:
     configured = env("TUANTUAN_PPT_RUNTIME", "")
-    return Path(configured).absolute() if configured else Path(__file__).resolve().parents[3] / "tmp/ppt-runtime"
+    if configured:
+        return Path(configured).absolute()
+    data_dir = env("TUANTUAN_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data"))
+    return Path(data_dir).expanduser().absolute() / "ppt-runtime"
 
 
 @dataclass(frozen=True)
@@ -232,7 +239,7 @@ def probe_ppt_runtime(root: Path | None = None) -> BuiltinRuntimeStatus:
             return BuiltinRuntimeStatus(False, "python_missing", "PPT 专用运行环境缺少 Python，请重新准备运行包")
         runtime.verify()
     except FileNotFoundError:
-        return BuiltinRuntimeStatus(False, "runtime_missing", "PPT 本机运行包尚未准备好")
+        return BuiltinRuntimeStatus(False, "runtime_missing", RUNTIME_MISSING_MESSAGE)
     except (ValueError, OSError, KeyError, TypeError):
         return BuiltinRuntimeStatus(False, "integrity_failed", "PPT 运行包不完整或与当前系统不兼容，请重新准备")
     # Integrity is only one gate: the adapter/real workflow has not been accepted.
