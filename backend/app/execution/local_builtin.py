@@ -10,7 +10,7 @@ from pathlib import Path
 from ..branding import env
 from ..extensions.contracts import ExtensionContext
 from ..workspace import current_workspace_root
-from .builtin_runtime import BuiltinRuntime
+from .builtin_runtime import BuiltinRuntime, RUNTIME_MISSING_MESSAGE
 from .contracts import BackendStatus, ExecutionUnavailable, ProcessResult
 from .local_processes import ProcessTree, process_identity
 from .process_launcher import create_subprocess_exec
@@ -167,7 +167,7 @@ class LocalBuiltinBackend:
             runtime.verify()
             return BackendStatus(True, "resources_ready", "PPT 本机资源已校验，适配器尚未完成完整工作流验收", runtime.digest)
         except FileNotFoundError:
-            return BackendStatus(False, "runtime_missing", "PPT 专用运行包尚未准备好")
+            return BackendStatus(False, "runtime_missing", RUNTIME_MISSING_MESSAGE)
         except (ValueError, OSError, KeyError, TypeError) as exc:
             return BackendStatus(False, "runtime_invalid", str(exc))
 

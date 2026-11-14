@@ -131,6 +131,12 @@ TuanTuan/
 
 本地启动前后端；配置示例见 `backend/.env.example`，停止服务使用 `./scripts/stop-dev.sh`。
 
+### PPT 运行包
+
+Windows 本地 PPT 使用独立运行包，默认位置为 `backend/data/ppt-runtime`；如果设置了 `TUANTUAN_DATA_DIR`，则使用该数据目录下的 `ppt-runtime`。也可以通过 `TUANTUAN_PPT_RUNTIME` 指定其他位置。新安装需要用 `backend/scripts/build_ppt_runtime.py` 准备运行包。
+
+从旧版升级时，将原 `tmp/ppt-runtime` 完整复制到新的默认位置；如果曾显式配置 `TUANTUAN_PPT_RUNTIME`，还需将其更新为新位置。重启后端并确认 PPT 可用后，再清理旧目录。
+
 ## 参与贡献
 
 - [贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) · [安全政策](SECURITY.md)

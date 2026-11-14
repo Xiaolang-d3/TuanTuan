@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -36,6 +37,55 @@ def bundle(tmp_path):
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return root, manifest
+
+
+def test_runtime_defaults_to_backend_persistent_data(monkeypatch):
+    for name in ("TUANTUAN_PPT_RUNTIME", "CAREERLOOP_PPT_RUNTIME", "DENGDENG_PPT_RUNTIME",
+                 "TUANTUAN_DATA_DIR", "CAREERLOOP_DATA_DIR", "DENGDENG_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    assert runtime.runtime_root() == Path(__file__).resolve().parents[1] / "data/ppt-runtime"
+
+
+def test_runtime_loads_bundle_from_configured_data_dir(tmp_path, monkeypatch):
+    root, _ = bundle(tmp_path)
+    data_dir = tmp_path / "app-data"
+    data_dir.mkdir()
+    root.rename(data_dir / "ppt-runtime")
+    monkeypatch.setenv("TUANTUAN_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("TUANTUAN_PPT_RUNTIME", raising=False)
+    assert runtime.probe_ppt_runtime().available
+
+
+def test_explicit_runtime_path_overrides_data_dir(tmp_path, monkeypatch):
+    root, _ = bundle(tmp_path)
+    monkeypatch.setenv("TUANTUAN_DATA_DIR", str(tmp_path / "app-data"))
+    monkeypatch.setenv("TUANTUAN_PPT_RUNTIME", str(root))
+    assert runtime.probe_ppt_runtime().available
+
+
+def test_old_default_runtime_can_be_migrated_to_persistent_data(tmp_path, monkeypatch):
+    from app.presentations.service import PresentationService, PresentationUnavailable
+
+    root, _ = bundle(tmp_path)
+    project = tmp_path / "project"
+    legacy = project / "tmp/ppt-runtime"
+    legacy.parent.mkdir(parents=True)
+    root.rename(legacy)
+    monkeypatch.setattr(runtime, "__file__", str(project / "backend/app/execution/builtin_runtime.py"))
+    for name in ("TUANTUAN_PPT_RUNTIME", "CAREERLOOP_PPT_RUNTIME", "DENGDENG_PPT_RUNTIME",
+                 "TUANTUAN_DATA_DIR", "CAREERLOOP_DATA_DIR", "DENGDENG_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+
+    status = runtime.probe_ppt_runtime()
+    assert status.code == "runtime_missing"
+    assert "tmp/ppt-runtime" in status.reason
+    with pytest.raises(PresentationUnavailable, match="tmp/ppt-runtime"):
+        PresentationService(jobs=None)._runtime()
+
+    persistent = project / "backend/data/ppt-runtime"
+    persistent.parent.mkdir(parents=True)
+    shutil.copytree(legacy, persistent)
+    assert runtime.probe_ppt_runtime().available
 
 
 def test_runtime_missing_python_is_actionable(tmp_path):

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..branding import env
-from ..execution.builtin_runtime import BuiltinRuntime, UPSTREAM_COMMIT
+from ..execution.builtin_runtime import BuiltinRuntime, RUNTIME_MISSING_MESSAGE, UPSTREAM_COMMIT
 from ..extensions.contracts import ExtensionContext
 from ..extensions.runtime_snapshot import ExtensionRunSnapshot
 from ..jobs.repository import JobConflict, JobNotFound
@@ -151,7 +151,7 @@ class PresentationService:
             runtime = self.runtime_loader()
             runtime.verify()
         except FileNotFoundError as exc:
-            raise PresentationUnavailable("runtime_missing", "PPT 本机运行包尚未准备好，请先按部署说明构建运行包") from exc
+            raise PresentationUnavailable("runtime_missing", RUNTIME_MISSING_MESSAGE) from exc
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise PresentationUnavailable("runtime_invalid", "PPT 本机运行资源不完整或与当前系统不兼容，请重新构建运行包") from exc
         if production_enabled() and "host/render_preview.py" not in runtime.manifest.get("files", {}):
