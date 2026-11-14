@@ -165,4 +165,8 @@ def test_desktop_builds_are_owned_by_the_separate_repository():
     assert "desktop-windows-scripts" not in config["jobs"]
     assert not any(path.startswith("desktop/") for path in config["on"]["pull_request"]["paths"])
     assert not (ROOT / ".github/workflows/desktop-macos.yml").exists()
-    assert not (ROOT / "desktop").exists()
+    tracked = subprocess.run(
+        ["git", "ls-files", "--cached", "--", "desktop/"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    )
+    assert not tracked.stdout.strip()
