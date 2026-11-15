@@ -4,7 +4,7 @@
 
 - `backend/app/`：FastAPI、账户隔离、资料库、模型连接和智能体运行时；测试在 `backend/tests/`。
 - `frontend/src/`：React 19、TypeScript、Vite；单元测试与源码相邻，浏览器测试在 `frontend/e2e/`。
-- `desktop/`：Tauri 壳与 Python sidecar；Web 功能改动不应顺带改动桌面打包。
+- 桌面端的 Tauri 壳、sidecar 打包和桌面 CI 在独立仓库维护，以固定提交引用本仓库。
 - `docs/`：仅在本地维护并被 Git 忽略；新克隆的仓库不包含该目录，也不要求创建它。
 
 ## 变更与验证
