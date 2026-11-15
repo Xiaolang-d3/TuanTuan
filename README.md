@@ -11,88 +11,87 @@
 
 </div>
 
-团团是一个开源、本地优先的智能工作伙伴：把问题、文件和想法带进对话，完成研究、分析、起草与修改，并把成果留存下来供后续任务复用。
-
-模型服务、资料是否长期参考、每轮是否联网都由你决定。资料、会话与任务记录保存在本机；调用外部模型或搜索服务时，相关上下文会发送至你配置的服务——**本地存储不等于全程离线**。
-
-## 核心能力
-
-相比通用聊天产品，团团更在意这几件事：
-
-- **本地优先，模型自选**：会话、资料和任务记录保存在本机；模型可接 OpenAI 兼容接口、Anthropic、Gemini 与 Ollama，不被单一厂商锁定。
-- **上下文由你控制**：每份导入的资料单独选择“一次性使用”或“长期参考”，不让无关内容默认进入每一轮对话。
-- **成果可留存、可复用**：对话中的结论、草稿和生成图片可存档，下一个任务直接取用，不用重新交代背景。
-- **微信里接着用**：通过微信消息渠道接入，离开电脑后仍能发起和继续任务。
-- **技能可扩展**：内置 PPT 生成、资讯整理、图像设计等技能，也能按需接入新的扩展。
-
-## Agent 内核
-
-对话支持两种 Agent 内核：默认使用团团自研编排内核，也可选择开源的 DeepSeek Harness（DSH）。在空白对话的输入框可直接选择内核；设置 → 模型设置中的“新对话默认内核”只影响之后新建的对话。
-
-已有消息的对话选择另一种内核时，团团会自动建立一个空白分支，并把原对话的摘要和最近文本作为只读上下文带入。原对话不会被修改或中断：即使它正在运行或等待确认，也会继续留在原处；尚未完成的本轮用户消息不会复制到分支。附件、待审批请求和工具执行状态也不会继承，需在分支中重新添加或确认。
-
-DSH 内核支持使用任意 HTTPS 端点的已启用 DeepSeek 模型档案，例如官方 `https://api.deepseek.com` 或你自己配置的代理网关；API Key 会随 `DEEPSEEK_BASE_URL` 传给 DSH 子进程，请只使用你信任的端点。仿冒 DeepSeek 官方域名的地址（如 `api.deepseek.com.attacker.test`）和非 HTTPS 地址会被拒绝。本期只提供对话、审批与用户提问能力；资料库、联网搜索、技能与团团自有原生工具暂不桥接。使用前需要 Node >= 24.9，并执行 `node backend/scripts/vendor-dsh-runtime.mjs` 把 npm 运行时安装到 `backend/data/dsh-runtime/`（版本与校验清单见 `backend/dsh-runtime.lock.json`）。设置环境变量 `TUANTUAN_DSH_ENABLED=1` 后，满足条件的 DSH 选项才可用；DSH 会话状态保存在 `backend/data/dsh/<用户>/<对话>/`，子进程重建时会依据已保存的对话历史恢复上下文。
-
-DeepSeek Harness 使用 MIT 许可证（Copyright (c) 2026 DeepSeek），目前处于开发者预览，接口可能发生不兼容变更；版本锁定在 `@deepseek-ai/dsh@0.2.2-rc.1`。
+团团是一个能够执行任务的智能体。
 
 ## 项目架构
 
-下图是团团的分层架构：前端只负责交互，FastAPI 在本机完成编排、资料与成果管理；模型、搜索与微信通过外部服务接入。
-
 ```mermaid
 flowchart TB
-  subgraph clients["客户端"]
-    Web["Web 前端<br/>React 19 + assistant-ui"]
-    Desktop["桌面端<br/>Tauri 2 + Rust"]
-    WeChat["微信"]
+  User(["用户"])
+
+  subgraph Clients["客户端层"]
+    direction LR
+    Web["Web 前端<br/>React 19 · assistant-ui"]
+    Desktop["桌面端<br/>Tauri 2 · Rust"]
+    WeChat["微信<br/>iLink 通道"]
   end
 
-  subgraph local["本机 · FastAPI 服务"]
-    API["API 层<br/>REST / SSE / 鉴权 / 用户工作区"]
-    Channel["微信渠道"]
-    Kernel["Agent 内核<br/>自研编排 / DSH 可选"]
-    Library["资料库<br/>导入 / 解析 / 检索"]
-    Tools["工具与技能<br/>联网 / PPT / 图像 / 文档"]
-    Jobs["任务与审批<br/>后台作业 / 成果归档"]
-    Gateway["模型网关<br/>LiteLLM + OpenAI SDK"]
+  subgraph Service["本机服务层 · FastAPI"]
+    API["接入层<br/>REST / SSE · 鉴权"]
+    Channel["微信渠道<br/>消息 · 语音转写"]
+    Orchestrator["对话编排<br/>计划 · 工具调用 · 审批"]
+    Library["资料库<br/>导入 · 解析 · 检索"]
+    Jobs["任务与作业<br/>队列 · 重试 · 确认"]
+    Artifacts["成果与文档<br/>版本 · DOCX/PDF 导出"]
+    Tools["工具与技能<br/>搜索 · PPT · 图像"]
+    Gateway["模型网关<br/>LiteLLM · OpenAI SDK"]
   end
 
-  subgraph data["本地数据"]
-    SQLite[("SQLite + sqlite-vec")]
-    Files[("附件 / 成果 / 导出文件")]
-    MinIO[("MinIO（可选）")]
+  subgraph Data["数据层"]
+    direction LR
+    DB[("SQLite + sqlite-vec")]
+    Files[("本地文件<br/>附件 / 成果 / 导出")]
+    MinIO[("MinIO<br/>可选")]
   end
 
-  subgraph external["模型、搜索与微信"]
-    Models["模型服务<br/>OpenAI 兼容 / Anthropic / Gemini / Ollama"]
-    Search["搜索与网页"]
-    ILINK["微信 iLink"]
+  subgraph External["外部系统"]
+    direction LR
+    LLM["模型服务<br/>OpenAI 兼容 / Anthropic<br/>Gemini / Ollama"]
+    Search["搜索服务"]
   end
 
-  Web --> API
-  Desktop --> API
-  WeChat --> ILINK
-  ILINK --> Channel
+  User --> Web
+  User --> Desktop
+  User --> WeChat
+
+  Web -->|HTTPS / SSE| API
+  Desktop -->|HTTP / SSE| API
+  WeChat -->|iLink| Channel
   Channel --> API
-  API --> Kernel
-  Kernel --> Library
-  Kernel --> Tools
-  Kernel --> Jobs
-  Kernel --> Gateway
-  Tools --> Gateway
-  Gateway --> Models
-  Tools --> Search
-  API --> SQLite
-  Kernel --> SQLite
-  Library --> SQLite
-  Jobs --> SQLite
-  Library --> Files
-  Tools --> Files
-  Jobs --> Files
-  Files -.-> MinIO
-```
 
-一次任务从客户端进入 API，由内核规划并调用资料库、工具与模型；结果写入任务与成果，附件和导出文件留在本地。
+  API --> Orchestrator
+  API --> Library
+  API --> Jobs
+  API --> Artifacts
+  API --> Gateway
+
+  Orchestrator --> Library
+  Orchestrator --> Jobs
+  Orchestrator --> Artifacts
+  Orchestrator --> Tools
+  Orchestrator --> Gateway
+
+  Tools --> Gateway
+  Tools -->|HTTPS| Search
+  Gateway -->|HTTPS| LLM
+
+  Library --> DB
+  Jobs --> DB
+  Artifacts --> DB
+  Library --> Files
+  Jobs --> Files
+  Artifacts --> Files
+  Files -.->|可选| MinIO
+
+  classDef client fill:#E8F1FF,stroke:#2563EB,color:#0F2A5F
+  classDef service fill:#EAF8EF,stroke:#16A34A,color:#0B3D1E
+  classDef data fill:#FFF4E5,stroke:#EA580C,color:#5C2A05
+  classDef external fill:#F5EDFF,stroke:#7C3AED,color:#3B1A66
+  class Web,Desktop,WeChat client
+  class API,Channel,Orchestrator,Library,Jobs,Artifacts,Tools,Gateway service
+  class DB,Files,MinIO data
+  class LLM,Search external
+```
 
 ## 技术栈
 
@@ -107,7 +106,7 @@ flowchart TB
 ```text
 TuanTuan/
 ├── backend/             # FastAPI 服务
-│   ├── app/             # Agent、资料库、模型适配与持久化
+│   ├── app/             # 对话编排、资料库、任务与模型适配
 │   └── tests/           # 后端测试
 ├── frontend/            # React 前端
 │   ├── src/             # 页面、组件与状态
