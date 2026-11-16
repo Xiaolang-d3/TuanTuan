@@ -13,6 +13,19 @@ describe("primary route", () => {
   });
 });
 
+describe("product destination routes", () => {
+  it.each([
+    ["images", "#/images"],
+    ["video", "#/video"],
+    ["works", "#/works"]
+  ] as const)("keeps %s addressable after refresh", (section, hash) => {
+    expect(parseAppHash(hash)).toEqual({ section });
+    expect(initialAppRoute(hash)).toEqual({ section });
+    expect(routeForSection(section)).toEqual({ section });
+    expect(appRouteHash({ section })).toBe(hash);
+  });
+});
+
 describe("retired product routes", () => {
   it.each([
     "search",

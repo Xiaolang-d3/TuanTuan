@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowRight, ArrowUp, BookOpen, Check, FileText, MessageSquare, Search, Settings, UserRound } from "lucide-react";
+import { ArrowRight, ArrowUp, BookOpen, Check, FileText, MessageCircle, Search, Settings, UserRound } from "lucide-react";
 
 const sourceGroups = {
   project: [
@@ -84,7 +84,7 @@ export function ProductDemo({ returnHash }: { returnHash: string }) {
       <aside className="intro-demo-sidebar">
         <div className="intro-demo-brand"><img src="/tuantuan-logo.png" alt="" width="30" height="30" draggable={false} /><span>团团</span></div>
         <nav className="intro-demo-nav" aria-label="演示视图">
-          <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")}><MessageSquare size={18} aria-hidden="true" /><span>对话</span></button>
+          <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")}><MessageCircle size={18} aria-hidden="true" /><span>对话</span></button>
           <button type="button" aria-pressed={view === "library"} onClick={() => setView("library")}><BookOpen size={18} aria-hidden="true" /><span>资料库</span></button>
           <button type="button" aria-pressed={view === "settings"} onClick={() => setView("settings")}><Settings size={18} aria-hidden="true" /><span>设置</span></button>
         </nav>

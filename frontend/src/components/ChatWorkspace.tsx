@@ -31,7 +31,7 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
 
@@ -448,7 +448,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
           <div ref={props.chatEndRef} />
           </div>
         </ThreadPrimitive.Viewport>
-        {scrolling.away ? <button type="button" className="chat-jump-latest" onClick={scrolling.jumpToLatest}>{scrolling.unread ? "有新内容 · 回到最新 ↓" : "回到最新 ↓"}</button> : null}
+        {scrolling.away ? <button type="button" className="chat-jump-latest" onClick={scrolling.jumpToLatest}>{scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}<ArrowDown size={14} aria-hidden="true" /></button> : null}
         </div>
 
         <div className="chat-composer">

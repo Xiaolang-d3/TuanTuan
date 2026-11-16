@@ -81,6 +81,7 @@ describe("HomeWorkspaceBar", () => {
 
   it("guides empty states to the matching entry points", () => {
     render(<HomeWorkspaceBar workspace={fixtureWorkspace()} loading={false} error={null} now={now} onRefresh={() => {}} />);
+    expect(screen.getByRole("heading", { name: "最近会话" }).querySelector(".lucide-message-circle")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "开始一个新会话" })).toHaveAttribute("href", "#/chat");
     expect(screen.getByRole("link", { name: "打开任务中心" })).toHaveAttribute("href", "#/settings/extensions");
     expect(screen.getByRole("link", { name: "绑定微信" })).toHaveAttribute("href", "#/settings/channels");

@@ -93,7 +93,7 @@ for (const theme of ["light", "dark"] as const) {
     for (const width of [874, 1280]) {
       await page.setViewportSize({ width, height: 770 });
       await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText([
-        "首页", "AI 工作区", "文件库", "设置"
+        "对话", "图片", "视频", "我的作品", "设置"
       ]);
 
       for (const collapsed of [false, true]) {
@@ -189,9 +189,29 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 770 });
     await page.goto("/#/chat/1");
-    await expect(page.getByRole("navigation", { name: "移动端主导航" }).getByRole("button")).toHaveText([
-      "首页", "AI 工作区", "文件库", "设置"
+    const navigation = page.getByRole("navigation", { name: "移动端主导航" });
+    await expect(navigation.getByRole("button")).toHaveText([
+      "对话", "图片", "视频", "我的作品", "设置"
     ]);
+    const labels = await navigation.locator(".mobile-nav-item span").evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right };
+    }));
+    expect(labels).toHaveLength(5);
+    for (let index = 1; index < labels.length; index += 1) {
+      expect(labels[index].left).toBeGreaterThanOrEqual(labels[index - 1].right - 1);
+    }
+    await navigation.getByRole("button", { name: "图片", exact: true }).click();
+    await expect(page).toHaveURL(/#\/images$/);
+    await expect(page.getByRole("heading", { name: "图片", exact: true })).toBeVisible();
+    await navigation.getByRole("button", { name: "视频", exact: true }).click();
+    await expect(page.getByText("视频生成尚未接入。")).toBeVisible();
+    await navigation.getByRole("button", { name: "我的作品", exact: true }).click();
+    await expect(page.getByText("集中作品管理尚未接入。")).toBeVisible();
+    await page.getByRole("button", { name: "打开文件库", exact: true }).click();
+    await expect(page).toHaveURL(/#\/chat\/library$/);
+    await navigation.getByRole("button", { name: "对话", exact: true }).click();
+    await expect(page).toHaveURL(/#\/chat\/1$/);
     await expect(page.getByRole("button", { name: /[收展][起开]侧边栏/ })).toBeHidden();
     await expect(page.locator("aside.sidebar")).toHaveClass(/collapsed/);
     await expect(page.getByRole("button", { name: "返回首页", exact: true })).toBeInViewport();

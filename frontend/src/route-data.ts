@@ -16,6 +16,9 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
       if (route.page === "library") return ["library"];
       return ["conversations", "capabilities", "attachmentConfig"];
     case "dashboard":
+    case "images":
+    case "video":
+    case "works":
       return [];
     case "settings":
       if (route.page === "extensions") return [];

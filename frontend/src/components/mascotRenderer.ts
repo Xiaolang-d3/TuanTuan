@@ -50,13 +50,30 @@ void main() {
   gl_FragColor = texture2D(u_image, vec2(p.x / u_size.x, 1.0 - p.y / u_size.y));
 }`;
 
+function cleanTransparentPixels(image: HTMLImageElement) {
+  const source = document.createElement("canvas");
+  source.width = image.naturalWidth;
+  source.height = image.naturalHeight;
+  const context = source.getContext("2d", { willReadFrequently: true });
+  if (!context) return image;
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, source.width, source.height);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    if (pixels.data[index + 3] === 0) {
+      pixels.data[index] = 0;
+      pixels.data[index + 1] = 0;
+      pixels.data[index + 2] = 0;
+    }
+  }
+  context.putImageData(pixels, 0, 0);
+  return source;
+}
+
 export function createMascotRenderer(canvas: HTMLCanvasElement, image: HTMLImageElement) {
   const contextAttributes: WebGLContextAttributes = { alpha: true, premultipliedAlpha: false, antialias: false, powerPreference: "low-power" };
   const gl = (canvas.getContext("webgl2", contextAttributes) as WebGL2RenderingContext | null)
     ?? (canvas.getContext("webgl", contextAttributes) as WebGLRenderingContext | null);
   if (!gl) return null;
-  // NPOT mipmaps are only legal in WebGL2; the 1448x1086 texture otherwise falls back to plain linear.
-  const useMipmaps = typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext;
   const shaders: WebGLShader[] = [];
   const program = gl.createProgram();
   const buffer = gl.createBuffer();
@@ -90,13 +107,9 @@ export function createMascotRenderer(canvas: HTMLCanvasElement, image: HTMLImage
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-  if (useMipmaps) {
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  } else {
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  }
+  const textureSource = cleanTransparentPixels(image);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureSource);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.uniform1i(gl.getUniformLocation(program, "u_image"), 0);
   gl.uniform2f(gl.getUniformLocation(program, "u_size"), image.naturalWidth, image.naturalHeight);

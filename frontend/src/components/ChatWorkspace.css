@@ -1529,7 +1529,9 @@
   position: static;
   flex: none;
   align-self: center;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   width: max-content;
   max-width: calc(100% - 24px);
   margin: 4px 12px 12px;

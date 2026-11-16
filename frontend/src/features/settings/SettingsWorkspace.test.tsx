@@ -37,6 +37,8 @@ describe("SettingsOverview", () => {
     expect(screen.getByText("小林")).toBeInTheDocument();
     expect(screen.queryByText("owner@example.com")).not.toBeInTheDocument();
     expect(screen.getByText("文件库管理")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /账号与安全/ }).querySelector(".lucide-shield-check")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /文件库管理/ }).querySelector(".lucide-library")).toBeInTheDocument();
     expect(screen.getByText("文件、主题集合与知识")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "了解 团团" })).toHaveAttribute("href", "#/about");
 
