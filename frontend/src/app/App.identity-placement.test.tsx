@@ -38,7 +38,7 @@ vi.mock("../features/library/useLibrary", () => ({ useLibrary: (options: {
   return library;
 } }));
 vi.mock("../components/AssistantSurface", () => ({
-  AssistantSurface: ({ page, children }: { page: boolean; children: ReactNode }) => page ? <section>{children}</section> : null
+  AssistantSurface: ({ page, children }: { page: boolean; children: ReactNode }) => <section hidden={!page}>{children}</section>
 }));
 vi.mock("../components/ChatWorkspace", () => ({ ChatWorkspace: () => <><h2>测试工作区</h2><textarea aria-label="测试对话草稿" defaultValue="" /></> }));
 vi.mock("../features/home/HomePage", () => ({ HomePage: () => <h2>测试首页</h2> }));
@@ -215,7 +215,7 @@ describe("App identity placement", () => {
     expect(screen.queryByText("1 个文件导入失败")).not.toBeInTheDocument();
   });
 
-  it("switches between chat and sidebar files without losing the unsent composer", async () => {
+  it("opens the existing file library through works without losing the unsent chat draft", async () => {
     conversations.conversations = [{ id: 7, title: "原有对话", summary: "", status: "active", updated_at: "2026-10-14" }];
     conversations.currentConversationId = 7;
     window.history.replaceState(null, "", "#/chat/7");
@@ -225,18 +225,23 @@ describe("App identity placement", () => {
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     expect(screen.queryByRole("navigation", { name: "AI 工作区模块" })).not.toBeInTheDocument();
     expect(navigation.getByRole("button", { name: "设置" })).toBeInTheDocument();
-    fireEvent.click(navigation.getByRole("button", { name: "文件库" }));
+    fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
+    await screen.findByRole("heading", { name: "我的作品" });
+    expect(navigation.getByRole("button", { name: "我的作品" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "打开文件库" }));
     await screen.findByRole("heading", { name: "测试文件库" });
     expect(window.location.hash).toBe("#/chat/library");
     expect(draft).toBeInTheDocument();
     expect(draft).not.toBeVisible();
-    expect(navigation.getByRole("button", { name: "文件库" })).toHaveAttribute("aria-current", "page");
-    expect(navigation.getByRole("button", { name: "AI 工作区" })).not.toHaveAttribute("aria-current");
-    fireEvent.click(navigation.getByRole("button", { name: "AI 工作区" }));
+    expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
+    expect(navigation.getByRole("button", { name: "对话" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(navigation.getByRole("button", { name: "对话" }));
     expect(await screen.findByRole("textbox", { name: "测试对话草稿" })).toBe(draft);
     expect(draft).toHaveValue("尚未发送的计划");
     expect(window.location.hash).toBe("#/chat/7");
-    fireEvent.click(navigation.getByRole("button", { name: "文件库" }));
+    fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
+    await screen.findByRole("heading", { name: "我的作品" });
+    fireEvent.click(screen.getByRole("button", { name: "打开文件库" }));
     await screen.findByRole("heading", { name: "测试文件库" });
     const accountTrigger = screen.getByRole("button", { name: "账号菜单" });
     expect(accountTrigger).not.toHaveClass("active");
@@ -246,6 +251,18 @@ describe("App identity placement", () => {
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(window.location.hash).toBe("#/settings");
   });
+  it.each([
+    ["#/images", "图片", "图片"],
+    ["#/video", "视频", "视频"],
+    ["#/works", "我的作品", "我的作品"]
+  ])("opens %s as an addressable product page", async (hash, heading, label) => {
+    window.history.replaceState(null, "", hash);
+    renderApp();
+    expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "主导航" })).getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
+    expect(window.location.hash).toBe(hash);
+  });
+
   it.each([
     ["#/home", "测试首页"],
     ["#/library", "测试文件库"],

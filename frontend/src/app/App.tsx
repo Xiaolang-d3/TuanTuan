@@ -21,6 +21,7 @@ import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
 import { useConversations } from "../features/chat/useConversations";
 import { useKernels } from "../features/chat/useKernels";
+import { ImagePage, VideoPage, WorksPage } from "../features/product/ProductPages";
 import { useLibrary } from "../features/library/useLibrary";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
@@ -1085,6 +1086,9 @@ export function App({
   function selectProductNav(key: ProductNavKey) {
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
     else if (key === "chat") navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
+    else if (key === "images") navigateRoute({ section: "images" });
+    else if (key === "video") navigateRoute({ section: "video" });
+    else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
   }
@@ -1266,6 +1270,22 @@ export function App({
             />
           </Suspense>
         ) : null}
+
+        {appRoute.section === "images" ? <ImagePage
+          onOpenChat={() => selectProductNav("chat")}
+          onOpenLibrary={() => selectProductNav("library")}
+          onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+        /> : null}
+        {appRoute.section === "video" ? <VideoPage
+          onOpenChat={() => selectProductNav("chat")}
+          onOpenLibrary={() => selectProductNav("library")}
+          onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+        /> : null}
+        {appRoute.section === "works" ? <WorksPage
+          onOpenChat={() => selectProductNav("chat")}
+          onOpenLibrary={() => selectProductNav("library")}
+          onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+        /> : null}
 
         {appRoute.section === "settings" ? (
           <Suspense fallback={<PageLoading label="正在加载设置…" />}>

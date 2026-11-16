@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, CheckCircle2, Image, MessageSquare, Plus, RefreshCw, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Image, MessageCircle, Plus, RefreshCw, Search, Server, SlidersHorizontal, Trash2 } from "lucide-react";
 import type { createApiClient } from "../../api/client";
 import type { ModelCatalog, ModelCatalogEntry, ModelConnection, ModelProfile } from "../../types";
 import { useComposerModelDiscovery } from "../chat/useComposerModelDiscovery";
@@ -205,7 +205,7 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
         const connection = catalog.connections.find(item => item.id === profile?.connection_id);
         const usable = profile?.enabled && connection?.enabled;
         return <div className="unified-default-summary" key={purpose}>
-          {purpose === "chat" ? <MessageSquare size={18} aria-hidden="true" /> : <Image size={18} aria-hidden="true" />}
+          {purpose === "chat" ? <MessageCircle size={18} aria-hidden="true" /> : <Image size={18} aria-hidden="true" />}
           <div><h3>{purpose === "chat" ? "文本对话与工作" : "图片生成"}</h3><strong>{!ready ? "正在读取默认配置…" : profile ? profile.model_name : "尚未选择默认模型"}</strong><small>{profile ? `${connection?.name || "模型服务"}${usable ? " · 后续新任务使用" : " · 当前不可用，请重新选择"}` : "在下方模型列表中选择"}</small></div>
           {usable ? <CheckCircle2 size={16} className="unified-default-check" aria-label="已配置" /> : null}
           <button type="button" aria-label={`${profile ? "更换" : "选择"}${purpose === "chat" ? "文本对话" : "图片生成"}模型`} disabled={loading} onClick={() => { resetFilters(); setCategory(purpose); setServiceId(null); document.querySelector<HTMLInputElement>(".unified-search input")?.focus(); }}>{profile ? "更换" : "选择"}<ArrowRight size={13} aria-hidden="true" /></button>

@@ -93,6 +93,9 @@ export type AgentCapabilities = {
 export type ViewKey =
   | "dashboard"
   | "chat"
+  | "images"
+  | "video"
+  | "works"
   | "settings";
 
 export type ModelProtocol = "auto" | "openai" | "responses" | "images" | "anthropic" | "gemini" | "ollama";

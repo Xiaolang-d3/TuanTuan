@@ -500,6 +500,11 @@ html:has(.content.chat-content) { scrollbar-gutter: auto; }
   .content.chat-content, .sidebar.collapsed + .content.chat-content { height: calc(100dvh - 58px); padding: 0; }
 }
 
+@media (max-width: 380px) {
+  .sidebar, .sidebar.collapsed { padding-inline: 6px; }
+  .sidebar.context-navigation { column-gap: 4px; }
+}
+
 /* Mobile pages keep their natural document scroll. The chat thread remains its own scroll region. */
 @media (max-width: 820px) {
   html, body, #root {

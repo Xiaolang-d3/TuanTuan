@@ -6,11 +6,11 @@ import {
   CheckCircle2,
   ChevronRight,
   Cpu,
-  Folder,
   Info,
-  KeyRound,
+  Library,
   MessageCircle,
   Palette,
+  ShieldCheck,
   TriangleAlert
 } from "lucide-react";
 import type { LibraryEditor } from "../../types";
@@ -85,7 +85,7 @@ export function SettingsOverview({
           <ChevronRight size={17} aria-hidden="true" />
         </button>
         <button className="settings-entry-card account" type="button" onClick={() => onOpen("account")}>
-          <span className="settings-entry-icon"><KeyRound size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-icon"><ShieldCheck size={20} aria-hidden="true" /></span>
           <span className="settings-entry-copy">
             <span className="settings-entry-title"><strong>账号与安全</strong></span>
             <span className="settings-entry-primary" title={accountLabel}>{accountLabel}</span>
@@ -93,7 +93,7 @@ export function SettingsOverview({
           <ChevronRight size={17} aria-hidden="true" />
         </button>
         <button className="settings-entry-card library" type="button" onClick={() => onOpen("library")}>
-          <span className="settings-entry-icon"><Folder size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-icon"><Library size={20} aria-hidden="true" /></span>
           <span className="settings-entry-copy">
             <span className="settings-entry-title"><strong>文件库管理</strong></span>
             <span className="settings-entry-primary">文件、主题集合与知识</span>

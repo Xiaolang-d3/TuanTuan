@@ -1,4 +1,4 @@
-import { Library, ListChecks, MessageCircle, MessageSquare, TriangleAlert } from "lucide-react";
+import { Library, ListChecks, MessageCircle, TriangleAlert } from "lucide-react";
 import { formatPublished } from "./HomeFeedCards";
 import type { HomeJobBrief, HomeLibraryRecentItem, HomeWorkspaceResponse } from "./types";
 
@@ -37,7 +37,7 @@ export function HomeWorkspaceBar({ workspace, loading, error, now, onRefresh, we
   const libraryItems = workspace.library_recent.items.slice(0, 3);
   return <div className="home-workspace-grid">
     <section className="home-workspace-card" aria-labelledby="home-ws-conversations-title">
-      <div className="home-workspace-head"><h2 className="home-workspace-title" id="home-ws-conversations-title"><span className="home-module-icon"><MessageSquare size={15} /></span>最近会话</h2></div>
+      <div className="home-workspace-head"><h2 className="home-workspace-title" id="home-ws-conversations-title"><span className="home-module-icon"><MessageCircle size={15} /></span>最近会话</h2></div>
       {workspace.conversations.error ? <p className="home-workspace-block-error"><TriangleAlert size={14} />{workspace.conversations.error}</p> : conversations.length === 0 ? <div className="home-workspace-empty"><p>还没有会话记录，从一个问题或一句“你好”开始。</p><a className="home-btn home-btn-primary" href="#/chat">开始一个新会话</a></div> : <ul className="home-workspace-list">{conversations.map((item) => <li key={item.id}><a className="home-workspace-row" href={`#/chat/${item.id}`} title={item.title}><span className="home-workspace-row-title">{item.title}</span>{item.task_status && <span className="home-workspace-chip">{item.task_status}</span>}<time dateTime={item.last_message_at || undefined}>{item.last_message_at ? formatPublished(item.last_message_at, now) : ""}</time></a></li>)}</ul>}
     </section>
     <section className="home-workspace-card" aria-labelledby="home-ws-jobs-title">

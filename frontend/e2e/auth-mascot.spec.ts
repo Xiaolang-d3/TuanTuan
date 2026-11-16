@@ -12,7 +12,10 @@ test("the mascot moves while the desk and shared neutral background stay still",
   await page.goto("/");
   const scene = page.locator(".auth-mascot-scene");
   await expect(scene).toHaveAttribute("data-animated", "true");
-  expect(await scene.locator("canvas").evaluate(element => (element as HTMLCanvasElement).getContext("webgl")?.getContextAttributes()?.alpha)).toBe(true);
+  expect(await scene.locator("canvas").evaluate(element => {
+    const canvas = element as HTMLCanvasElement;
+    return (canvas.getContext("webgl2") ?? canvas.getContext("webgl"))?.getContextAttributes()?.alpha;
+  })).toBe(true);
   await expect(scene.getByRole("button")).toHaveCount(0);
   const background = await page.locator(".auth-gate").evaluate(el => getComputedStyle(el).backgroundColor);
   expect(background).toBe("rgb(250, 250, 250)");
@@ -30,6 +33,30 @@ test("the mascot moves while the desk and shared neutral background stay still",
   const first = (await scene.screenshot()).toString("base64");
   await expect.poll(async () => (await scene.screenshot()).toString("base64"), { timeout: 3000 }).not.toBe(first);
   expect((await page.screenshot({ clip: desk })).equals(stillDesk)).toBe(true);
+});
+
+test("transparent pixels outside the mascot stay transparent during animation", async ({ page }) => {
+  await page.goto("/");
+  const scene = page.locator(".auth-mascot-scene");
+  await expect(scene).toHaveAttribute("data-animated", "true");
+  const pixels = await scene.locator("canvas").evaluate(async element => {
+    const canvas = element as HTMLCanvasElement;
+    const gl = (canvas.getContext("webgl2") ?? canvas.getContext("webgl"))!;
+    return new Promise<number[]>((resolve, reject) => {
+      const original = gl.drawArrays;
+      const timer = setTimeout(() => { gl.drawArrays = original; reject(new Error("Mascot did not render")); }, 3000);
+      gl.drawArrays = function (...args) {
+        original.apply(this, args);
+        const data = new Uint8Array(4);
+        gl.readPixels(Math.floor(canvas.width * .96), Math.floor(canvas.height * .8), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        gl.drawArrays = original;
+        clearTimeout(timer);
+        resolve(Array.from(data));
+      };
+    });
+  });
+  expect(pixels[3]).toBe(0);
+  expect(pixels.slice(0, 3)).toEqual([0, 0, 0]);
 });
 
 test("reduced motion keeps the original illustration and can change live", async ({ page }) => {

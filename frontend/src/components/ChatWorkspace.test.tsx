@@ -383,12 +383,13 @@ describe("ChatWorkspace", () => {
     fireEvent.change(input, { target: { value: "尚未发送的草稿" } });
     viewport.scrollTop = 217;
     fireEvent.scroll(viewport);
-    const jump = screen.getByRole("button", { name: "回到最新 ↓" });
+    const jump = screen.getByRole("button", { name: "回到最新" });
+    expect(jump.querySelector(".lucide-arrow-down")).toHaveAttribute("aria-hidden", "true");
     expect(jump.closest(".chat-composer")).toBeNull();
     expect(viewport.contains(jump)).toBe(false);
     p.view.rerender(<ChatWorkspace {...p} messages={[message, assistantMessage("已有回答，追加内容")]} />);
     expect(viewport.scrollTop).toBe(217);
-    fireEvent.click(screen.getByRole("button", { name: "有新内容 · 回到最新 ↓" }));
+    fireEvent.click(screen.getByRole("button", { name: "有新内容 · 回到最新" }));
     expect(viewport.scrollTop).toBe(1500);
     expect(input).toHaveValue("尚未发送的草稿");
     expect(p.onSend).not.toHaveBeenCalled();

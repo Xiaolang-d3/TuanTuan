@@ -1,8 +1,9 @@
 import {
-  Folder,
-  Home,
+  GalleryThumbnails,
+  Image,
   MessageCircle,
   Settings,
+  Video,
   PanelLeft
 } from "lucide-react";
 import { type ReactNode } from "react";
@@ -13,7 +14,7 @@ import { ThemeToggleButton } from "./ThemeToggleButton";
 import { WeixinBotEntry } from './WeixinBotEntry';
 import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
-export type ProductNavKey = "dashboard" | "chat" | "library" | "settings";
+export type ProductNavKey = "dashboard" | "chat" | "images" | "video" | "works" | "library" | "settings";
 
 type PrefetchPage = "chat" | "library" | "dashboard" | "settings";
 
@@ -59,9 +60,10 @@ export function AppSidebar({
   const isActive = (key: SidebarHighlight) => highlighted === key;
 
   const primaryItems: SidebarItem[] = [
-    { key: "dashboard", label: "首页", icon: <Home size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
-    { key: "chat", label: "AI 工作区", icon: <MessageCircle size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("chat") },
-    { key: "library", label: "文件库", icon: <Folder size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") },
+    { key: "chat", label: "对话", icon: <MessageCircle size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("chat") },
+    { key: "images", label: "图片", icon: <Image size={18} />, active: isActive("images"), onClick: () => onSelectNav("images") },
+    { key: "video", label: "视频", icon: <Video size={18} />, active: isActive("video"), onClick: () => onSelectNav("video") },
+    { key: "works", label: "我的作品", icon: <GalleryThumbnails size={18} />, active: isActive("works"), onClick: () => onSelectNav("works") },
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
 
