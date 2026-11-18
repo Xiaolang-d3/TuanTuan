@@ -6,6 +6,7 @@ import { useAuthSession } from "../features/auth/useAuthSession";
 import { productIntroHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthMascot } from "./AuthMascot";
+import { PublicSiteFooter } from "./PublicSiteFooter";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
 import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/passwordPolicy";
@@ -398,6 +399,7 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
         <ThemeToggleButton className="auth-theme-toggle" />
       </nav>
       {children}
+      <PublicSiteFooter href={productIntroHash} label="产品介绍" />
     </main>
   );
 }

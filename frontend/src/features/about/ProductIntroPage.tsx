@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Layers, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, BookOpen, Layers, SlidersHorizontal } from "lucide-react";
+import { PublicSiteFooter } from "../../components/PublicSiteFooter";
 import { ProductDemo } from "./ProductDemo";
 import "./product-intro.css";
 
@@ -76,10 +77,7 @@ export function ProductIntroPage({ returnHash, signedIn = false }: { returnHash:
           <a className="product-intro-action" href={returnHash}>{actionLabel}<ArrowRight size={18} aria-hidden="true" /></a>
         </div>
       </section>
-      <footer className="product-intro-footer product-intro-container">
-        <span>团团 <span className="product-intro-footer-tagline">理解你的想法，帮你把事情做好。</span></span>
-        <a className="product-intro-back" href={returnHash}><ArrowLeft size={15} aria-hidden="true" />{signedIn ? "回到工作空间" : "返回登录"}</a>
-      </footer>
+      <PublicSiteFooter href={returnHash} label={signedIn ? "回到工作空间" : "返回登录"} />
     </main>
   );
 }
