@@ -212,7 +212,10 @@ class FakeLLMServer:
 
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self._httpd.server_address[1]}"
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        # Keep real HTTP but avoid the default 0.5 s shutdown poll per test.
+        self._thread = threading.Thread(
+            target=self._httpd.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True,
+        )
 
     def __enter__(self) -> "FakeLLMServer":
         self._thread.start()
