@@ -144,10 +144,26 @@ def wire_response(payload, content_type="application/json", status="200 OK"):
 @pytest.mark.parametrize("backend", ["native", "litellm"])
 @pytest.mark.parametrize("protocol", ["openai", "responses", "anthropic", "gemini", "ollama"])
 @pytest.mark.parametrize("streaming", [False, True])
-def test_public_generation_and_streaming_keep_working(hosted, monkeypatch, model_db, backend, protocol, streaming):
+def test_public_generation_and_streaming_keep_working(hosted, monkeypatch, model_db, backend, protocol, streaming, request):
     import fake_llm_server as fake
     from app.domain import AgentMessage, ModelRequest
     from app.models.factory import build_model_provider
+
+    if backend == "litellm" and protocol == "ollama":
+        from app.models.litellm_core import get_litellm
+
+        # LiteLLM's cost logging can issue a separate synchronous /api/show
+        # request. Mock only that client's transport; keep the async chat path
+        # on setup_network so it still exercises guarded DNS, TLS and parsing.
+        def metadata(request):
+            assert request.method == "POST"
+            assert request.url.host == "new-gateway.example.com"
+            assert request.url.path.endswith("/api/show")
+            return httpx.Response(200, json={"model_info": {}, "template": ""})
+
+        metadata_client = httpx.Client(transport=httpx.MockTransport(metadata), trust_env=False)
+        request.addfinalizer(metadata_client.close)
+        monkeypatch.setattr(get_litellm().module_level_client, "client", metadata_client)
 
     prefix = "openai_chat" if protocol == "openai" else protocol
     suffix = "ndjson" if protocol == "ollama" and streaming else "sse" if streaming else "json"
@@ -155,14 +171,14 @@ def test_public_generation_and_streaming_keep_working(hosted, monkeypatch, model
     content_type = "application/x-ndjson" if protocol == "ollama" and streaming else "text/event-stream" if streaming else "application/json"
     connections, _, _ = setup_network(monkeypatch, ["8.8.8.8"], wire_response(payload, content_type))
     provider = build_model_provider(api_key="fixture-key", model="gpt-5" if protocol == "responses" else "test-model", base_url="https://new-gateway.example.com/v1", protocol=protocol, backend=backend)
-    request = ModelRequest(messages=[AgentMessage(role="user", content="你好")])
+    model_request = ModelRequest(messages=[AgentMessage(role="user", content="你好")])
 
     async def exercise():
         if streaming:
-            events = [event async for event in provider.stream(request)]
+            events = [event async for event in provider.stream(model_request)]
             assert any(event.type == "text_delta" and event.delta for event in events)
         else:
-            assert (await provider.generate(request)).content
+            assert (await provider.generate(model_request)).content
 
     asyncio.run(exercise())
     assert connections and all(pair == ("8.8.8.8", 443) for pair in connections)
