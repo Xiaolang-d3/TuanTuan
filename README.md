@@ -17,81 +17,20 @@
 
 ```mermaid
 flowchart TB
-  User(["用户"])
+    Web["Web · React"] --> Backend
+    Desktop["桌面端 · Tauri"] --> Backend
+    WeChat["微信 · iLink"] --> Backend
 
-  subgraph Clients["客户端层"]
-    direction LR
-    Web["Web 前端<br/>React 19 · assistant-ui"]
-    Desktop["桌面端<br/>Tauri 2 · Rust"]
-    WeChat["微信<br/>iLink 通道"]
-  end
+    Backend["FastAPI 后端<br/>账号鉴权 · 接收请求 · 流式返回"] --> Agent
+    Agent["Agent 任务编排<br/>理解请求 · 检索资料 · 调用工具"]
+    Agent --> Data["资料与成果<br/>SQLite · 文件存储"]
+    Agent --> Services["按需调用<br/>模型 · 搜索服务"]
 
-  subgraph Service["本机服务层 · FastAPI"]
-    API["接入层<br/>REST / SSE · 鉴权"]
-    Channel["微信渠道<br/>消息 · 语音转写"]
-    Orchestrator["对话编排<br/>计划 · 工具调用 · 审批"]
-    Library["资料库<br/>导入 · 解析 · 检索"]
-    Jobs["任务与作业<br/>队列 · 重试 · 确认"]
-    Artifacts["成果与文档<br/>版本 · DOCX/PDF 导出"]
-    Tools["工具与技能<br/>搜索 · PPT · 图像"]
-    Gateway["模型网关<br/>LiteLLM · OpenAI SDK"]
-  end
-
-  subgraph Data["数据层"]
-    direction LR
-    DB[("SQLite + sqlite-vec")]
-    Files[("本地文件<br/>附件 / 成果 / 导出")]
-    MinIO[("MinIO<br/>可选")]
-  end
-
-  subgraph External["外部系统"]
-    direction LR
-    LLM["模型服务<br/>OpenAI 兼容 / Anthropic<br/>Gemini / Ollama"]
-    Search["搜索服务"]
-  end
-
-  User --> Web
-  User --> Desktop
-  User --> WeChat
-
-  Web -->|HTTPS / SSE| API
-  Desktop -->|HTTP / SSE| API
-  WeChat -->|iLink| Channel
-  Channel --> API
-
-  API --> Orchestrator
-  API --> Library
-  API --> Jobs
-  API --> Artifacts
-  API --> Gateway
-
-  Orchestrator --> Library
-  Orchestrator --> Jobs
-  Orchestrator --> Artifacts
-  Orchestrator --> Tools
-  Orchestrator --> Gateway
-
-  Tools --> Gateway
-  Tools -->|HTTPS| Search
-  Gateway -->|HTTPS| LLM
-
-  Library --> DB
-  Jobs --> DB
-  Artifacts --> DB
-  Library --> Files
-  Jobs --> Files
-  Artifacts --> Files
-  Files -.->|可选| MinIO
-
-  classDef client fill:#E8F1FF,stroke:#2563EB,color:#0F2A5F
-  classDef service fill:#EAF8EF,stroke:#16A34A,color:#0B3D1E
-  classDef data fill:#FFF4E5,stroke:#EA580C,color:#5C2A05
-  classDef external fill:#F5EDFF,stroke:#7C3AED,color:#3B1A66
-  class Web,Desktop,WeChat client
-  class API,Channel,Orchestrator,Library,Jobs,Artifacts,Tools,Gateway service
-  class DB,Files,MinIO data
-  class LLM,Search external
+    classDef core fill:#E8F1FF,stroke:#2563EB,color:#0F2A5F,stroke-width:2px
+    class Backend,Agent core
 ```
+
+图中展示的是一次任务的主路径：用户从 Web、桌面端或微信发起请求，Agent 按需读取资料、调用模型和工具，再返回回答或生成文档、PPT、图片等成果。桌面端在独立仓库维护。
 
 ## 技术栈
 
