@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render as renderComponent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderComponent, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Bootstrap } from "./Bootstrap";
@@ -69,6 +69,23 @@ describe("public product entry", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     navigate("#/home");
     expect(await screen.findByRole("alert")).toHaveTextContent("测试启动失败");
+  });
+
+  it("links to privacy and feedback from the signed-out footer without repeating the about link", async () => {
+    configureService();
+    render(<Bootstrap />);
+
+    const nav = within(await screen.findByRole("contentinfo", { name: "网站页脚" })).getByRole("navigation");
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(["隐私说明", "帮助与反馈"]);
+    expect(nav).toHaveTextContent("隐私说明 · 帮助与反馈");
+    expect(links[1]).toHaveAttribute("href", "https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose");
+    expect(links[1]).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: "关于 团团" })).toHaveAttribute("href", "#/about");
+
+    navigate(links[0].getAttribute("href")!);
+    expect(screen.getByRole("region", { name: "你的资料，始终由你掌握。" })).toHaveFocus();
+    expect(screen.getByRole("link", { name: "返回登录" })).toHaveAttribute("href", "#/home");
   });
 
   it("returns to sign-in with the email retained and passwords cleared", async () => {

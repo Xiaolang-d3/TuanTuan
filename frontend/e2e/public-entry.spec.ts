@@ -63,7 +63,7 @@ test("the public site shows one centered and usable ICP link on both public page
   // Serve only local fixtures, even while exercising the production hostname.
   await page.route("https://xiaocheng.online/**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === "/api/auth/config") {
+    if (["/auth/config", "/api/auth/config"].includes(url.pathname)) {
       await route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } });
       return;
     }
@@ -90,11 +90,20 @@ test("the public site shows one centered and usable ICP link on both public page
     await expect(link).toBeInViewport();
     const bounds = (await link.boundingBox())!;
     expect(bounds.x + bounds.width / 2).toBeCloseTo(375 / 2, 0);
+    return bounds;
   }
 
-  await checkRegistration();
-  await footer.getByRole("link", { name: "产品介绍" }).click();
-  await expect(page).toHaveURL(/#\/about$/);
+  const registration = await checkRegistration();
+  const privacy = footer.getByRole("link", { name: "隐私说明" });
+  const feedback = footer.getByRole("link", { name: "帮助与反馈" });
+  const privacyBounds = (await privacy.boundingBox())!;
+  const feedbackBounds = (await feedback.boundingBox())!;
+  expect(privacyBounds.y).toBeCloseTo(feedbackBounds.y, 0);
+  expect(registration.y).toBeGreaterThanOrEqual(privacyBounds.y + privacyBounds.height);
+  await privacy.click();
+  const privacySection = page.getByRole("region", { name: "你的资料，始终由你掌握。" });
+  await expect(privacySection).toBeFocused();
+  await expect(privacySection).toBeInViewport();
   await checkRegistration();
   await footer.getByRole("link", { name: "返回登录" }).click();
   await expect(page.getByRole("heading", { name: "登录本地账户" })).toBeVisible();
