@@ -3,7 +3,7 @@ import { Eye, EyeOff, Lock } from "lucide-react";
 import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
-import { productIntroHash } from "../app/public-routing";
+import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthMascot } from "./AuthMascot";
 import { PublicSiteFooter } from "./PublicSiteFooter";
@@ -399,7 +399,10 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
         <ThemeToggleButton className="auth-theme-toggle" />
       </nav>
       {children}
-      <PublicSiteFooter href={productIntroHash} label="产品介绍" />
+      <PublicSiteFooter links={[
+        { href: productPrivacyHash, label: "隐私说明" },
+        { href: "https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose", label: "帮助与反馈", external: true },
+      ]} />
     </main>
   );
 }

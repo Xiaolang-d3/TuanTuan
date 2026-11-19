@@ -2,20 +2,21 @@ import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { resolveApiBase, type DesktopRuntimeConfig } from "./runtime";
-import { isProductIntroHash } from "./public-routing";
+import { isProductIntroHash, productPrivacyHash } from "./public-routing";
 import { AuthGate } from "../components/AuthGate";
 import { PageLoading } from "../components/PageLoading";
 import { ProductIntroPage } from "../features/about/ProductIntroPage";
 
 export function Bootstrap() {
   const [runtime, setRuntime] = useState<DesktopRuntimeConfig | null>(null);
-  const [showIntro, setShowIntro] = useState(() => isProductIntroHash(window.location.hash));
+  const [entryHash, setEntryHash] = useState(() => window.location.hash);
   const [returnHash, setReturnHash] = useState(() => isProductIntroHash(window.location.hash) ? "#/home" : window.location.hash || "#/home");
+  const showIntro = isProductIntroHash(entryHash);
 
   useEffect(() => {
     function syncEntry() {
       const hash = window.location.hash;
-      setShowIntro(isProductIntroHash(hash));
+      setEntryHash(hash);
       if (!isProductIntroHash(hash)) setReturnHash(hash || "#/home");
     }
     window.addEventListener("hashchange", syncEntry);
@@ -32,7 +33,7 @@ export function Bootstrap() {
     return () => { cancelled = true; };
   }, []);
 
-  const intro = (signedIn = false) => <ProductIntroPage returnHash={returnHash} signedIn={signedIn} />;
+  const intro = (signedIn = false) => <ProductIntroPage returnHash={returnHash} signedIn={signedIn} showPrivacy={entryHash === productPrivacyHash} />;
   // Public product information remains available even if the local service cannot start.
   if (!runtime || runtime.startupError || !runtime.apiBase) {
     if (showIntro) return intro();

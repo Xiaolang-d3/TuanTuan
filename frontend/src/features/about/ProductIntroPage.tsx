@@ -4,7 +4,8 @@ import { PublicSiteFooter } from "../../components/PublicSiteFooter";
 import { ProductDemo } from "./ProductDemo";
 import "./product-intro.css";
 
-export function ProductIntroPage({ returnHash, signedIn = false }: { returnHash: string; signedIn?: boolean }) {
+export function ProductIntroPage({ returnHash, signedIn = false, showPrivacy = false }: { returnHash: string; signedIn?: boolean; showPrivacy?: boolean }) {
+  const pageRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const experienceRef = useRef<HTMLElement>(null);
   const workflowRef = useRef<HTMLElement>(null);
@@ -14,9 +15,15 @@ export function ProductIntroPage({ returnHash, signedIn = false }: { returnHash:
   useEffect(() => {
     const previousTitle = document.title;
     document.title = "产品介绍｜团团";
-    headingRef.current?.focus({ preventScroll: true });
     return () => { document.title = previousTitle; };
   }, []);
+
+  useEffect(() => {
+    const section = showPrivacy ? privacyRef.current : headingRef.current;
+    if (showPrivacy) section?.scrollIntoView?.({ behavior: "instant", block: "start" });
+    else pageRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
+    section?.focus({ preventScroll: true });
+  }, [showPrivacy]);
 
   function explore(section: HTMLElement | null) {
     section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
@@ -24,7 +31,7 @@ export function ProductIntroPage({ returnHash, signedIn = false }: { returnHash:
   }
 
   return (
-    <main className="product-intro-page">
+    <main className="product-intro-page" ref={pageRef}>
       <header className="product-intro-header">
         <div className="product-intro-header-inner">
           <a className="product-intro-brand" href={returnHash} aria-label="团团 入口">
@@ -77,7 +84,7 @@ export function ProductIntroPage({ returnHash, signedIn = false }: { returnHash:
           <a className="product-intro-action" href={returnHash}>{actionLabel}<ArrowRight size={18} aria-hidden="true" /></a>
         </div>
       </section>
-      <PublicSiteFooter href={returnHash} label={signedIn ? "回到工作空间" : "返回登录"} />
+      <PublicSiteFooter links={[{ href: returnHash, label: signedIn ? "回到工作空间" : "返回登录" }]} />
     </main>
   );
 }
