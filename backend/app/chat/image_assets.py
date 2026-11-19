@@ -208,7 +208,10 @@ def asset_file(asset_id: str, db_path=None) -> tuple[Path, str, str]:
 
 
 def asset_thumbnail(asset_id: str, db_path=None) -> bytes:
-    path, _, _ = asset_file(asset_id, db_path)
+    return image_file_thumbnail(asset_file(asset_id, db_path)[0])
+
+
+def image_file_thumbnail(path: Path) -> bytes:
     with Image.open(path) as img:
         if img.width * img.height > 40_000_000:
             raise ValueError("图片尺寸过大")

@@ -70,6 +70,8 @@ async def lifespan(_: FastAPI):
             await confirmation_maintenance
         with suppress(asyncio.CancelledError):
             await dsh_maintenance
+        from .chat.studio_generate import shutdown_generations
+        await shutdown_generations()
         confirmation_sessions.close_all()
         await confirmation_servers.close_all()
         await close_dsh_runtime()
@@ -248,7 +250,7 @@ async def require_login(request: Request, call_next: Any) -> Any:
     root = ensure_workspace(int(user["id"]))
     with use_workspace(int(user["id"]), root):
         response = await call_next(request)
-        if path.startswith("/auth/"):
+        if path.startswith(("/auth/", "/image-studio/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

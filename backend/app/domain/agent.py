@@ -55,6 +55,8 @@ class ModelRequest(BaseModel):
     tool_choice: Literal["auto", "required", "none"] = "auto"
     parameters: dict[str, float | int] = Field(default_factory=dict)
     image_generation: bool = False
+    # Explicit workspace choice only; None preserves the minimal Images API request.
+    image_size: Literal["1024x1024", "1536x1024", "1024x1536"] | None = None
     # Optional per-profile reasoning effort for providers that support it.
     reasoning_effort: Literal["low", "medium", "high"] | None = None
     # Structured output (OpenAI ``response_format`` shape, e.g. json_schema);

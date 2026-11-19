@@ -1,107 +1,142 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "./test-fixtures";
+import type { StudioRequest, StudioTask, StudioWork } from "../src/features/product/imageStudioApi";
+import { expect, seedFirstRunDone, test } from "./test-fixtures";
 
 const origin = process.env.IMAGE_WORKSPACE_E2E_ORIGIN || "http://127.0.0.1:4173";
-const asset = { id: "fixture-image", origin: "generated", kind: "image", original_filename: "生成图片-1.png", parse_status: "parsed", width: 1, height: 1 };
-const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aS0AAAAASUVORK5CYII=", "base64");
+const art = ["studio-purple", "studio-wave", "studio-sunset", "studio-edited"] as const;
 
-test("image workspace generates in a saved conversation and preserves its draft across navigation", async ({ page }) => {
-  let release!: () => void;
-  const pending = new Promise<void>(resolveRequest => { release = resolveRequest; });
-  let created = false;
-  let generationCalls = 0;
-  let authorizedImageRead = false;
-  const savedMessages: Array<Record<string, unknown>> = [];
-  const conversation = { id: 42, title: "图片创作", status: "active", kernel: "tuantuan", message_count: 2, updated_at: "2026-11-18T00:00:00Z" };
-  await page.addInitScript(() => {
-    sessionStorage.setItem("tuantuan-auth-token", "e2e-token");
-    localStorage.setItem("tuantuan-first-run:e2e@local.test", "done");
-  });
+function image(id: string, name: string) {
+  return { id, origin: "generated" as const, kind: "image" as const, original_filename: name, parse_status: "parsed" as const, width: 740, height: 480 };
+}
+
+test("image workspace makes three drafts, restores settings, edits and archives the final result", async ({ page }) => {
+  const history: StudioTask[] = [];
+  const works: StudioWork[] = [];
+  const requests: StudioRequest[] = [];
+  const reads: string[] = [];
+  const created_at = "2026-11-18T00:00:00Z";
+  const output = resolve("..", "tmp", "image-workspace");
+  await mkdir(output, { recursive: true });
+  await page.addInitScript(() => sessionStorage.setItem("tuantuan-auth-token", "image-workspace-fixture"));
+  await seedFirstRunDone(page, "e2e@local.test");
   await page.route(`${origin}/**`, async route => {
     const request = route.request();
     if (!["fetch", "xhr"].includes(request.resourceType())) return route.continue();
-    const path = new URL(request.url()).pathname.replace(/^\/api(?=\/)/, "");
+    const url = new URL(request.url());
+    const path = url.pathname.replace(/^\/api(?=\/)/, "");
     if (path === "/auth/me") return route.fulfill({ json: { user: { id: 1, email: "e2e@local.test", display_name: "测试用户", has_avatar: false } } });
     if (path === "/system/database-status") return route.fulfill({ json: { status: "ready" } });
     if (path === "/agent/kernels") return route.fulfill({ json: { default_kernel: "tuantuan", choices: [] } });
     if (path === "/channels/weixin") return route.fulfill({ json: { connected: false, enabled: false, error: "" } });
-    if (path === "/conversations" && request.method() === "POST") {
-      expect(request.postDataJSON()).toEqual({ title: "图片创作", kernel: "tuantuan" });
-      created = true;
-      return route.fulfill({ json: conversation });
-    }
-    if (path === "/conversations") return route.fulfill({ json: created ? [conversation] : [] });
-    if (path === "/chat/messages") return route.fulfill({ json: savedMessages });
+    if (path === "/conversations" || path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/agent/runs/current") return route.fulfill({ json: { run: null } });
     if (path === "/agent/capabilities") return route.fulfill({ json: { configured: true, tools: [] } });
     if (path === "/attachments/config") return route.fulfill({ json: { storage: "local", vision_enabled: false, checks: [] } });
-    if (path === "/ag-ui") {
-      generationCalls += 1;
-      const body = request.postDataJSON();
-      const content = body.messages[body.messages.length - 1].content;
-      expect(content).toBe("请生成一张图片：\n\n一只猫");
-      expect(body.forwardedProps).toMatchObject({ conversationId: 42, modelProfileId: null, skillId: null, webSearch: false });
-      await pending;
-      const userMessage = { id: 11, role: "user", content, created_at: "2026-11-18T00:00:00Z" };
-      const assistantMessage = { id: 12, role: "assistant", content: "", created_at: "2026-11-18T00:00:01Z", payload: { agent: { provider: "fixture", platform: "local", rounds: 1, status: "done", events: [], assets: [asset] } } };
-      savedMessages.push(userMessage, assistantMessage);
-      const events = [
-        { type: "RUN_STARTED", threadId: body.threadId, runId: body.runId },
-        { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
-        { type: "RUN_FINISHED", threadId: body.threadId, runId: body.runId }
-      ];
-      return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+    if (path === "/image-studio/options") return route.fulfill({ json: {
+      default_profile_id: "square-only", models: [
+        { id: "square-only", name: "默认图片模型", sizes: ["auto"] },
+        { id: "selected", name: "横图模型", sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"] },
+      ],
+    } });
+    if (path === "/image-studio/history") return route.fulfill({ json: { items: history.filter(t =>
+      (!url.searchParams.get("q") || t.prompt.includes(url.searchParams.get("q")!)) &&
+      (!url.searchParams.get("status") || t.status === url.searchParams.get("status"))
+    ), has_more: false } });
+    if (path === "/image-studio/generate") {
+      const body = request.postDataJSON() as StudioRequest;
+      expect(body.request_id).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024" });
+      expect(requests.some(prior => prior.request_id === body.request_id)).toBe(false);
+      requests.push(body);
+      history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [image(`result-${requests.length}`, `海报-${requests.length}.png`)] });
+      return route.fulfill({ status: 202, json: { id: body.request_id } });
     }
-    if (path === "/chat-assets/fixture-image/file" || path === "/chat-assets/fixture-image/thumbnail") {
-      authorizedImageRead = request.headers().authorization === "Bearer e2e-token";
-      return route.fulfill({ contentType: "image/png", body: png });
+    if (path.startsWith("/image-studio/tasks/")) {
+      const task = history.find(t => t.id === path.split("/").pop());
+      return task ? route.fulfill({ json: task }) : route.fulfill({ status: 404, json: { detail: "任务不存在" } });
+    }
+    if (path === "/chat-assets/result-1/edits") {
+      const body = request.postDataJSON();
+      expect(body).toMatchObject({ mode: "edit", prompt: "把背景改成暖橙色" });
+      const edited = image("edited", "海报-定稿.png");
+      history.unshift({ ...history.find(t => t.assets[0].id === "result-1")!, id: body.operation_id, prompt: body.prompt, assets: [edited], source_asset_id: "result-1" });
+      return route.fulfill({ json: { assets: [edited], conversation_id: 42, message_id: 44 } });
+    }
+    if (path === "/image-studio/works") return route.fulfill({ json: { items: works } });
+    if (path === "/image-studio/works/edited" && request.method() === "POST") {
+      if (!works.length) works.push({ id: "final-work", asset: image("edited", "海报-定稿.png"), created_at });
+      return route.fulfill({ json: works[0] });
+    }
+    if (/^\/chat-assets\/(?:result-\d+|edited)\/(?:file|thumbnail)$/.test(path) || /^\/image-studio\/works\/final-work\/(?:file|thumbnail)$/.test(path)) {
+      expect(request.headers().authorization).toBe("Bearer image-workspace-fixture");
+      const resultIndex = Number(/result-(\d+)/.exec(path)?.[1]) - 1;
+      const name = art[resultIndex] || art[3];
+      const body = await readFile(resolve("e2e/fixtures", `${name}.webp`));
+      reads.push(path);
+      return route.fulfill({ contentType: "image/webp", body });
     }
     return route.fulfill({ status: 404, json: { detail: `Unhandled fixture route: ${path}` } });
   });
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/#/images`);
-  await expect(page.getByRole("heading", { name: "让想法成为画面" })).toBeVisible();
-  const prompt = page.getByRole("textbox", { name: "画面描述" });
-  await prompt.fill("一只猫");
-  await expect(page.getByRole("button", { name: "生成图片", exact: true })).toBeEnabled();
-  const output = resolve("..", "tmp", "image-workspace");
-  await mkdir(output, { recursive: true });
-  await page.getByRole("heading", { name: "让想法成为画面" }).click();
-  await page.screenshot({ path: resolve(output, "desktop.png"), animations: "disabled" });
-  await page.getByRole("button", { name: /当前浅色，点击切换到深色/ }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.screenshot({ path: resolve(output, "dark.png"), animations: "disabled" });
-  await page.getByRole("button", { name: /当前深色，点击切换到主题色蓝/ }).click();
-  await page.getByRole("button", { name: /当前主题色蓝，点击切换到浅色/ }).click();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await expect(prompt).toBeVisible();
-  await page.screenshot({ path: resolve(output, "mobile.png"), fullPage: true, animations: "disabled" });
-  await page.setViewportSize({ width: 1440, height: 900 });
-
-  await page.getByRole("button", { name: "生成图片", exact: true }).click();
-  await expect(page.getByRole("button", { name: "正在生成…" })).toBeDisabled();
-  const nav = page.getByRole("navigation", { name: "主导航" });
-  await nav.getByRole("button", { name: "视频" }).click();
-  await nav.getByRole("button", { name: "对话" }).click();
-  await expect(page).toHaveURL(/#\/chat\/42$/);
-  await nav.getByRole("button", { name: "图片" }).click();
-  await expect(prompt).toHaveValue("一只猫");
-  await expect(page.getByText("正在生成图片，请稍候…")).toBeVisible();
-  release();
-  await expect(page.getByRole("img", { name: "生成图片-1.png" })).toBeVisible();
-  expect(authorizedImageRead).toBe(true);
-  expect(generationCalls).toBe(1);
-  await page.getByRole("button", { name: "查看原图 生成图片-1.png" }).first().click();
-  await expect(page.getByRole("dialog", { name: "生成图片-1.png 原图预览" })).toBeVisible();
-  await page.getByRole("button", { name: "关闭原图预览" }).click();
+  const workspace = page.getByRole("region", { name: "图片创作工作台" });
+  const prompt = workspace.getByRole("textbox", { name: "画面描述" });
+  const model = workspace.getByRole("combobox", { name: "图片模型" });
+  const size = workspace.getByRole("combobox", { name: "生成画幅" });
+  await model.selectOption("selected");
+  await size.selectOption("1536x1024");
+  const prompts = ["夏日音乐节海报·第一稿", "夏日音乐节海报·第二稿", "夏日音乐节海报·第三稿"];
+  for (const text of prompts) {
+    await prompt.fill(text);
+    const submit = workspace.getByRole("button", { name: "生成图片", exact: true });
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    const tile = workspace.getByRole("article").filter({ has: page.getByRole("button", { name: `查看 ${text}`, exact: true }) });
+    await expect(tile.getByText("已完成", { exact: true })).toBeVisible();
+  }
+  expect(requests.map(item => item.prompt)).toEqual(prompts);
+  await page.reload();
+  const first = workspace.getByRole("button", { name: `查看 ${prompts[0]}`, exact: true });
+  await expect(first).toBeVisible();
+  await first.click();
+  await page.getByRole("button", { name: "复用设置", exact: true }).click();
+  await expect(prompt).toHaveValue(prompts[0]);
+  await expect(model).toHaveValue("selected");
+  await expect(size).toHaveValue("1536x1024");
+  await first.click();
+  await page.getByRole("button", { name: "编辑图片", exact: true }).click();
+  const editPrompt = page.getByRole("textbox", { name: "修改要求" });
+  await editPrompt.fill("把背景改成暖橙色");
+  await expect(editPrompt).toHaveCSS("box-shadow", "none");
+  await expect(editPrompt).toHaveCSS("resize", "none");
+  const editSubmit = page.getByRole("button", { name: "生成新版本", exact: true });
+  await expect(editSubmit).toBeEnabled();
+  await page.screenshot({ path: resolve(output, "edit.png"), animations: "disabled" });
+  await editSubmit.click();
+  const archive = page.getByRole("button", { name: "归档到我的作品", exact: true });
+  await archive.click();
+  await expect.poll(() => works.length).toBe(1);
+  await page.getByRole("button", { name: "已归档 · 查看作品", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible();
+  await expect(page.getByText("海报-定稿.png", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "查看作品", exact: true }).click();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "下载原图 生成图片-1.png" }).click();
-  expect((await download).suggestedFilename()).toBe("生成图片-1.png");
-  await page.getByRole("button", { name: "查看所属对话" }).click();
-  await expect(page).toHaveURL(/#\/chat\/42$/);
-  await expect(page.locator(".chat-thread")).toContainText("一只猫");
+  await page.getByRole("dialog", { name: "作品详情" }).getByRole("button", { name: "下载原图", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("海报-定稿.png");
+  expect(reads).toContain("/image-studio/works/final-work/file");
+  expect(reads.some(path => path.startsWith("/chat-assets/result-1/"))).toBe(true);
+
+  await page.getByRole("button", { name: "关闭详情" }).click();
+  await expect(page.getByRole("region", { name: "我的作品" }).locator("img").first()).toBeVisible();
+  await page.screenshot({ path: resolve(output, "works.png"), animations: "disabled" });
+  await page.goto(`${origin}/#/images`);
+  await expect(first).toBeVisible();
+  await page.screenshot({ path: resolve(output, "desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(prompt).toBeInViewport();
+  await expect(workspace.getByRole("button", { name: "生成图片", exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: resolve(output, "mobile.png"), animations: "disabled" });
 });

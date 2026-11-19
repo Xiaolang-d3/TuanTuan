@@ -1254,7 +1254,7 @@ export function App({
         }}
       />
 
-      <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${topbarTitle ? "" : " is-titleless"}`}>
+      <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${appRoute.section === "images" || appRoute.section === "works" ? " image-studio-host" : ""}${topbarTitle ? "" : " is-titleless"}`}>
         {activeView !== "dashboard" ? <AppTopBar
           section={topbarSection}
           title={topbarTitle}
@@ -1281,6 +1281,9 @@ export function App({
             accessToken={accessToken}
             fetchJson={fetchJson}
             ready={databaseReady}
+            active={appRoute.section === "images"}
+            accountKey={userEmail}
+            onOpenWorks={() => navigateRoute({ section: "works" })}
             refreshConversations={refreshConversations}
             onLibraryChanged={refreshLibrary}
             onOpenConversation={(conversationId) => {
@@ -1311,9 +1314,12 @@ export function App({
           onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
         /> : null}
         {appRoute.section === "works" ? <WorksPage
-          onOpenChat={() => selectProductNav("chat")}
-          onOpenLibrary={() => selectProductNav("library")}
-          onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+          key={`${apiBase}:${userEmail}`}
+          apiBase={apiBase}
+          accessToken={accessToken}
+          fetchJson={fetchJson}
+          ready={databaseReady}
+          onOpenImages={() => navigateRoute({ section: "images" })}
         /> : null}
 
         {appRoute.section === "settings" ? (
