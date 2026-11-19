@@ -113,7 +113,8 @@ jobs:
         working-directory: backend
         env:
           EMBEDDING_BACKEND: hash
-        run: python -m pytest tests -q --junitxml=pytest-report.xml
+        # Keep tests from each file together while running the full suite.
+        run: python -m pytest tests -q -n 2 --dist loadfile --durations=20 --junitxml=pytest-report.xml
       - name: Summarize failing backend tests
         if: failure()
         working-directory: backend
