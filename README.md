@@ -17,9 +17,7 @@
 
 ```mermaid
 flowchart TB
-    Web["Web · React"] --> Backend
-    Desktop["桌面端 · Tauri"] --> Backend
-    WeChat["微信 · iLink"] --> Backend
+    Web["Web 前端 · React"] --> Backend
 
     Backend["FastAPI 后端<br/>账号鉴权 · 接收请求 · 流式返回"] --> Agent
     Agent["Agent 任务编排<br/>理解请求 · 检索资料 · 调用工具"]
@@ -30,7 +28,7 @@ flowchart TB
     class Backend,Agent core
 ```
 
-图中展示的是一次任务的主路径：用户从 Web、桌面端或微信发起请求，Agent 按需读取资料、调用模型和工具，再返回回答或生成文档、PPT、图片等成果。桌面端在独立仓库维护。
+用户从 Web 发起请求，Agent 按需读取资料、调用模型和工具，再返回回答或生成文档、PPT、图片等成果。
 
 ## 技术栈
 
