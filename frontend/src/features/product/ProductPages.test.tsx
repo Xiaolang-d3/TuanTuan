@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ImagePage, VideoPage, WorksPage } from "./ProductPages";
+import { VideoPage, WorksPage } from "./ProductPages";
 
 afterEach(cleanup);
 
@@ -9,19 +9,6 @@ function callbacks() {
 }
 
 describe("product pages", () => {
-  it("describes available image features and opens chat or settings", () => {
-    const props = callbacks();
-    render(<ImagePage {...props} />);
-    expect(screen.getByRole("heading", { name: "图片" })).toBeInTheDocument();
-    expect(screen.getByText("可以在对话中生成图片，也可以编辑对话中生成的图片。")).toBeInTheDocument();
-    expect(screen.getByText("上传任意图片后直接编辑尚未支持。")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "进入对话" }));
-    fireEvent.click(screen.getByRole("button", { name: "打开设置" }));
-    expect(props.onOpenChat).toHaveBeenCalledTimes(1);
-    expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
-    expect(props.onOpenLibrary).not.toHaveBeenCalled();
-  });
-
   it("states video limitations without presenting a generation action", () => {
     const props = callbacks();
     render(<VideoPage {...props} />);

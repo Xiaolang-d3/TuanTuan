@@ -54,6 +54,20 @@ it.each([undefined, null, "selected-id"])("distinguishes inherited, cleared and 
   else expect(forwarded).toHaveProperty("skillId", selection);
 });
 
+it("ignores a conversation refresh that becomes stale while its messages load", async () => {
+  const { result, fetchJson, currentConversationIdRef } = setup();
+  let resolveMessages!: (messages: ChatMessage[]) => void;
+  fetchJson.mockImplementation((path: string) => path.startsWith("/chat/messages")
+    ? new Promise<ChatMessage[]>(resolve => { resolveMessages = resolve; })
+    : Promise.resolve({ run: null }));
+  let pending!: Promise<unknown>;
+  act(() => { pending = result.current.refreshChat(1, () => currentConversationIdRef.current === 1); });
+  currentConversationIdRef.current = 2;
+  await act(async () => { resolveMessages([userMessage, assistantMessage]); await pending; });
+  expect(result.current.chatMessages).toEqual([]);
+  expect(result.current.retryChatDraft).toBeNull();
+});
+
 describe("attachment original loading", () => {
   it("authenticates original-file reads, forwards cancellation and loads historical Word text", async () => {
     const { result, fetchJson } = setup();
