@@ -823,15 +823,21 @@ describe("ChatWorkspace", () => {
     const writeText = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     renderChat([message, assistantMessage("助手回答")]);
-    fireEvent.click(screen.getByRole("button", { name: "复制消息" }));
-    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
+    const copyMessage = screen.getByRole("button", { name: "复制消息" });
+    const copyAnswer = screen.getByRole("button", { name: "复制回答" });
+    fireEvent.click(copyMessage);
+    fireEvent.click(copyAnswer);
     expect(await screen.findByText("正在复制其他消息，请稍后重试")).toBeVisible();
     expect(writeText).toHaveBeenCalledTimes(1);
     await act(async () => resolveCopy());
+    expect(copyMessage).toHaveAttribute("title", "已复制");
+
     writeText.mockResolvedValueOnce(undefined);
-    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("助手回答"));
-    expect(await screen.findAllByText("已复制")).toHaveLength(2);
+    await act(async () => { fireEvent.click(copyAnswer); });
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(writeText).toHaveBeenLastCalledWith("助手回答");
+    expect(copyAnswer).toHaveAttribute("title", "已复制");
+    expect(screen.getAllByText("已复制")).toHaveLength(2);
   });
 
   it("does not show an old copy result after the message changes", async () => {
