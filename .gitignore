@@ -45,10 +45,6 @@ source-loop-implementation.png
 .idea/
 .vscode/
 
-# Promptfoo eval artifacts
-evals/.promptfoo/
-evals/promptfoo-errors.log
-
 # Isolated feature worktrees
 .worktrees/
 

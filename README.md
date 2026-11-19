@@ -99,24 +99,25 @@ flowchart TB
 - **后端**：Python 3.11+、FastAPI、Uvicorn、Pydantic；模型接入统一走 LiteLLM 与 OpenAI SDK
 - **桌面端**：Tauri 2、Rust；在 [独立仓库](https://github.com/Xiaolang-d3/TuanTuan-Desktop)维护，使用固定版本的本仓库前后端
 - **数据与存储**：SQLite、sqlite-vec，可选 MinIO
-- **评测**：Promptfoo
+- **测试**：pytest（含 Agent 离线评测）、Vitest、Playwright
 
 ## 项目结构
 
 ```text
 TuanTuan/
-├── backend/             # FastAPI 服务
-│   ├── app/             # 对话编排、资料库、任务与模型适配
-│   └── tests/           # 后端测试
+├── .github/             # GitHub 协作与自动化
+│   ├── workflows/       # CI、CD 和版本发布
+│   └── skills/          # 部署维护手册
+├── backend/             # FastAPI 与业务逻辑
+│   ├── app/
+│   ├── tests/
+│   │   └── eval_cases/  # Agent 离线评测用例，随 pytest 运行
+│   └── scripts/         # 后端依赖安装、检查和构建工具
 ├── frontend/            # React 前端
-│   ├── src/             # 页面、组件与状态
-│   ├── e2e/             # Playwright 端到端测试
-│   └── public/          # 静态资源
-├── evals/               # 离线评测
-│   ├── cases/           # 评测用例
-│   └── providers/       # 评测服务适配
-├── scripts/             # 本地启动、停止入口与 CI/CD 辅助脚本
-└── .github/workflows/   # CI/CD 工作流
+│   ├── src/
+│   ├── public/
+│   └── e2e/             # Playwright 浏览器验收
+└── scripts/             # 本地启动、停止入口与 CI/CD 辅助脚本
 ```
 
 ## 快速开始
@@ -125,7 +126,7 @@ TuanTuan/
 ./scripts/dev.sh
 ```
 
-本地启动前后端；配置示例见 `backend/.env.example`，停止服务使用 `./scripts/stop-dev.sh`。
+本地启动前后端；配置示例见 [`backend/.env.example`](backend/.env.example)，停止服务使用 `./scripts/stop-dev.sh`。本地启动不需要 Docker；使用可选 MinIO 时，按配置示例启动 [Compose 配置](backend/docker-compose.minio.yml)。生产发布和恢复参见[部署维护手册](.github/skills/tuantuan-deploy/SKILL.md)。
 
 ### PPT 运行包
 
