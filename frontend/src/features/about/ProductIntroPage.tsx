@@ -5,6 +5,7 @@ import { ProductDemo } from "./ProductDemo";
 import "./product-intro.css";
 
 export function ProductIntroPage({ returnHash, signedIn = false, showPrivacy = false }: { returnHash: string; signedIn?: boolean; showPrivacy?: boolean }) {
+  const pageRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const experienceRef = useRef<HTMLElement>(null);
   const workflowRef = useRef<HTMLElement>(null);
@@ -20,6 +21,7 @@ export function ProductIntroPage({ returnHash, signedIn = false, showPrivacy = f
   useEffect(() => {
     const section = showPrivacy ? privacyRef.current : headingRef.current;
     if (showPrivacy) section?.scrollIntoView?.({ behavior: "instant", block: "start" });
+    else pageRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
     section?.focus({ preventScroll: true });
   }, [showPrivacy]);
 
@@ -29,7 +31,7 @@ export function ProductIntroPage({ returnHash, signedIn = false, showPrivacy = f
   }
 
   return (
-    <main className="product-intro-page">
+    <main className="product-intro-page" ref={pageRef}>
       <header className="product-intro-header">
         <div className="product-intro-header-inner">
           <a className="product-intro-brand" href={returnHash} aria-label="团团 入口">
