@@ -58,7 +58,6 @@ def configured_sources(repositories: list[str]) -> list[Source]:
         Source("deepseek-news", "DeepSeek 官方动态", "news", "https://www.deepseek.com/en/news/", 21600, publisher="DeepSeek", adapter="publisher_html", article_prefixes=("/en/news/",)),
         Source("qwen-news", "千问官方动态", "news", "https://qwen.ai/api/v2/article/retrieval?type=qwen_ai&language=zh-CN", 21600, publisher="千问", adapter="qwen"),
         Source("hunyuan-news", "混元官方动态", "news", "https://api.hunyuan.tencent.com/api/blog/publicList", 21600, publisher="混元", adapter="hunyuan", request_body=(("pageNum", 1), ("pageSize", 20), ("renderType", 0))),
-        Source("huggingface-news", "Hugging Face 模型社区", "news", "https://huggingface.co/blog/feed.xml", 21600, publisher="Hugging Face"),
         Source("openrouter-news", "OpenRouter 跨厂商动态", "news", "https://openrouter.ai/blog/feed.xml", 21600, publisher="OpenRouter"),
         *([Source("market-news-v1", "全市场模型发现", "news", "", 21600, adapter="market_search")] if market.enabled() else []),
         *([Source("aa-data-api-v2", "Artificial Analysis 官方评测", "benchmark", benchmarks.API_URL, 21600, adapter="aa_api")] if benchmarks.configured() else []),
