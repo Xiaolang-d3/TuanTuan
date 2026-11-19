@@ -21,7 +21,8 @@ import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
 import { useConversations } from "../features/chat/useConversations";
 import { useKernels } from "../features/chat/useKernels";
-import { ImagePage, VideoPage, WorksPage } from "../features/product/ProductPages";
+import { VideoPage, WorksPage } from "../features/product/ProductPages";
+import { ImageWorkspacePage } from "../features/product/ImageWorkspacePage";
 import { useLibrary } from "../features/library/useLibrary";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
@@ -183,6 +184,8 @@ export function App({
   const [avatarEpoch, setAvatarEpoch] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("tuantuan-sidebar", userEmail) === "collapsed");
   const [appRoute, setAppRoute] = useState<AppRoute>(() => initialAppRoute(window.location.hash));
+  const [visitedImageWorkspace, setVisitedImageWorkspace] = useState(appRoute.section === "images");
+  useEffect(() => { if (appRoute.section === "images") setVisitedImageWorkspace(true); }, [appRoute.section]);
   const activeView: ViewKey = appRoute.section;
   const workspaceLibraryOpen = appRoute.section === "chat" && appRoute.page === "library";
   const currentConversationIdRef = useRef<number | null>(null);
@@ -1271,11 +1274,37 @@ export function App({
           </Suspense>
         ) : null}
 
-        {appRoute.section === "images" ? <ImagePage
-          onOpenChat={() => selectProductNav("chat")}
-          onOpenLibrary={() => selectProductNav("library")}
-          onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
-        /> : null}
+        {visitedImageWorkspace || appRoute.section === "images" ? <div hidden={appRoute.section !== "images"}>
+          <ImageWorkspacePage
+            key={`${apiBase}:${userEmail}`}
+            apiBase={apiBase}
+            accessToken={accessToken}
+            fetchJson={fetchJson}
+            ready={databaseReady}
+            refreshConversations={refreshConversations}
+            onLibraryChanged={refreshLibrary}
+            onOpenConversation={(conversationId) => {
+              const routeAtClick = window.location.hash;
+              const selectedAtClick = currentConversationIdRef.current;
+              const stillOpening = () => window.location.hash === routeAtClick && currentConversationIdRef.current === selectedAtClick;
+              void (async () => {
+                await refreshConversations();
+                if (!stillOpening()) return;
+                // The active chat may already be this conversation from a prior
+                // image; selecting the same ID alone does not reload its history.
+                if (currentConversationIdRef.current === conversationId && !chatAgentRef.current) {
+                  await refreshChat(conversationId, () => stillOpening() && !chatAgentRef.current);
+                }
+                if (!stillOpening()) return;
+                setCurrentConversationId(conversationId);
+                navigateRoute({ section: "chat", conversationId });
+              })().catch((error: unknown) => {
+                if (stillOpening()) setErrorMessage(error instanceof Error ? error.message : "打开对话失败");
+              });
+            }}
+            onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+          />
+        </div> : null}
         {appRoute.section === "video" ? <VideoPage
           onOpenChat={() => selectProductNav("chat")}
           onOpenLibrary={() => selectProductNav("library")}

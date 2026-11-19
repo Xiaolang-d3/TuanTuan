@@ -1,4 +1,4 @@
-import { GalleryThumbnails, Image, Library, MessageCircle, Settings, Video } from "lucide-react";
+import { GalleryThumbnails, Library, MessageCircle, Settings, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import "./product-pages.css";
 
@@ -17,23 +17,6 @@ function Page({ title, icon, children }: { title: string; icon: ReactNode; child
         {children}
       </div>
     </section>
-  );
-}
-
-export function ImagePage({ onOpenChat, onOpenSettings }: ProductPageProps) {
-  return (
-    <Page title="图片" icon={<Image size={24} />}>
-      <p className="product-page-lead">在对话中把想法变成图片。</p>
-      <div className="product-page-details">
-        <h2>现在可以做什么</h2>
-        <p>可以在对话中生成图片，也可以编辑对话中生成的图片。</p>
-        <p>上传任意图片后直接编辑尚未支持。</p>
-      </div>
-      <div className="product-page-actions">
-        <button className="product-page-primary" type="button" onClick={onOpenChat}><MessageCircle size={16} aria-hidden="true" />进入对话</button>
-        <button type="button" onClick={onOpenSettings}><Settings size={16} aria-hidden="true" />打开设置</button>
-      </div>
-    </Page>
   );
 }
 

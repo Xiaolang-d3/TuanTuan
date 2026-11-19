@@ -203,7 +203,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     }
     await navigation.getByRole("button", { name: "图片", exact: true }).click();
     await expect(page).toHaveURL(/#\/images$/);
-    await expect(page.getByRole("heading", { name: "图片", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "让想法成为画面", exact: true })).toBeVisible();
     await navigation.getByRole("button", { name: "视频", exact: true }).click();
     await expect(page.getByText("视频生成尚未接入。")).toBeVisible();
     await navigation.getByRole("button", { name: "我的作品", exact: true }).click();

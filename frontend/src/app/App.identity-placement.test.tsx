@@ -252,7 +252,7 @@ describe("App identity placement", () => {
     expect(window.location.hash).toBe("#/settings");
   });
   it.each([
-    ["#/images", "图片", "图片"],
+    ["#/images", "让想法成为画面", "图片"],
     ["#/video", "视频", "视频"],
     ["#/works", "我的作品", "我的作品"]
   ])("opens %s as an addressable product page", async (hash, heading, label) => {
