@@ -1,182 +1,91 @@
-import { useEffect, useId, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
-import { ArrowRight, Download, Image as ImageIcon, LoaderCircle, Maximize2, MessageCircle, RotateCcw, Settings2, Sparkles, X } from "lucide-react";
-import { downloadBlob } from "../chat/result-files";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowUp, GalleryHorizontalEnd, Image as ImageIcon, Pencil, RefreshCw, Settings2 } from "lucide-react";
 import type { ChatAttachment } from "../chat/types";
+import type { ImagePageActions } from "./ImageWorkspacePage";
+import type { StudioModel, StudioTask } from "./imageStudioApi";
+import { StudioThumb } from "./StudioMedia";
+import { StudioTaskDetail } from "./StudioTaskDetail";
+import { failureMessage, sizeText, statusText, useImageWorkspace, useStudioHistory, type StudioApi, type StatusFilter } from "./useImageWorkspace";
 import "./ImageWorkspace.css";
 
-export type ImageWorkspaceProps = {
-  ready: boolean;
-  busy: boolean;
-  error: string | null;
-  images: ChatAttachment[];
-  resultPrompt?: string | null;
-  hasConversation: boolean;
-  onGenerate: (prompt: string) => Promise<void>;
-  onOpenConversation: () => void;
-  onOpenSettings: () => void;
-  onLoadImage: (asset: ChatAttachment, signal?: AbortSignal) => Promise<Blob>;
-};
-
-const examples = [
-  { label: "旅行海报", prompt: "一张安静的海边旅行海报，远处是灯塔和起伏的海岸线，清晨的柔和光线，留白构图。" },
-  { label: "产品静物", prompt: "一只陶瓷咖啡杯放在木桌上，旁边有一本翻开的书，窗边自然光，温暖而简洁的静物摄影。" },
-  { label: "童话插画", prompt: "一只小狐狸在雨后的森林里散步，蘑菇和蕨叶上挂着水珠，温柔细腻的绘本插画。" },
-];
-
-type ImageData = { blob: Blob; url: string };
-
-function ResultImage({ asset, onLoadImage }: { asset: ChatAttachment; onLoadImage: ImageWorkspaceProps["onLoadImage"] }) {
-  const loaderRef = useRef(onLoadImage);
-  loaderRef.current = onLoadImage;
-  const assetRef = useRef(asset);
-  assetRef.current = asset;
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const [image, setImage] = useState<ImageData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let objectUrl = "";
-    setLoading(true);
-    setLoadError("");
-    setImage(null);
-    setPreviewOpen(false);
-    async function load() {
-      try {
-        const blob = await loaderRef.current(assetRef.current, controller.signal);
-        if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob);
-        setImage({ blob, url: objectUrl });
-      } catch (reason) {
-        if (!controller.signal.aborted) setLoadError(reason instanceof Error && reason.message ? reason.message : "图片加载失败，请重试");
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }
-    void load();
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [asset.id, attempt]);
-
-  useEffect(() => {
-    if (!previewOpen) return;
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeRef.current?.focus();
-    return () => { if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }); };
-  }, [previewOpen]);
-
-  function handleDialogKeys(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      setPreviewOpen(false);
-    } else if (event.key === "Tab" && dialogRef.current) {
-      const controls = Array.from(dialogRef.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-      const first = controls[0], last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    }
+const examples=[['活动海报','为夏日音乐节画一张海报，以紫色行星为主视觉，顶部留出标题位置。'],['商品封面','拍一张陶瓷咖啡杯的产品照，木质桌面，窗边柔光。'],['绘本插画','小狐狸在雨后的森林里散步，植物挂着水珠，温暖的绘本风格。']];
+function defaultSize(m?:StudioModel){return m?.sizes.includes("auto")?"auto":m?.sizes[0]||"";}
+function atTime(raw:string){const d=new Date(raw);return isNaN(d.valueOf())?raw:d.toLocaleString(undefined,{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});}
+function storedDraft(key:string){try{return sessionStorage.getItem(key)||"";}catch{return "";}}
+export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWorks,onOpenConversation,refreshConversations,onLibraryChanged}:ImagePageActions & {api:StudioApi;enabled:boolean}) {
+  const storageKey=`tuantuan:image-studio:draft:${accountKey}`;
+  const [draft,setDraft]=useState(()=>storedDraft(storageKey));const input=useRef<HTMLTextAreaElement>(null);
+  const [canEdit,setCanEdit]=useState(true);
+  const [models,setModels]=useState<StudioModel[]>([]),[selection,setSelection]=useState({profile:"",size:""});
+  const [optionsBusy,setOptionsBusy]=useState(true),[optionError,setOptionError]=useState("");
+  const [refresh,setRefresh]=useState(0),[retryOptions,setRetryOptions]=useState(0),[notice,setNotice]=useState("");
+  const [focus,setFocus]=useState<{task:StudioTask;edit:boolean}|null>(null),[detailError,setDetailError]=useState("");
+  const [saved,setSaved]=useState<ReadonlySet<string>>(new Set());
+  const detailQuery=useRef<AbortController|null>(null);
+  const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;detailQuery.current?.abort();};},[]);
+  useEffect(()=>{if(!enabled){detailQuery.current?.abort();setFocus(null);}},[enabled]);
+  const selected=models.find(m=>m.id===selection.profile);
+  const history=useStudioHistory(api,enabled,refresh);
+  const refreshHistory=useCallback(()=>setRefresh(r=>r+1),[]);
+  const run=useImageWorkspace(api,enabled,accountKey,()=>{refreshHistory();void refreshConversations().catch(()=>{});});
+  useEffect(()=>{
+    if(!enabled)return;const c=new AbortController();setOptionsBusy(true);setOptionError("");
+    api.options(c.signal).then(result=>{
+      if(c.signal.aborted)return;
+      setModels(result.models);setCanEdit(result.can_edit!==false);setSelection(old=>{
+        const preferred=result.models.find(m=>m.id===old.profile)||result.models.find(m=>m.id===result.default_profile_id)||result.models[0];
+        if(!preferred)return {profile:"",size:""};return {profile:preferred.id,size:old.profile===preferred.id&&preferred.sizes.includes(old.size)?old.size:defaultSize(preferred)};
+      });
+    }).catch(e=>{if(!c.signal.aborted)setOptionError(failureMessage(e));}).finally(()=>{if(!c.signal.aborted)setOptionsBusy(false);});
+    api.works(c.signal).then(({items})=>{if(!c.signal.aborted)setSaved(new Set(items.map(x=>x.asset.id)));}).catch(()=>{/* Archive remains idempotent if works cannot be preloaded. */});
+    return ()=>c.abort();
+  },[api,enabled,retryOptions]);
+  useEffect(()=>{try{if(draft)sessionStorage.setItem(storageKey,draft);else sessionStorage.removeItem(storageKey);}catch{/* optional local draft */}},[storageKey,draft]);
+  function fillDraft(prompt:string,task?:StudioTask){
+    if(draft.trim()&&draft!==prompt&&!window.confirm("替换当前草稿？尚未提交的文字将被替换。"))return;
+    setDraft(prompt);setFocus(null);setDetailError("");let message="已填入创作栏，尚未生成。";
+    if(task){const m=models.find(x=>x.id===task.profile_id);
+      if(!m) {setSelection({profile:"",size:""});message="原模型已不可用或未记录。已复用描述，请重新选择模型和画幅。";}
+      else if(!m.sizes.includes(task.size)){setSelection({profile:m.id,size:""});message="原画幅不可用或未记录。已复用模型和描述，请重新选择画幅。";}
+      else setSelection({profile:m.id,size:task.size});}
+    setNotice(message);requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));
   }
-
-  function download() {
-    if (image) downloadBlob(image.blob, asset.original_filename);
+  const canGenerate=enabled&&!run.busy&&!optionsBusy&&!optionError&&!!selected?.sizes.includes(selection.size)&&!!draft.trim();
+  async function generate(e:FormEvent){e.preventDefault();if(!canGenerate||!selected)return;setNotice("");
+    const original=draft, values={prompt:original.trim(),profile_id:selected.id,size:selection.size};
+    const ok=await run.submit(values,selected.name,id=>api.generate({...values,request_id:id}));
+    if(ok&&mounted.current)setDraft(current=>current===original?"":current);
   }
-
-  const dimensions = asset.width && asset.height && asset.width > 0 && asset.height > 0
-    ? `${asset.width} × ${asset.height}` : null;
-  return <figure className="image-workspace-result">
-    <div className="image-workspace-result-media">
-      {loading ? <div className="image-workspace-image-state" role="status"><LoaderCircle className="image-workspace-spin" size={20} aria-hidden="true" /><span>正在加载图片…</span></div>
-        : loadError ? <div className="image-workspace-image-state"><p role="alert">{loadError}</p><button type="button" onClick={() => setAttempt(value => value + 1)}><RotateCcw size={14} aria-hidden="true" />重新加载</button></div>
-        : image ? <button className="image-workspace-image-button" type="button" onClick={() => setPreviewOpen(true)} aria-label={`查看原图 ${asset.original_filename}`}>
-          <img src={image.url} alt={asset.original_filename} onError={() => setLoadError("图片无法显示，请重新加载或下载原图")}/>
-          <span className="image-workspace-expand" aria-hidden="true"><Maximize2 size={15} /></span>
-        </button> : null}
-    </div>
-    <figcaption className="image-workspace-result-caption">
-      <div className="image-workspace-file-info"><span title={asset.original_filename}>{asset.original_filename}</span>{dimensions ? <small>{dimensions}</small> : null}</div>
-      <div className="image-workspace-result-actions">
-        <button type="button" onClick={() => setPreviewOpen(true)} disabled={!image || !!loadError} aria-label={`查看原图 ${asset.original_filename}`}><Maximize2 size={15} aria-hidden="true" /><span>查看原图</span></button>
-        <button type="button" onClick={download} disabled={!image} aria-label={`下载原图 ${asset.original_filename}`}><Download size={15} aria-hidden="true" /><span>下载原图</span></button>
-      </div>
-    </figcaption>
-    {previewOpen && image ? <div className="image-workspace-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewOpen(false); }}>
-      <div ref={dialogRef} className="image-workspace-dialog" role="dialog" aria-modal="true" aria-label={`${asset.original_filename} 原图预览`} onKeyDown={handleDialogKeys}>
-        <div className="image-workspace-dialog-bar"><span title={asset.original_filename}>{asset.original_filename}</span><div>
-          <button type="button" onClick={download}><Download size={16} aria-hidden="true" />下载原图</button>
-          <button ref={closeRef} type="button" onClick={() => setPreviewOpen(false)} aria-label="关闭原图预览"><X size={19} aria-hidden="true" /></button>
-        </div></div>
-        <div className="image-workspace-dialog-image"><img src={image.url} alt={asset.original_filename} /></div>
-      </div>
-    </div> : null}
-  </figure>;
-}
-
-export function ImageWorkspace({ ready, busy, error, images, resultPrompt, hasConversation, onGenerate, onOpenConversation, onOpenSettings, onLoadImage }: ImageWorkspaceProps) {
-  const promptId = useId();
-  const [draft, setDraft] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const submissionRef = useRef(false);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const prompt = draft.trim();
-    if (!ready || busy || submissionRef.current || !prompt) return;
-    submissionRef.current = true;
-    setSubmitting(true);
-    setSubmitError("");
-    try {
-      await onGenerate(prompt);
-    } catch (reason) {
-      if (mountedRef.current) setSubmitError(reason instanceof Error && reason.message ? reason.message : "图片生成失败，请重试");
-    } finally {
-      submissionRef.current = false;
-      if (mountedRef.current) setSubmitting(false);
-    }
+  async function edit(task:StudioTask,asset:ChatAttachment,prompt:string){
+    const ok=await run.submit({prompt,profile_id:null,size:"auto"},"",async id=>{
+      await api.edit(asset.id,{operation_id:id,mode:"edit",prompt,strokes:[],comments:[],rotation:0,flip:false,width:asset.width||1024,height:asset.height||1024});
+      if(mounted.current)setFocus(old=>old?.task.id===task.id?{task:{...task,id,prompt,source_asset_id:asset.id,assets:[],status:"running",size:"auto",profile_id:null,model_name:""},edit:false}:old);
+    },asset.id);
+    if(mounted.current){setNotice(ok?"已提交新版本，原图已保留。":"请先核对当前任务状态，不会自动重新提交。");}
+    return ok;
   }
-
-  const generating = busy || submitting;
-  const shownError = error || submitError;
-  return <section className="image-workspace" aria-label="图片创作工作台">
-    <div className="image-workspace-inner">
-      <header className="image-workspace-header">
-        <div><div className="image-workspace-eyebrow"><Sparkles size={15} aria-hidden="true" />图片创作</div><h1>让想法成为画面</h1><p>用文字描述你想看到的，开始一次新的创作。</p></div>
-        <button className="image-workspace-settings" type="button" onClick={onOpenSettings}><Settings2 size={16} aria-hidden="true" />设置图片模型<ArrowRight size={14} aria-hidden="true" /></button>
-      </header>
-      <div className="image-workspace-layout">
-        <form className="image-workspace-compose" onSubmit={handleSubmit}>
-          <div className="image-workspace-section-heading"><div><span className="image-workspace-index">01 / 描述</span><h2>你想创作什么？</h2></div><div className="image-workspace-heading-icon" aria-hidden="true"><Sparkles size={18} /></div></div>
-          <label className="image-workspace-label" htmlFor={promptId}>画面描述</label>
-          <textarea id={promptId} value={draft} onChange={event => setDraft(event.target.value)} placeholder="描述主体、场景和你喜欢的氛围…" rows={7} />
-          <div className="image-workspace-examples"><p>从一个灵感开始</p><div>{examples.map(example => <button key={example.label} type="button" onClick={() => setDraft(example.prompt)}>{example.label}<ArrowRight size={13} aria-hidden="true" /></button>)}</div></div>
-          {shownError ? <p className="image-workspace-error" role="alert">{shownError}</p> : null}
-          <div className="image-workspace-compose-footer">
-            <p><span className="image-workspace-model-dot" aria-hidden="true" />优先使用默认图片模型</p>
-            <button className="image-workspace-generate" type="submit" disabled={!ready || generating || !draft.trim()}>{!ready ? <><LoaderCircle className="image-workspace-spin" size={17} aria-hidden="true" />正在准备…</> : generating ? <><LoaderCircle className="image-workspace-spin" size={17} aria-hidden="true" />正在生成…</> : <><Sparkles size={17} aria-hidden="true" />生成图片<ArrowRight size={16} aria-hidden="true" /></>}</button>
-          </div>
-        </form>
-        <section className="image-workspace-output" aria-label="生成结果" aria-busy={generating}>
-          <header className="image-workspace-output-header"><div><span className="image-workspace-index">02 / 画面</span><h2>最新生成</h2></div>{hasConversation ? <button type="button" className="image-workspace-conversation" onClick={onOpenConversation} disabled={generating}><MessageCircle size={15} aria-hidden="true" />查看所属对话<ArrowRight size={14} aria-hidden="true" /></button> : null}</header>
-          {generating ? <div className="image-workspace-progress" role="status"><LoaderCircle className="image-workspace-spin" size={16} aria-hidden="true" />正在生成图片，请稍候…</div> : null}
-          {images.length > 0 ? <>
-            <div className="image-workspace-grid">{images.map(asset => <ResultImage key={asset.id} asset={asset} onLoadImage={onLoadImage} />)}</div>
-            {resultPrompt?.trim() ? <details className="image-workspace-prompt"><summary>查看生成描述</summary><p>{resultPrompt}</p></details> : null}
-          </> : !generating ? <div className="image-workspace-empty"><div className="image-workspace-empty-icon" aria-hidden="true"><ImageIcon size={25} /><Sparkles size={14} /></div><h3>{shownError ? "这次没有生成图片" : "从一个想法开始"}</h3><p>{shownError ? "请根据提示检查后再试。" : "写下你的画面描述，生成的图片会出现在这里。"}</p></div> : null}
-        </section>
-      </div>
-    </div>
-  </section>;
+  function show(t:StudioTask,edit=false){detailQuery.current?.abort();setDetailError("");setFocus({task:t,edit});}
+  async function queryDetail(t:StudioTask){detailQuery.current?.abort();const c=new AbortController();detailQuery.current=c;setDetailError("");
+    try{const updated=await api.task(t.id,c.signal);if(!c.signal.aborted){setFocus(old=>old?.task.id===t.id?{...old,task:updated}:old);refreshHistory();}}
+    catch(e){if(!c.signal.aborted)setDetailError(`查询未完成：${failureMessage(e)}`);}
+  }
+  const current=focus?(focus.task.status==="running"&&run.recent?.id===focus.task.id?run.recent:focus.task):null;
+  const outstanding=run.recent;
+  const matchesRecent=outstanding&&(!history.status||history.status===outstanding.status)&&(!history.query.trim()||outstanding.prompt.toLowerCase().includes(history.query.trim().toLowerCase()));
+  const tasks=history.items.map(t=>outstanding?.id===t.id?outstanding:t).filter(t=>!history.status||history.status===t.status);
+  if(matchesRecent&&outstanding&&history.offset===0&&!tasks.some(t=>t.id===outstanding.id)&&(run.locked||run.receipt===outstanding.id))tasks.unshift(outstanding);
+  return <section className="studio" aria-label="图片创作工作台"><header className="studio-head"><div><p className="studio-kicker">创作空间</p><h1>图片创作</h1></div><button onClick={onOpenWorks}><GalleryHorizontalEnd size={16}/>我的作品</button></header>
+    <div className="studio-tools"><input type="search" role="textbox" aria-label="搜索创作记录" placeholder="搜索创作描述…" value={history.query} onChange={e=>history.search(e.target.value)}/><select value={history.status} aria-label="任务状态" onChange={e=>history.filter(e.target.value as StatusFilter)}><option value="">全部状态</option>{Object.entries(statusText).map(([key,value])=><option key={key} value={key}>{value}</option>)}</select><button onClick={()=>{refreshHistory();run.check();}} aria-label="刷新创作记录"><RefreshCw size={16}/></button></div>
+    <div className="studio-scroll" aria-label="创作历史" aria-busy={history.loading}>
+    {history.error&&<p role="alert" className="studio-error">无法读取历史：{history.error}</p>}
+    {!tasks.length&&!history.error&&(history.loading?<p className="studio-muted">正在读取历史…</p>:<div className="studio-empty"><ImageIcon size={28} aria-hidden="true"/><h2>{history.query||history.status?"没有匹配的任务":"还没有创作记录"}</h2><p>{history.query||history.status?"换个关键词，或调整任务状态。":"写下画面描述，或从一个示例开始。"}</p><div className="studio-actions">{history.query||history.status?<button onClick={()=>{history.search("");history.filter("");}}>清除筛选</button>:examples.map(([label,text])=><button key={label} onClick={()=>fillDraft(text)}>{label}</button>)}</div></div>)}
+    <div className="studio-grid">{tasks.map(t=><article className="studio-card" key={t.id}><button className="studio-card-cover" aria-label={`查看 ${t.prompt}`} onClick={()=>show(t)}>{t.assets[0]?<StudioThumb id={t.assets[0].id} load={api.thumbnail}/>:<span className="studio-placeholder"><ImageIcon/>{statusText[t.status]}</span>}<span className={`studio-state ${t.status}`}>{statusText[t.status]}</span></button><div className="studio-card-body"><strong title={t.prompt}>{t.prompt}</strong><p>{atTime(t.created_at)}{t.source_asset_id?" · 编辑版本":""}{t.assets.length>1?` · ${t.assets.length} 张`:""}</p>{t.assets[0]&&<button disabled={!canEdit||optionsBusy||!!optionError} title={canEdit?undefined:"请先配置支持编辑的图片模型"} onClick={()=>show(t,true)} aria-label={`编辑图片 ${t.prompt}`}><Pencil size={14}/>编辑图片</button>}</div></article>)}</div>
+    {(history.page>1||history.hasMore)&&<nav className="studio-pager" aria-label="创作历史分页"><button disabled={history.loading||history.page===1} onClick={history.prev}>上一页</button><span>第 {history.page} 页</span><button disabled={history.loading||!history.hasMore} onClick={history.next}>下一页</button></nav>}</div>
+    <footer className="studio-bottom"><div className="studio-feedback" aria-live="polite">{outstanding&&<><span>最近任务 · {statusText[outstanding.status]}</span><button onClick={()=>show(outstanding)}>查看任务</button></>}{notice&&<span>{notice}</span>}{run.issue&&<span className="studio-error">{run.issue} <button onClick={run.check}>查询结果</button>{run.notFound&&<button onClick={()=>{if(window.confirm("已在服务记录中核对结果？再次创建任务可能重新计费。"))run.acknowledgeMissing();}}>已核对，解除限制</button>}</span>}</div>
+    <form className="studio-composer" onSubmit={generate}><label htmlFor="studio-prompt">想生成什么图片？</label><textarea id="studio-prompt" ref={input} aria-label="画面描述" value={draft} maxLength={4000} rows={2} onChange={e=>setDraft(e.target.value)} placeholder="例如：紫色音乐节海报，顶部留出标题位置。" onKeyDown={e=>{if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}}/>
+    <div className="studio-controls"><div className="studio-parameters">{models.length===1&&selected?<span aria-label="当前图片模型">{selected.name}</span>:models.length>0?<label>模型 <select aria-label="图片模型" value={selection.profile} onChange={e=>{const m=models.find(x=>x.id===e.target.value);setSelection({profile:m?.id||"",size:defaultSize(m)});}}>{!selected&&<option value="">请选择模型</option>}{models.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>:<span>{optionsBusy?"正在读取模型…":"未配置图片模型"}</span>}
+    {selected&&<label>画幅 {selected.sizes.length===1&&selection.size?<span>{sizeText(selection.size)}</span>:<select aria-label="生成画幅" value={selection.size} onChange={e=>setSelection(old=>({...old,size:e.target.value}))}>{!selection.size&&<option value="">请选择画幅</option>}{selected.sizes.map(s=><option key={s} value={s}>{sizeText(s)}</option>)}</select>}</label>}<button type="button" aria-label="设置图片模型" onClick={onOpenSettings}><Settings2 size={16}/></button></div>
+    <button className="studio-primary" disabled={!canGenerate} type="submit"><ArrowUp size={16}/>{run.receipt||run.locked?"任务处理中":"生成图片"}</button></div>{optionError&&<p role="alert">模型配置读取失败：{optionError} <button type="button" onClick={()=>setRetryOptions(n=>n+1)}>重新读取</button></p>}</form></footer>
+    {current&&focus&&enabled&&<StudioTaskDetail key={`${current.id}:${focus.edit}`} api={api} task={current} editInitially={focus.edit} canEdit={canEdit&&!optionsBusy&&!optionError} busy={run.busy} archived={saved} onEdit={edit} onClose={()=>setFocus(null)} onArchive={async id=>{await api.archive(id);if(mounted.current){setSaved(prev=>new Set([...prev,id]));void onLibraryChanged().catch(()=>{});}}} onReuse={t=>fillDraft(t.prompt,t)} onWorks={onOpenWorks} onConversation={onOpenConversation} onQuery={()=>{run.check();void queryDetail(current);}} issue={detailError||run.issue}/>}
+    </section>;
 }

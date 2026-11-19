@@ -1,4 +1,5 @@
-import { GalleryThumbnails, Library, MessageCircle, Settings, Video } from "lucide-react";
+import { MessageCircle, Settings, Video } from "lucide-react";
+export { WorksPage } from "./WorksPage";
 import type { ReactNode } from "react";
 import "./product-pages.css";
 
@@ -31,22 +32,6 @@ export function VideoPage({ onOpenChat, onOpenSettings }: ProductPageProps) {
       <div className="product-page-actions">
         <button className="product-page-primary" type="button" onClick={onOpenChat}><MessageCircle size={16} aria-hidden="true" />返回对话</button>
         <button type="button" onClick={onOpenSettings}><Settings size={16} aria-hidden="true" />打开设置</button>
-      </div>
-    </Page>
-  );
-}
-
-export function WorksPage({ onOpenChat, onOpenLibrary }: ProductPageProps) {
-  return (
-    <Page title="我的作品" icon={<GalleryThumbnails size={24} />}>
-      <p className="product-page-lead">集中作品管理尚未接入。</p>
-      <div className="product-page-details">
-        <h2>继续使用</h2>
-        <p>可以前往文件库查看已保存的文件，或返回对话继续工作。</p>
-      </div>
-      <div className="product-page-actions">
-        <button className="product-page-primary" type="button" onClick={onOpenLibrary}><Library size={16} aria-hidden="true" />打开文件库</button>
-        <button type="button" onClick={onOpenChat}><MessageCircle size={16} aria-hidden="true" />返回对话</button>
       </div>
     </Page>
   );

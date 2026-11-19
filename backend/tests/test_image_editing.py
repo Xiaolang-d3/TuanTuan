@@ -112,13 +112,14 @@ def test_images_edit_uses_multipart_and_never_retries():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             provider._client = AsyncOpenAI(api_key='test', base_url='https://example.invalid/v1', http_client=client)
             with pytest.raises(ModelProviderError):
-                await provider.edit_image(b'png-source', 'erase', mask=b'png-mask', transparent=True)
+                await provider.edit_image(b'png-source', 'erase', mask=b'png-mask', transparent=True, size='1536x1024')
     asyncio.run(run())
     assert len(requests) == 1
     assert requests[0].url.path == '/v1/images/edits'
     assert 'multipart/form-data' in requests[0].headers['content-type']
     assert b'png-source' in requests[0].content and b'png-mask' in requests[0].content
     assert b'transparent' in requests[0].content
+    assert b'name="size"\r\n\r\n1536x1024' in requests[0].content
 
 
 @pytest.mark.parametrize('fields', [dict(mode='erase'), dict(mode='edit'), dict(mode='resize',width=8192,height=8192), dict(mode='edit',prompt='ok', comments=[{'x': 2,'y': .5,'text':'invalid'}])])

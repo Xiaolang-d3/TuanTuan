@@ -82,6 +82,9 @@ beforeEach(() => {
   library.refreshLibrary.mockResolvedValue(undefined);
   api.fetchJson.mockImplementation(async (path) => {
     if (path === "/system/database-status") return { status: "ready" };
+    if (path === "/image-studio/options") return { default_profile_id: null, models: [] };
+    if (path.startsWith("/image-studio/history")) return { items: [], has_more: false };
+    if (path === "/image-studio/works") return { items: [] };
     if (path === "/channels/weixin") return { connected: false, enabled: false, error: "" };
     if (path === "/agent/settings") return { ...defaultAgentSettings, model_name: "test-model", api_key_configured: true };
     if (path === "/agent/model-monitor?hours=24" || path === "/agent/models/capabilities") return null;
@@ -215,7 +218,7 @@ describe("App identity placement", () => {
     expect(screen.queryByText("1 个文件导入失败")).not.toBeInTheDocument();
   });
 
-  it("opens the existing file library through works without losing the unsent chat draft", async () => {
+  it("opens image creation through works without losing the unsent chat draft", async () => {
     conversations.conversations = [{ id: 7, title: "原有对话", summary: "", status: "active", updated_at: "2026-10-14" }];
     conversations.currentConversationId = 7;
     window.history.replaceState(null, "", "#/chat/7");
@@ -228,9 +231,9 @@ describe("App identity placement", () => {
     fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
     await screen.findByRole("heading", { name: "我的作品" });
     expect(navigation.getByRole("button", { name: "我的作品" })).toHaveAttribute("aria-current", "page");
-    fireEvent.click(screen.getByRole("button", { name: "打开文件库" }));
-    await screen.findByRole("heading", { name: "测试文件库" });
-    expect(window.location.hash).toBe("#/chat/library");
+    fireEvent.click(screen.getByRole("button", { name: "去图片创作" }));
+    await screen.findByRole("region", { name: "图片创作工作台" });
+    expect(window.location.hash).toBe("#/images");
     expect(draft).toBeInTheDocument();
     expect(draft).not.toBeVisible();
     expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
@@ -241,8 +244,8 @@ describe("App identity placement", () => {
     expect(window.location.hash).toBe("#/chat/7");
     fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
     await screen.findByRole("heading", { name: "我的作品" });
-    fireEvent.click(screen.getByRole("button", { name: "打开文件库" }));
-    await screen.findByRole("heading", { name: "测试文件库" });
+    fireEvent.click(screen.getByRole("button", { name: "去图片创作" }));
+    await screen.findByRole("region", { name: "图片创作工作台" });
     const accountTrigger = screen.getByRole("button", { name: "账号菜单" });
     expect(accountTrigger).not.toHaveClass("active");
     fireEvent.click(accountTrigger);
@@ -252,7 +255,7 @@ describe("App identity placement", () => {
     expect(window.location.hash).toBe("#/settings");
   });
   it.each([
-    ["#/images", "让想法成为画面", "图片"],
+    ["#/images", "图片创作", "图片"],
     ["#/video", "视频", "视频"],
     ["#/works", "我的作品", "我的作品"]
   ])("opens %s as an addressable product page", async (hash, heading, label) => {

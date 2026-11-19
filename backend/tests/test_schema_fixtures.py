@@ -46,7 +46,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         migrations = dict(conn.execute("SELECT version, name FROM schema_migrations"))
         assert migrations[old_version] == ("litellm_model_layer" if version == "29_litellm" else "independent_library")
-        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "ppt_definite_failure_retry"
+        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "image_studio_history_and_works"
         # No existing row is lost (schema_migrations gains one row).
         for table, count in before_counts.items():
             expected = count + 1 if table == "schema_migrations" else count
@@ -60,7 +60,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"model_fallback_policy", "model_capability_records", "chat_image_assets", "chat_image_operations"} <= tables
         assert {"library_collections", "library_collection_sources"} <= tables
-        assert {"conversation_context_seeds"} <= tables
+        assert {"conversation_context_seeds", "image_studio_tasks", "image_studio_works"} <= tables
         assert {"model_selection_json"} <= columns(conn, "agent_execution_runs")
 
     backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "tuantuan.db"
@@ -77,7 +77,7 @@ def test_fresh_workspace_records_named_current_migration(tmp_path):
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [
-            (DB_SCHEMA_VERSION, "ppt_definite_failure_retry"),
+            (DB_SCHEMA_VERSION, "image_studio_history_and_works"),
         ]
 
 

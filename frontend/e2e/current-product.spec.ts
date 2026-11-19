@@ -40,6 +40,9 @@ async function mockCurrentProduct(page: Page) {
       facts: [{ id: 1, category: "knowledge", statement: "每周整理一次阅读笔记", status: "pending" }],
       sources: [{ id: 7, title: "读书笔记", source_kind: "paste", original_filename: "", mime_type: "text/plain", source_uri: "", privacy_mode: "redacted", enabled: true, parse_status: "ready", character_count: 120, file_available: false, created_at: "2026-09-22T08:00:00Z", updated_at: "2026-09-22T08:00:00Z" }]
     } });
+    if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
+    if (path === "/image-studio/history") return route.fulfill({ json: { items: [], has_more: false } });
+    if (path === "/image-studio/works") return route.fulfill({ json: { items: [] } });
     if (path === "/conversations") return route.fulfill({ json: [conversation] });
     if (path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/presentations") return route.fulfill({ json: { jobs: [], next_cursor: null } });
@@ -203,13 +206,13 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     }
     await navigation.getByRole("button", { name: "图片", exact: true }).click();
     await expect(page).toHaveURL(/#\/images$/);
-    await expect(page.getByRole("heading", { name: "让想法成为画面", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "图片创作工作台" })).toBeVisible();
     await navigation.getByRole("button", { name: "视频", exact: true }).click();
     await expect(page.getByText("视频生成尚未接入。")).toBeVisible();
     await navigation.getByRole("button", { name: "我的作品", exact: true }).click();
-    await expect(page.getByText("集中作品管理尚未接入。")).toBeVisible();
-    await page.getByRole("button", { name: "打开文件库", exact: true }).click();
-    await expect(page).toHaveURL(/#\/chat\/library$/);
+    await expect(page.getByRole("heading", { name: "我的作品", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "去图片创作", exact: true }).click();
+    await expect(page).toHaveURL(/#\/images$/);
     await navigation.getByRole("button", { name: "对话", exact: true }).click();
     await expect(page).toHaveURL(/#\/chat\/1$/);
     await expect(page.getByRole("button", { name: /[收展][起开]侧边栏/ })).toBeHidden();
