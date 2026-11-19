@@ -29,7 +29,7 @@ description: 配置、检查和维护团团 的 GitHub CI/CD 与 Mac + Cloudflar
 
 - 用 `python scripts/deployment.py status --root <部署根目录>` 核实当前 SHA、最近成功和失败；再核对 GitHub CI/CD 和公网 /health 的 instance_id。检查登录、品牌图片与业务认证。
 - 没有新版本时保持安静；CI 失败、发布包未生成或 Mac 离线时保留当前版本。失败 SHA 不反复重试；修复原因后用 `once --retry` 明确重试。
-- 不用 `scripts/start-remote.sh` 部署正式域名：它会创建临时 Quick Tunnel，并与现有端口冲突。
+- 正式域名继续使用既有固定隧道，不启动临时 Quick Tunnel。
 - 只管理本部署服务的准确 launchd label。不要为试修轮换隧道令牌、重置 DNS、读取钥匙串内容或删除旧发布包。
 - 修改技能不等于授权推送无关未提交代码。按当前用户授权完成发布；保留工作区修改，不 reset/clean 共享仓库。
 

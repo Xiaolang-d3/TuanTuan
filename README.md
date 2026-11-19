@@ -115,8 +115,8 @@ TuanTuan/
 ├── evals/               # 离线评测
 │   ├── cases/           # 评测用例
 │   └── providers/       # 评测服务适配
-├── scripts/             # 启动、停止、部署与文档检查脚本
-└── .github/workflows/   # CI 工作流
+├── scripts/             # 本地启动、停止入口与 CI/CD 辅助脚本
+└── .github/workflows/   # CI/CD 工作流
 ```
 
 ## 快速开始
