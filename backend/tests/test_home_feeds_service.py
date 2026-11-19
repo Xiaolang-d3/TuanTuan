@@ -65,6 +65,27 @@ def test_source_failure_keeps_cached_content_and_reports_error(home_workspace, i
     assert snapshot["last_synced_at"] == "2026-10-08T12:00:00Z"
 
 
+def test_removed_huggingface_subscription_is_not_shown_or_refreshed(home_workspace, immediate_refresh, monkeypatch):
+    source_id = "huggingface-news"
+    cached_article = {**ARTICLE, "id": "article:huggingface", "url": "https://huggingface.co/blog/example", "source": "Hugging Face"}
+    payload = service._empty()
+    payload["source_cache"][source_id] = {"items": [cached_article], "error": "来源请求超时"}
+    service._save(home_workspace, payload)
+    called = []
+
+    def fetch(source):
+        called.append(source.id)
+        return []
+
+    monkeypatch.setattr(sources, "fetch_source", fetch)
+    snapshot = service.get_feed(refresh_if_due=False)
+    assert source_id not in {source["id"] for source in snapshot["sources"]}
+    assert cached_article not in snapshot["news"]
+    assert service.start_refresh(force=True) is True
+    assert "openai-news" in called
+    assert source_id not in called
+
+
 def test_error_cooldown_does_not_retry_on_every_poll(home_workspace, immediate_refresh, monkeypatch):
     called = []
 
