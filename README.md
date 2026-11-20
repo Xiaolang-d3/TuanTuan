@@ -65,16 +65,6 @@ TuanTuan/
 
 本地启动前后端；配置示例见 [`backend/.env.example`](backend/.env.example)，停止服务使用 `./scripts/stop-dev.sh`。本地启动不需要 Docker；使用可选 MinIO 时，按配置示例启动 [Compose 配置](backend/docker-compose.minio.yml)。生产发布和恢复参见[部署维护手册](.github/skills/tuantuan-deploy/SKILL.md)。
 
-### 服务器端快速制作 PPT
-
-在对话里选「PPT Master」，输入主题、粘贴正文，或添加 DOCX、文字版 PDF、TXT、Markdown。可以只传资料。发送后在当前对话查看进度、逐页预览并下载可编辑的 PPTX。单次最多 8 份资料，要求与资料合计不超过 32,000 字。若预览转换失败，已导出的 PPTX 仍可下载。
-
-服务器需使用启用默认 seccomp 的 Linux Docker 引擎。运行后端的非 root 服务账号需要能够访问 Docker。生成容器在禁用网络的独立环境中运行。
-
-1. 使用 `docker buildx build --push -t <registry>/<quick-ppt>:<release> -f backend/scripts/quick-ppt/Dockerfile backend` 构建并推送镜像。
-2. 在后端所在机器拉取镜像的 `仓库名@sha256:…`，用 `docker image inspect` 确认该引用出现在本机 `RepoDigests` 中。
-3. 将完整镜像引用设置为 `TUANTUAN_QUICK_PPT_IMAGE`。使用仓库自带发布脚本时，在发布目录的 `config.json` 中设置 `quick_ppt_image`。重启后端后，在对话里发送一个中文主题并确认预览和下载。
-
 ## 参与贡献
 
 - [贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) · [安全政策](SECURITY.md)
