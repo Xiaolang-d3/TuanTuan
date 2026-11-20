@@ -2,21 +2,23 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { ArrowUp, GalleryHorizontalEnd, Image as ImageIcon, Pencil, RefreshCw, Settings2 } from "lucide-react";
 import type { ChatAttachment } from "../chat/types";
 import type { ImagePageActions } from "./ImageWorkspacePage";
-import type { StudioModel, StudioTask } from "./imageStudioApi";
+import type { StudioTask } from "./imageStudioApi";
+import { StudioModelPicker, useStudioModelPreview } from "./StudioModelPicker";
 import { StudioThumb } from "./StudioMedia";
-import { StudioTaskDetail } from "./StudioTaskDetail";
+import { StudioTaskDetail, type StudioEditBinding } from "./StudioTaskDetail";
 import { failureMessage, sizeText, statusText, useImageWorkspace, useStudioHistory, type StudioApi, type StatusFilter } from "./useImageWorkspace";
 import "./ImageWorkspace.css";
 
 const examples=[['活动海报','为夏日音乐节画一张海报，以紫色行星为主视觉，顶部留出标题位置。'],['商品封面','拍一张陶瓷咖啡杯的产品照，木质桌面，窗边柔光。'],['绘本插画','小狐狸在雨后的森林里散步，植物挂着水珠，温暖的绘本风格。']];
-function defaultSize(m?:StudioModel){return m?.sizes.includes("auto")?"auto":m?.sizes[0]||"";}
+function defaultSize(sizes: string[]) { return sizes.includes("auto") ? "auto" : sizes[0] || ""; }
 function atTime(raw:string){const d=new Date(raw);return isNaN(d.valueOf())?raw:d.toLocaleString(undefined,{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});}
 function storedDraft(key:string){try{return sessionStorage.getItem(key)||"";}catch{return "";}}
 export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWorks,onOpenConversation,refreshConversations,onLibraryChanged}:ImagePageActions & {api:StudioApi;enabled:boolean}) {
   const storageKey=`tuantuan:image-studio:draft:${accountKey}`;
   const [draft,setDraft]=useState(()=>storedDraft(storageKey));const input=useRef<HTMLTextAreaElement>(null);
   const [canEdit,setCanEdit]=useState(true);
-  const [models,setModels]=useState<StudioModel[]>([]),[selection,setSelection]=useState({profile:"",size:""});
+  const [selection, setSelection] = useState<{ profile: string | null | undefined; size: string | null }>({ profile: null, size: null });
+  const preview = useStudioModelPreview(api, enabled, { operation: "image.generate", profile_id: selection.profile });
   const [optionsBusy,setOptionsBusy]=useState(true),[optionError,setOptionError]=useState("");
   const [refresh,setRefresh]=useState(0),[retryOptions,setRetryOptions]=useState(0),[notice,setNotice]=useState("");
   const [focus,setFocus]=useState<{task:StudioTask;edit:boolean}|null>(null),[detailError,setDetailError]=useState("");
@@ -24,7 +26,9 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
   const detailQuery=useRef<AbortController|null>(null);
   const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;detailQuery.current?.abort();};},[]);
   useEffect(()=>{if(!enabled){detailQuery.current?.abort();setFocus(null);}},[enabled]);
-  const selected=models.find(m=>m.id===selection.profile);
+  const selected = preview.data?.selection;
+  const sizes = selected?.sizes ?? [];
+  const size = selection.size ?? defaultSize(sizes);
   const history=useStudioHistory(api,enabled,refresh);
   const refreshHistory=useCallback(()=>setRefresh(r=>r+1),[]);
   const run=useImageWorkspace(api,enabled,accountKey,()=>{refreshHistory();void refreshConversations().catch(()=>{});});
@@ -32,10 +36,7 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     if(!enabled)return;const c=new AbortController();setOptionsBusy(true);setOptionError("");
     api.options(c.signal).then(result=>{
       if(c.signal.aborted)return;
-      setModels(result.models);setCanEdit(result.can_edit!==false);setSelection(old=>{
-        const preferred=result.models.find(m=>m.id===old.profile)||result.models.find(m=>m.id===result.default_profile_id)||result.models[0];
-        if(!preferred)return {profile:"",size:""};return {profile:preferred.id,size:old.profile===preferred.id&&preferred.sizes.includes(old.size)?old.size:defaultSize(preferred)};
-      });
+      setCanEdit(result.can_edit !== false);
     }).catch(e=>{if(!c.signal.aborted)setOptionError(failureMessage(e));}).finally(()=>{if(!c.signal.aborted)setOptionsBusy(false);});
     api.works(c.signal).then(({items})=>{if(!c.signal.aborted)setSaved(new Set(items.map(x=>x.asset.id)));}).catch(()=>{/* Archive remains idempotent if works cannot be preloaded. */});
     return ()=>c.abort();
@@ -44,24 +45,38 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
   function fillDraft(prompt:string,task?:StudioTask){
     if(draft.trim()&&draft!==prompt&&!window.confirm("替换当前草稿？尚未提交的文字将被替换。"))return;
     setDraft(prompt);setFocus(null);setDetailError("");let message="已填入创作栏，尚未生成。";
-    if(task){const m=models.find(x=>x.id===task.profile_id);
-      if(!m) {setSelection({profile:"",size:""});message="原模型已不可用或未记录。已复用描述，请重新选择模型和画幅。";}
-      else if(!m.sizes.includes(task.size)){setSelection({profile:m.id,size:""});message="原画幅不可用或未记录。已复用模型和描述，请重新选择画幅。";}
-      else setSelection({profile:m.id,size:task.size});}
+    if (task) {
+      setSelection({ profile: task.profile_id ?? undefined, size: task.size });
+      if (!task.profile_id) message = "未记录原模型。已复用描述，请重新选择模型和画幅。";
+    }
     setNotice(message);requestAnimationFrame(()=>input.current?.focus({preventScroll:true}));
   }
-  const canGenerate=enabled&&!run.busy&&!optionsBusy&&!optionError&&!!selected?.sizes.includes(selection.size)&&!!draft.trim();
-  async function generate(e:FormEvent){e.preventDefault();if(!canGenerate||!selected)return;setNotice("");
-    const original=draft, values={prompt:original.trim(),profile_id:selected.id,size:selection.size};
-    const ok=await run.submit(values,selected.name,id=>api.generate({...values,request_id:id}));
-    if(ok&&mounted.current)setDraft(current=>current===original?"":current);
+  const comparisonKey = preview.data?.comparison_key;
+  const canGenerate = enabled && !run.busy && selection.profile !== undefined &&
+    !!preview.data?.eligible && !!comparisonKey && !!selected?.service_name && sizes.includes(size) && !!draft.trim();
+  async function generate(event: FormEvent) {
+    event.preventDefault();
+    if (!canGenerate || !selected || !comparisonKey) return;
+    setNotice("");
+    const original = draft;
+    const values = { prompt: original.trim(), profile_id: selection.profile ?? null, size };
+    const ok = await run.submit({ ...values, profile_id: selected.profile_id }, selected.model_name,
+      id => api.generate({ ...values, request_id: id, comparison_key: comparisonKey }), undefined, preview.refresh);
+    if (ok && mounted.current) setDraft(current => current === original ? "" : current);
   }
-  async function edit(task:StudioTask,asset:ChatAttachment,prompt:string){
-    const ok=await run.submit({prompt,profile_id:null,size:"auto"},"",async id=>{
-      await api.edit(asset.id,{operation_id:id,mode:"edit",prompt,strokes:[],comments:[],rotation:0,flip:false,width:asset.width||1024,height:asset.height||1024});
-      if(mounted.current)setFocus(old=>old?.task.id===task.id?{task:{...task,id,prompt,source_asset_id:asset.id,assets:[],status:"running",size:"auto",profile_id:null,model_name:""},edit:false}:old);
-    },asset.id);
-    if(mounted.current){setNotice(ok?"已提交新版本，原图已保留。":"请先核对当前任务状态，不会自动重新提交。");}
+  async function edit(task: StudioTask, asset: ChatAttachment, prompt: string, binding: StudioEditBinding, onConflict: (message: string) => void) {
+    const values = { prompt, profile_id: binding.selection.profile_id, size: "auto" };
+    const ok = await run.submit(values, binding.selection.model_name, async id => {
+      await api.edit(asset.id, {
+        operation_id: id, mode: "edit", prompt, strokes: [], comments: [], rotation: 0, flip: false,
+        width: asset.width || 1024, height: asset.height || 1024, profile_id: binding.profileId,
+        comparison_key: binding.comparisonKey, confirm_data_boundary: binding.confirmed,
+      });
+      if (mounted.current) setFocus(old => old?.task.id === task.id ? {
+        task: { ...task, ...values, id, source_asset_id: asset.id, assets: [], status: "running", model_name: binding.selection.model_name }, edit: false,
+      } : old);
+    }, asset.id, onConflict);
+    if (ok && mounted.current) setNotice("已提交新版本，原图已保留。");
     return ok;
   }
   function show(t:StudioTask,edit=false){detailQuery.current?.abort();setDetailError("");setFocus({task:t,edit});}
@@ -83,8 +98,11 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     {(history.page>1||history.hasMore)&&<nav className="studio-pager" aria-label="创作历史分页"><button disabled={history.loading||history.page===1} onClick={history.prev}>上一页</button><span>第 {history.page} 页</span><button disabled={history.loading||!history.hasMore} onClick={history.next}>下一页</button></nav>}</div>
     <footer className="studio-bottom"><div className="studio-feedback" aria-live="polite">{outstanding&&<><span>最近任务 · {statusText[outstanding.status]}</span><button onClick={()=>show(outstanding)}>查看任务</button></>}{notice&&<span>{notice}</span>}{run.issue&&<span className="studio-error">{run.issue} <button onClick={run.check}>查询结果</button>{run.notFound&&<button onClick={()=>{if(window.confirm("已在服务记录中核对结果？再次创建任务可能重新计费。"))run.acknowledgeMissing();}}>已核对，解除限制</button>}</span>}</div>
     <form className="studio-composer" onSubmit={generate}><label htmlFor="studio-prompt">想生成什么图片？</label><textarea id="studio-prompt" ref={input} aria-label="画面描述" value={draft} maxLength={4000} rows={2} onChange={e=>setDraft(e.target.value)} placeholder="例如：紫色音乐节海报，顶部留出标题位置。" onKeyDown={e=>{if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}}/>
-    <div className="studio-controls"><div className="studio-parameters">{models.length===1&&selected?<span aria-label="当前图片模型">{selected.name}</span>:models.length>0?<label>模型 <select aria-label="图片模型" value={selection.profile} onChange={e=>{const m=models.find(x=>x.id===e.target.value);setSelection({profile:m?.id||"",size:defaultSize(m)});}}>{!selected&&<option value="">请选择模型</option>}{models.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label>:<span>{optionsBusy?"正在读取模型…":"未配置图片模型"}</span>}
-    {selected&&<label>画幅 {selected.sizes.length===1&&selection.size?<span>{sizeText(selection.size)}</span>:<select aria-label="生成画幅" value={selection.size} onChange={e=>setSelection(old=>({...old,size:e.target.value}))}>{!selection.size&&<option value="">请选择画幅</option>}{selected.sizes.map(s=><option key={s} value={s}>{sizeText(s)}</option>)}</select>}</label>}<button type="button" aria-label="设置图片模型" onClick={onOpenSettings}><Settings2 size={16}/></button></div>
+    <StudioModelPicker label="图片模型" profileId={selection.profile} preview={preview} busy={run.locked}
+      onChange={profile => { preview.refresh(); setSelection({ profile, size: null }); }} />
+    <div className="studio-controls"><div className="studio-parameters">
+    {selected && selection.profile !== undefined && <label>画幅 {sizes.length === 1 && sizes.includes(size) ? <span>{sizeText(size)}</span> : <select aria-label="生成画幅" value={sizes.includes(size) ? size : ""} onChange={event => setSelection(old => ({ ...old, size: event.target.value }))}><option value="" disabled>请选择画幅</option>{sizes.map(option => <option key={option} value={option}>{sizeText(option)}</option>)}</select>}</label>}
+    <button type="button" aria-label="设置图片模型" onClick={onOpenSettings}><Settings2 size={16}/></button></div>
     <button className="studio-primary" disabled={!canGenerate} type="submit"><ArrowUp size={16}/>{run.receipt||run.locked?"任务处理中":"生成图片"}</button></div>{optionError&&<p role="alert">模型配置读取失败：{optionError} <button type="button" onClick={()=>setRetryOptions(n=>n+1)}>重新读取</button></p>}</form></footer>
     {current&&focus&&enabled&&<StudioTaskDetail key={`${current.id}:${focus.edit}`} api={api} task={current} editInitially={focus.edit} canEdit={canEdit&&!optionsBusy&&!optionError} busy={run.busy} archived={saved} onEdit={edit} onClose={()=>setFocus(null)} onArchive={async id=>{await api.archive(id);if(mounted.current){setSaved(prev=>new Set([...prev,id]));void onLibraryChanged().catch(()=>{});}}} onReuse={t=>fillDraft(t.prompt,t)} onWorks={onOpenWorks} onConversation={onOpenConversation} onQuery={()=>{run.check();void queryDetail(current);}} issue={detailError||run.issue}/>}
     </section>;

@@ -1,7 +1,8 @@
 import { cleanup,fireEvent,render,screen,waitFor,within } from "@testing-library/react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { ImageWorkspace } from "./ImageWorkspace";
-import type { StudioModel,StudioTask } from "./imageStudioApi";
+import type { StudioModel, StudioPreviewRequest, StudioTask } from "./imageStudioApi";
+import { ApiError } from "../../api/client";
 import type { StudioApi } from "./useImageWorkspace";
 import { downloadBlob } from "../chat/result-files";
 vi.mock("../chat/result-files",()=>({downloadBlob:vi.fn()}));
@@ -9,7 +10,22 @@ const model:StudioModel={id:"p1",name:"海报模型",sizes:["auto","1536x1024"]}
 const task:StudioTask={id:"job-1",prompt:"海边画面",size:"1536x1024",profile_id:model.id,model_name:model.name,status:"done",created_at:"2026-11-19T11:00:00Z",conversation_id:42,assets:[{id:"image-1",origin:"generated",kind:"image",original_filename:"海报.png",parse_status:"parsed",width:1536,height:1024}]};
 const blob=new Blob(["pic"],{type:"image/png"});
 function setup(items:StudioTask[]=[], models=[model], more=false, canEdit=true){
-  const api={options:vi.fn().mockResolvedValue({models,default_profile_id:models[0]?.id,can_edit:canEdit}),history:vi.fn(async(query:{status?:string;q?:string;offset?:number}={})=>({items:items.filter(x=>(!query.status||x.status===query.status)&&(!query.q||x.prompt.includes(query.q))),has_more:more&&!query.offset})),
+  const preview = vi.fn(async ({ profile_id, operation }: StudioPreviewRequest) => {
+    const candidates = models.map((item, index) => ({
+      profile_id: item.id, model_name: item.name, service_name: `服务 ${index + 1}`, eligible: true,
+    }));
+    const resolved = profile_id == null ? models[0] : models.find(item => item.id === profile_id);
+    const candidate = candidates.find(item => item.profile_id === resolved?.id);
+    return {
+      eligible: !!resolved,
+      selection: candidate && resolved ? { ...candidate, sizes: resolved.sizes, reason: "automatic" } : null,
+      comparison_key: resolved ? `${operation}:${resolved.id}` : null,
+      candidates,
+      requires_confirmation: false,
+      reason: resolved ? undefined : "原模型已不可用",
+    };
+  });
+  const api={preview,options:vi.fn().mockResolvedValue({models,default_profile_id:models[0]?.id,can_edit:canEdit}),history:vi.fn(async(query:{status?:string;q?:string;offset?:number}={})=>({items:items.filter(x=>(!query.status||x.status===query.status)&&(!query.q||x.prompt.includes(query.q))),has_more:more&&!query.offset})),
     task:vi.fn().mockResolvedValue(task),works:vi.fn().mockResolvedValue({items:[]}),archive:vi.fn().mockResolvedValue({id:"w1",asset:task.assets[0]}),generate:vi.fn().mockResolvedValue({id:"job"}),
     assetFile:vi.fn().mockResolvedValue(blob),thumbnail:vi.fn().mockResolvedValue(blob),edit:vi.fn().mockImplementation(async()=>({assets:task.assets,conversation_id:42,message_id:12}))};
   const props={api:api as unknown as StudioApi,enabled:true, accountKey:"a",onOpenSettings:vi.fn(),onOpenWorks:vi.fn(),onOpenConversation:vi.fn(),refreshConversations:vi.fn().mockResolvedValue(null),onLibraryChanged:vi.fn().mockResolvedValue(null)};
@@ -22,9 +38,38 @@ describe("图片工作台",()=>{
     const {api}=setup([], [{id:"auto",name:"自动模型",sizes:["auto"]},model]);
     fireEvent.click(await screen.findByRole("button",{name:"商品封面"}));expect(api.generate).not.toHaveBeenCalled();
     expect(screen.queryByRole("combobox",{name:"生成画幅"})).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("图片模型"),{target:{value:"p1"}});fireEvent.change(screen.getByLabelText("生成画幅"),{target:{value:"1536x1024"}});
+    fireEvent.change(screen.getByLabelText("图片模型"), { target: { value: "p1" } });
+    await screen.findByText("本次使用：海报模型 · 服务 2");
+    fireEvent.change(screen.getByLabelText("生成画幅"), { target: { value: "1536x1024" } });
     fireEvent.change(screen.getByLabelText("画面描述"),{target:{value:"  夏日海报  "}});fireEvent.click(screen.getByRole("button",{name:"生成图片"}));
-    await waitFor(()=>expect(api.generate).toHaveBeenCalledWith({prompt:"夏日海报",size:"1536x1024",profile_id:"p1",request_id:expect.stringMatching(/^[0-9a-f-]{36}$/i)}));
+    await waitFor(()=>expect(api.generate).toHaveBeenCalledWith({prompt:"夏日海报",size:"1536x1024",profile_id:"p1",comparison_key:"image.generate:p1",request_id:expect.stringMatching(/^[0-9a-f-]{36}$/i)}));
+  });
+  it("出图配置变化时保留草稿，等待新预览并再次提交", async () => {
+    const { api } = setup([], [model, { ...model, id: "p2" }]);
+    await screen.findByText("本次使用：海报模型 · 服务 1");
+    const picker = screen.getByLabelText("图片模型");
+    expect(within(picker).getByRole("option", { name: "海报模型 · 服务 1" })).toHaveValue("p1");
+    expect(within(picker).getByRole("option", { name: "海报模型 · 服务 2" })).toHaveValue("p2");
+    await screen.findByRole("button", { name: "商品封面" });
+    const originalPreview = await api.preview({ operation: "image.generate", profile_id: null });
+    let resolvePreview!: (value: typeof originalPreview) => void;
+    api.preview.mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve; }));
+    api.generate.mockRejectedValueOnce(new ApiError("模型配置已变化", 409, 0, { code: "model_selection_changed" }));
+    const draft = screen.getByLabelText("画面描述");
+    fireEvent.change(draft, { target: { value: "秋日市集" } });
+    const submit = screen.getByRole("button", { name: "生成图片" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    expect(await screen.findByText("模型配置已变化")).toBeVisible();
+    expect(draft).toHaveValue("秋日市集");
+    expect(submit).toBeDisabled();
+    expect(api.task).not.toHaveBeenCalled();
+    await waitFor(() => expect(resolvePreview).toBeTypeOf("function"));
+    resolvePreview({ ...originalPreview, comparison_key: "new-preview" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    expect(api.generate).toHaveBeenCalledTimes(1);
+    fireEvent.click(submit);
+    await waitFor(() => expect(api.generate).toHaveBeenLastCalledWith(expect.objectContaining({ comparison_key: "new-preview", profile_id: null, prompt: "秋日市集" })));
   });
   it("历史分页、搜索和筛选可组合，且不会发生成请求",async()=>{
     const {api}=setup([task],[model],true);await screen.findByRole("button",{name:"查看 海边画面"});fireEvent.click(screen.getByRole("button",{name:"下一页"}));
@@ -36,7 +81,7 @@ describe("图片工作台",()=>{
     const prompt=screen.getByLabelText("画面描述");fireEvent.change(prompt,{target:{value:"新草稿"}});fireEvent.click(open);
     const confirm=vi.spyOn(window,"confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     fireEvent.click(screen.getByText("复用设置"));expect(prompt).toHaveValue("新草稿");fireEvent.click(screen.getByText("复用设置"));
-    expect(confirm).toHaveBeenCalledTimes(2);expect(prompt).toHaveValue(task.prompt);expect(screen.getByLabelText("生成画幅")).toHaveValue(task.size);expect(api.generate).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledTimes(2);expect(prompt).toHaveValue(task.prompt);expect(await screen.findByLabelText("生成画幅")).toHaveValue(task.size);expect(api.generate).not.toHaveBeenCalled();
   });
   it("不能编辑的配置不展示可提交的编辑操作",async()=>{
     setup([task],[model],false,false);fireEvent.click(await screen.findByRole("button",{name:"查看 海边画面"}));
@@ -45,7 +90,7 @@ describe("图片工作台",()=>{
   });
   it("模型已删除的历史不静默改用默认模型",async()=>{
     setup([{...task,profile_id:"gone"}]);fireEvent.click(await screen.findByRole("button",{name:"查看 海边画面"}));fireEvent.click(screen.getByText("复用设置"));
-    expect(screen.getByText(/原模型已不可用/)).toBeInTheDocument();expect(screen.getByRole("button",{name:"生成图片"})).toBeDisabled();expect(screen.getByLabelText("画面描述")).toHaveValue(task.prompt);
+    expect(await screen.findByText(/原模型已不可用/)).toBeInTheDocument();expect(screen.getByRole("button",{name:"生成图片"})).toBeDisabled();expect(screen.getByLabelText("画面描述")).toHaveValue(task.prompt);
   });
   it("详情使用受保护原文件，下载与归档仅针对选中的输出",async()=>{
     const a={...task.assets[0],id:"image-2",original_filename:"第二张.png"};const {api,props,view}=setup([{...task,assets:[task.assets[0],a]}]);fireEvent.click(await screen.findByRole("button",{name:"查看 海边画面"}));
@@ -53,10 +98,58 @@ describe("图片工作台",()=>{
     expect(within(dialog).getByText("1536 × 1024",{exact:true})).toBeInTheDocument();fireEvent.click(screen.getByRole("button",{name:"下载原图"}));expect(downloadBlob).toHaveBeenCalledWith(blob,"第二张.png");
     fireEvent.click(screen.getByRole("button",{name:"归档到我的作品"}));fireEvent.click(await screen.findByText("已归档 · 查看作品"));expect(api.archive).toHaveBeenCalledWith("image-2");expect(props.onOpenWorks).toHaveBeenCalledOnce();view.unmount();expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
+  it("跨服务改图确认只适用于当前预览，409 后保留修改要求", async () => {
+    const { api } = setup([task], [model, { ...model, id: "p2" }]);
+    const original = api.preview.getMockImplementation()!;
+    let keyVersion = 1;
+    api.preview.mockImplementation(async request => {
+      const result = await original(request);
+      return request.operation === "image.edit" ? {
+        ...result, comparison_key: `edit:${request.profile_id ?? "automatic"}:${keyVersion}`, requires_confirmation: true,
+      } : result;
+    });
+    api.edit.mockImplementationOnce(async () => {
+      keyVersion++;
+      throw new ApiError("发送原图前，请确认目标模型服务", 409, 0, { code: "image_data_boundary_confirmation_required" });
+    });
+    await screen.findByText("本次使用：海报模型 · 服务 1");
+    fireEvent.click(await screen.findByRole("button", { name: "编辑图片 海边画面" }));
+    const dialog = screen.getByRole("dialog");
+    const draft = within(dialog).getByLabelText("修改要求");
+    fireEvent.change(draft, { target: { value: "改成暖色系" } });
+    const submit = within(dialog).getByRole("button", { name: "生成新版本" });
+    const first = await within(dialog).findByRole("checkbox", { name: /服务 1/ });
+    expect(submit).toBeDisabled();
+    fireEvent.click(first);
+    fireEvent.change(within(dialog).getByLabelText("编辑模型"), { target: { value: "p2" } });
+    const second = await within(dialog).findByRole("checkbox", { name: /服务 2/ });
+    expect(second).not.toBeChecked();
+    expect(submit).toBeDisabled();
+    fireEvent.click(second);
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    expect(await within(dialog).findByText("发送原图前，请确认目标模型服务")).toBeVisible();
+    expect(draft).toHaveValue("改成暖色系");
+    const renewed = await within(dialog).findByRole("checkbox", { name: /服务 2/ });
+    expect(renewed).not.toBeChecked();
+    expect(submit).toBeDisabled();
+    expect(api.task).not.toHaveBeenCalled();
+    expect(api.edit).toHaveBeenCalledWith("image-1", expect.objectContaining({ profile_id: "p2", comparison_key: "edit:p2:1", confirm_data_boundary: true }));
+    fireEvent.click(renewed);
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(api.edit).toHaveBeenLastCalledWith("image-1", expect.objectContaining({ profile_id: "p2", comparison_key: "edit:p2:2", confirm_data_boundary: true })));
+  });
   it("文字编辑使用独立操作号、明确来源，不污染下轮画面描述",async()=>{
     const {api}=setup([task]);await screen.findByRole("button",{name:"查看 海边画面"});const prompt=screen.getByLabelText("画面描述");fireEvent.change(prompt,{target:{value:"下一轮草稿"}});
     fireEvent.click(screen.getByRole("button",{name:"编辑图片 海边画面"}));await screen.findByRole("img",{name:"原图：海报.png"});fireEvent.change(screen.getByLabelText("修改要求"),{target:{value:"换成橙色，保持构图"}});
-    fireEvent.click(screen.getByRole("button",{name:"生成新版本"}));await waitFor(()=>expect(api.edit).toHaveBeenCalledWith("image-1",expect.objectContaining({operation_id:expect.any(String),mode:"edit",prompt:"换成橙色，保持构图"})));
+    const submit = screen.getByRole("button", { name: "生成新版本" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(api.edit).toHaveBeenCalledWith("image-1", expect.objectContaining({
+      operation_id: expect.any(String), mode: "edit", prompt: "换成橙色，保持构图",
+      profile_id: null, comparison_key: "image.edit:p1", confirm_data_boundary: false,
+    })));
     expect(api.generate).not.toHaveBeenCalled();expect(prompt).toHaveValue("下一轮草稿");
   });
 });

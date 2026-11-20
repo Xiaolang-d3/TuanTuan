@@ -12,6 +12,7 @@ from openai import APIStatusError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..agent.image_design_skill import image_design_prompt
+from ..agent.image_selection import bind_image_selection
 from ..agent.model_purposes import resolve_purpose_connection, selection_catalog
 from ..db import connect, json_dump
 from ..domain import AgentMessage, ModelRequest
@@ -41,6 +42,7 @@ class GenerateIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     profile_id: str | None = Field(default=None, min_length=1, max_length=120)
     size: ImageSize = "auto"
+    comparison_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("prompt")
     @classmethod
@@ -144,7 +146,8 @@ async def submit(request: GenerateIn) -> str:
     with connect() as conn:
         if _existing(conn, task_id, digest):
             return task_id
-    connection = resolve_purpose_connection("image", profile_id=request.profile_id)
+    connection = bind_image_selection("image.generate", request.profile_id,
+                                      comparison_key=request.comparison_key, resolver=resolve_purpose_connection)
     adapter = connection_image_adapter(connection)
     wire_size = adapter.size_for_wire("generate", request.size)
 

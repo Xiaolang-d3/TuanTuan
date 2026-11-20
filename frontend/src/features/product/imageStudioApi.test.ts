@@ -9,7 +9,7 @@ describe("image studio transport", () => {
     const raw = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "task" }), { status: 202 }));
     vi.stubGlobal("fetch", raw);
     const api = createImageStudioApi("/api", "fixture", createApiClient("/api", "fixture"));
-    const body = { request_id: "task", prompt: "夏日海报", profile_id: "alternate", size: "1536x1024" };
+    const body = { request_id: "task", prompt: "夏日海报", profile_id: "alternate", size: "1536x1024", comparison_key: "preview-key" };
     await expect(api.generate(body)).resolves.toEqual({ id: "task" });
     expect(raw).toHaveBeenCalledTimes(1);
     const [url, init] = raw.mock.calls[0];

@@ -22,6 +22,7 @@ from ..chat.artifacts import ArtifactConflict, SaveArtifactIn, message_artifacts
 from ..chat.image_assets import with_generation_prompts
 
 
+from ..agent.image_selection import ImageSelectionConflict
 from ..chat.image_editing import ImageEditIn, edit_generated_image
 from ..models import ModelProviderError
 from ..secret_store import SecretStoreUnavailable
@@ -369,6 +370,8 @@ def cancel_durable_agent_run(run_id: str) -> dict[str, Any]:
 async def generated_image_edit(asset_id: str, payload: ImageEditIn):
     try:
         return await edit_generated_image(asset_id, payload)
+    except ImageSelectionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
     except ModelProviderError as exc:
         raise HTTPException(status_code=409 if exc.code in {"image_operation_conflict", "image_generation_uncertain"} else 502, detail=str(exc)) from exc
     except SecretStoreUnavailable as exc:

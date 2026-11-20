@@ -11,9 +11,25 @@ export type StudioTask = {
   id: string; prompt: string; size: string; profile_id: string | null; model_name: string;
   status: StudioStatus; created_at: string; conversation_id: number | null; assets: ChatAttachment[];
   error?: string | null; source_asset_id?: string | null;
+  service_name?: string | null; selection_reason?: string | null;
 };
 export type StudioWork = { id: string; asset: ChatAttachment; created_at: string };
-export type StudioRequest = { request_id: string; prompt: string; profile_id: string | null; size: string };
+export type StudioRequest = { request_id: string; prompt: string; profile_id: string | null; size: string; comparison_key: string };
+export type StudioEditRequest = ImageEditRequest & { profile_id: string | null; comparison_key: string; confirm_data_boundary: boolean };
+export type StudioPreviewRequest = { operation: "image.generate" | "image.edit"; profile_id?: string | null; asset_id?: string };
+export type StudioPreview = {
+  eligible: boolean;
+  selection: { profile_id: string; model_name: string; service_name: string; reason: string; sizes: string[] } | null;
+  comparison_key: string | null;
+  requires_confirmation: boolean;
+  candidates: { profile_id: string; model_name: string; service_name: string; eligible: boolean; reason_code?: string }[];
+  reason?: string;
+};
+
+export function studioAdmissionConflict(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 409 &&
+    (error.details?.code === "model_selection_changed" || error.details?.code === "image_data_boundary_confirmation_required");
+}
 export type StudioHistoryQuery = { offset?: number; limit?: number; q?: string; status?: StudioStatus; signal?: AbortSignal };
 
 const GENERATION_TIMEOUT = 330_000;
@@ -28,6 +44,8 @@ export function createImageStudioApi(apiBase: string, accessToken: string, fetch
     return response.blob();
   }
   return {
+    preview: (body: StudioPreviewRequest, signal?: AbortSignal) =>
+      fetchJson<StudioPreview>("/agent/model-selection/preview", { ...jsonBody(body), signal }),
     async options(signal?: AbortSignal) {
       const options = await fetchJson<StudioOptions>("/image-studio/options", { signal });
       return {
@@ -51,7 +69,7 @@ export function createImageStudioApi(apiBase: string, accessToken: string, fetch
     thumbnail: (id: string, signal?: AbortSignal) => blob(`${assetPath(id)}/thumbnail`, signal),
     workFile: (id: string, signal?: AbortSignal) => blob(`/image-studio/works/${encodeURIComponent(id)}/file`, signal),
     workThumbnail: (id: string, signal?: AbortSignal) => blob(`/image-studio/works/${encodeURIComponent(id)}/thumbnail`, signal),
-    edit: (id: string, request: ImageEditRequest) => fetchJson<ImageEditResult>(`${assetPath(id)}/edits`, jsonBody(request), GENERATION_TIMEOUT),
+    edit: (id: string, request: StudioEditRequest) => fetchJson<ImageEditResult>(`${assetPath(id)}/edits`, jsonBody(request), GENERATION_TIMEOUT),
   };
 }
 export type ImageStudioApi = ReturnType<typeof createImageStudioApi>;

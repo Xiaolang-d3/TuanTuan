@@ -59,6 +59,11 @@ def _history_rows(*, task_id=None, limit=1, offset=0, q='', status=None):
             if task['status'] == 'uncertain' and not task['error']:
                 task['error'] = '暂未确认生成结果；未自动重新提交。'
         placeholders = ','.join('?' for _ in tasks)
+        for operation in conn.execute(f'SELECT id,selection_json FROM chat_image_operations WHERE id IN ({placeholders})', tuple(by_id)):
+            selection = json.loads(operation['selection_json'])
+            for field in ('service_name', 'selection_reason'):
+                if field in selection:
+                    by_id[operation['id']][field] = selection[field]
         for asset in conn.execute(f'SELECT operation_id,metadata_json FROM chat_image_assets '
                                   f'WHERE operation_id IN ({placeholders}) ORDER BY rowid', tuple(by_id)):
             by_id[asset['operation_id']]['assets'].append(json.loads(asset['metadata_json']))

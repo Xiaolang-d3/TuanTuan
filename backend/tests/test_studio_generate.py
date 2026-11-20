@@ -38,6 +38,8 @@ def workspace(tmp_path):
 def app_transport():
     app = FastAPI()
     app.include_router(router)
+    from app.api.model_selection import router as selection_router
+    app.include_router(selection_router)
     return httpx.ASGITransport(app=app)
 
 
@@ -67,6 +69,38 @@ async def wait_task(tid):
     task = studio._active[resolve_db_path()][2]
     await asyncio.wait_for(asyncio.shield(task), 5)
     return read_task(tid)
+
+
+def test_preview_change_rejects_before_sending_and_replay_returns_receipt(workspace, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={'data': [{'b64_json': png((64, 64))}]})
+
+    wire(monkeypatch, handler)
+
+    async def run():
+        async with httpx.AsyncClient(transport=app_transport(), base_url='http://test') as api:
+            preview_url = '/agent/model-selection/preview'
+            query = {'operation': 'image.generate'}
+            first = (await api.post(preview_url, json=query)).json()
+            save_purpose_default('image', {'profile_id': workspace['gpt-image-2'],
+                                            'expected_version': get_model_catalog()['purpose_version']})
+            request = {**payload(), 'comparison_key': first['comparison_key']}
+            response = await api.post('/image-studio/generate', json=request)
+            assert response.status_code == 409 and response.json()['detail']['code'] == 'model_selection_changed'
+            assert not calls
+            with connect() as conn:
+                assert conn.execute('SELECT 1 FROM image_studio_tasks WHERE id=?', (request['request_id'],)).fetchone() is None
+            fresh = (await api.post(preview_url, json=query)).json()
+            request['comparison_key'] = fresh['comparison_key']
+            assert (await api.post('/image-studio/generate', json=request)).status_code == 202
+            await wait_task(request['request_id'])
+            assert (await api.post('/image-studio/generate', json={**request, 'comparison_key': first['comparison_key']})).status_code == 202
+            assert len(calls) == 1 and json.loads(calls[0].content)['model'] == 'gpt-image-2'
+
+    asyncio.run(run())
 
 
 def test_options_use_eligible_models_and_never_resolve_secrets(workspace, monkeypatch):
