@@ -5,7 +5,7 @@ import { AuthSession, AuthUser, validateSession } from "../features/auth/session
 import { useAuthSession } from "../features/auth/useAuthSession";
 import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
-import { AuthMascot } from "./AuthMascot";
+import { AuthMascot, CompactAuthMascot } from "./AuthMascot";
 import { PublicSiteFooter } from "./PublicSiteFooter";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
@@ -264,6 +264,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           <div className="auth-heading">
             <h2 className="auth-form-title">{creating ? "创建本地账户" : "登录本地账户"}</h2>
             <p className="auth-subtitle">{creating ? "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
+            <CompactAuthMascot />
           </div>
           {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
           {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建本地账户，并自动登录。</p> : null}

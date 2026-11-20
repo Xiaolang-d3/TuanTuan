@@ -100,6 +100,7 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
   padding: 24px 0;
 }
 .auth-heading { display: grid; gap: 10px; margin-bottom: 8px; }
+.auth-mascot-compact { display: none; }
 .auth-form-title {
   margin: 0;
   font-size: 28px;
@@ -263,6 +264,26 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
   .auth-shell { grid-template-columns: minmax(0, 1fr); width: min(100%, 360px); gap: 0; }
   .auth-artwork { display: none; }
   .auth-card { gap: 20px; padding: 16px 0; }
+  .auth-heading { grid-template-columns: minmax(0, 1fr) 56px; column-gap: 14px; align-content: center; }
+  .auth-heading > :is(h2, p) { grid-column: 1; }
+  .auth-mascot-compact {
+    position: relative;
+    display: block;
+    align-self: center;
+    grid-area: 1 / 2 / 3 / 3;
+    inline-size: 56px;
+    block-size: 56px;
+    border-radius: 50%;
+  }
+  .auth-mascot-compact-clip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; background: #e8f6fd; }
+  .auth-mascot-compact-image {
+    position: absolute;
+    inset: -5px;
+    background: url('/auth-companion-cutout.webp') no-repeat -31px -1px / 119px auto;
+    animation: auth-mascot-greeting .72s ease-in-out;
+  }
+  .auth-mascot-compact-replay { position: absolute; inset: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+  .auth-mascot-compact-replay:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
   .auth-form-title { font-size: 26px; }
   .auth-card input:not([type="checkbox"]) { font-size: 16px; }
 }
@@ -273,6 +294,12 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
   .auth-fields { gap: 14px; }
   .auth-form-title { font-size: 24px; }
 }
+@keyframes auth-mascot-greeting {
+  0%, 100% { transform: none; }
+  35% { transform: translateY(-3px) rotate(-7deg) scale(1.05); }
+  67% { transform: translateY(-1px) rotate(3deg); }
+}
 @media (prefers-reduced-motion: reduce) {
   .auth-gate *, .auth-gate *::before, .auth-gate *::after { transition: none; animation: none; }
+  .auth-mascot-compact-replay { display: none; }
 }

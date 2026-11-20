@@ -77,10 +77,13 @@ describe("public product entry", () => {
 
     const nav = within(await screen.findByRole("contentinfo", { name: "网站页脚" })).getByRole("navigation");
     const links = within(nav).getAllByRole("link");
-    expect(links.map((link) => link.textContent)).toEqual(["隐私说明", "帮助与反馈"]);
-    expect(nav).toHaveTextContent("隐私说明 · 帮助与反馈");
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAccessibleName("隐私说明");
+    expect(links[0]).not.toHaveAttribute("target");
+    expect(links[1]).toHaveAccessibleName("帮助与反馈");
     expect(links[1]).toHaveAttribute("href", "https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose");
     expect(links[1]).toHaveAttribute("target", "_blank");
+    expect(links[1]).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByRole("link", { name: "关于 团团" })).toHaveAttribute("href", "#/about");
 
     navigate(links[0].getAttribute("href")!);
