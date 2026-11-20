@@ -16,12 +16,47 @@ function authConfig(setupRequired = false) {
 describe("AuthGate", () => {
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", "/");
     window.sessionStorage.clear();
     window.localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     delete document.documentElement.dataset.theme;
     document.documentElement.style.colorScheme = "";
+  });
+
+  it("offers QQ registration and login only when the service enables QQ", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => authConfig()));
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    await screen.findByLabelText("邮箱");
+    expect(screen.queryByRole("button", { name: "使用 QQ 登录" })).not.toBeInTheDocument();
+    cleanup();
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ qq_enabled: true, setup_required: false }))));
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    expect(await screen.findByRole("button", { name: "使用 QQ 登录" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "登录团团账户" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "没有账号？创建账号" }));
+    expect(screen.getByRole("button", { name: "使用 QQ 注册" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "创建团团账户" })).toBeInTheDocument();
+  });
+
+  it("exchanges the QQ return once and removes the return flag", async () => {
+    window.history.replaceState(null, "", "/?qq_auth=login");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/auth/qq/finish")) {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ access_token: "qq-session", user: { id: 2, email: "internal@qq.tuantuan.invalid", qq_only: true } }));
+      }
+      return authConfig();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthGate apiBase={window.location.origin}>{(token) => <div>{token}</div>}</AuthGate>);
+    await screen.findByText("qq-session");
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBe("qq-session");
+    expect(window.location.search).toBe("");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/auth/qq/finish"))).toHaveLength(1);
   });
 
   it.each(["light", "dark", "blue"] as const)("switches the saved %s theme from the public navigation and preserves it on remount", async initial => {

@@ -1,8 +1,10 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, Lock } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import qqConnectLogo from "./qq-connect-logo.png";
 import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
+import { beginQq, canUseQq, clearQqReturn, readQqReturn } from "../features/auth/qq";
 import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthMascot, CompactAuthMascot } from "./AuthMascot";
@@ -13,7 +15,7 @@ import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/pass
 export type { AuthUser } from "../features/auth/session";
 import "./auth-gate.css";
 
-type AuthConfig = { enabled: boolean; setup_required: boolean; registration_open?: boolean };
+type AuthConfig = { enabled: boolean; setup_required: boolean; registration_open?: boolean; qq_enabled?: boolean };
 type FieldErrors = { email?: string; password?: string; passwordConfirmation?: string };
 type LoginIssue = { kind: "credentials" | "unregistered" | "network" | "throttled" | "exists" | "generic"; message: string; field?: keyof FieldErrors; retryAfterSeconds?: number };
 
@@ -74,7 +76,13 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   const showingPublicPage = Boolean(publicPage);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const session = useAuthSession(apiBase);
-  const { token, authenticated, restoreError, notice, logoutBusy, logoutError, retryRestore, logout, updateSession } = session;
+  const { token, authenticated, restoreError, notice, logoutBusy, logoutError, retryRestore, logout, updateSession, acceptSession } = session;
+  const [qqReturn, setQqReturn] = useState(readQqReturn);
+  const [qqBusy, setQqBusy] = useState(false);
+  const [qqNotice, setQqNotice] = useState<{ message: string; error: boolean } | null>(null);
+  const acceptSessionRef = useRef(acceptSession);
+  acceptSessionRef.current = acceptSession;
+  const qqExchange = useRef<{ apiBase: string; token: string | null; result: Promise<unknown> } | null>(null);
   const [registering, setRegistering] = useState(false);
   const [pendingCreation, setPendingCreation] = useState(false);
   const creating = registering || pendingCreation;
@@ -96,6 +104,49 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const passwordConfirmationRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!qqReturn || !canUseQq(apiBase)) return;
+    const binding = qqReturn.startsWith("bind");
+    const complete = (message = "", error = true) => {
+      clearQqReturn();
+      setQqReturn(null);
+      if (message) setQqNotice({ message, error });
+    };
+    if (qqReturn.endsWith("cancelled")) {
+      complete("已取消 QQ 授权。", false);
+      return;
+    }
+    if (qqReturn !== "login" && qqReturn !== "bind") {
+      complete("未能完成 QQ 授权，请重试。");
+      return;
+    }
+    if (binding && !token) {
+      complete("请先登录原来的团团账号，再重新绑定 QQ。");
+      return;
+    }
+    if (!binding && token) {
+      complete("请先退出当前账户，再使用 QQ 登录。");
+      return;
+    }
+    if (!qqExchange.current) {
+      qqExchange.current = { apiBase, token, result: createApiClient(apiBase, token ?? undefined)("/auth/qq/finish", { method: "POST" }) };
+    }
+    if (qqExchange.current.apiBase !== apiBase || qqExchange.current.token !== token) {
+      complete("登录状态已改变，请重新授权 QQ。");
+      return;
+    }
+    let cancelled = false;
+    void qqExchange.current.result.then((payload) => {
+      if (cancelled) return;
+      const next = binding ? { ...(payload as { user: AuthUser }), access_token: token } : payload;
+      acceptSessionRef.current(validateSession(next));
+      complete(binding ? "QQ 已绑定，下次可用 QQ 登录此账户。" : "", false);
+    }).catch((reason: unknown) => {
+      if (!cancelled) complete(reason instanceof Error ? reason.message : "未能完成 QQ 授权，请重试。");
+    });
+    return () => { cancelled = true; };
+  }, [apiBase, qqReturn, token]);
 
   useEffect(() => {
     if (busy || !focusAfterSubmit.current) return;
@@ -168,6 +219,19 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
     setFieldErrors(next && email ? { email: validateEmail(email, true) } : {});
     setError("");
     setErrorKind("");
+    setQqNotice(null);
+  }
+
+  async function startQq() {
+    if (busy || qqBusy) return;
+    setQqBusy(true);
+    setQqNotice(null);
+    try {
+      await beginQq(apiBase);
+    } catch (reason) {
+      setQqNotice({ message: reason instanceof Error ? reason.message : "无法连接 QQ，请重试。", error: true });
+      setQqBusy(false);
+    }
   }
 
   function focusFirstInvalid(next: FieldErrors) {
@@ -178,7 +242,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || submitController.current || cooldown) return;
+    if (busy || qqBusy || submitController.current || cooldown) return;
     const nextFields = validateLoginFields({
       email,
       password,
@@ -235,6 +299,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   }
 
   if (publicPage) return publicPage(Boolean(token && authenticated));
+  if (canUseQq(apiBase) && (qqReturn === "login" || qqReturn === "bind")) return <AuthStatus message="正在完成 QQ 授权…" />;
   if (logoutBusy) return <AuthStatus message="正在退出登录…" />;
   if (token && !authenticated) {
     return (
@@ -247,14 +312,18 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   }
   if (token && authenticated) {
     return <>
+      {qqNotice ? <div className={`auth-session-error${qqNotice.error ? "" : " auth-session-notice"}`} role={qqNotice.error ? "alert" : "status"}>
+        {qqNotice.message}<button type="button" onClick={() => setQqNotice(null)}>关闭</button>
+      </div> : null}
       {logoutError ? <div className="auth-session-error" role="alert">{logoutError}<button type="button" onClick={() => void logout()}>重试退出</button></div> : null}
-      {children(token, () => void logout(), authenticated.user, updateSession)}
+      {children(token, () => { setQqNotice(null); void logout(); }, authenticated.user, updateSession)}
     </>;
   }
   if (error && !config) {
     return <AuthStatus message={error} alert onRetry={() => { setError(""); setBootNonce((value) => value + 1); }} />;
   }
   if (!config) return <AuthStatus message="正在连接登录服务…" />;
+  const qqEnabled = config.qq_enabled && canUseQq(apiBase);
   const confirmMismatch = Boolean(registering && passwordConfirmation && password.normalize("NFC") !== passwordConfirmation.normalize("NFC"));
   const livePasswordError = creating && password ? newPasswordError(password, email) : undefined;
   return (
@@ -262,12 +331,12 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
       <div className="auth-shell">
         <form className="auth-card" onSubmit={submit} noValidate aria-busy={busy}>
           <div className="auth-heading">
-            <h2 className="auth-form-title">{creating ? "创建本地账户" : "登录本地账户"}</h2>
-            <p className="auth-subtitle">{creating ? "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
+            <h2 className="auth-form-title">{qqEnabled ? creating ? "创建团团账户" : "登录团团账户" : creating ? "创建本地账户" : "登录本地账户"}</h2>
+            <p className="auth-subtitle">{creating ? qqEnabled ? "选择邮箱或 QQ，开始你的工作空间" : "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
             <CompactAuthMascot />
           </div>
           {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
-          {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建本地账户，并自动登录。</p> : null}
+          {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建{qqEnabled ? "团团" : "本地"}账户，并自动登录。</p> : null}
           <div className="auth-fields">
             <div className="auth-field">
               <label htmlFor="auth-email">邮箱</label>
@@ -356,10 +425,30 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               {errorKind === "network" ? <button type="button" className="auth-error-action" onClick={() => { setError(""); setErrorKind(""); setBootNonce((value) => value + 1); }}>重新连接</button> : null}
             </p>
           ) : null}
-          <button className="auth-submit" type="submit" disabled={busy || cooldown > 0} aria-busy={busy}>
-            <span>{cooldown ? `${cooldown} 秒后重试` : busy ? (creating ? "正在创建…" : "正在登录…") : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录"}</span>
-          </button>
-          <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p>
+          {qqNotice ? <p className={qqNotice.error ? "auth-error" : "auth-notice"} role={qqNotice.error ? "alert" : "status"}>{qqNotice.message}</p> : null}
+          <div className="auth-actions">
+            <button className="auth-submit" type="submit" disabled={busy || qqBusy || cooldown > 0} aria-busy={busy}>
+              {qqEnabled ? <Mail size={16} aria-hidden="true" /> : null}
+              <span>{cooldown ? `${cooldown} 秒后重试` : busy ? (creating ? "正在创建…" : "正在登录…") : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录"}</span>
+            </button>
+            {qqEnabled ? <>
+              <div className="auth-qq-divider" aria-hidden="true">或</div>
+              <button
+                className="auth-submit auth-qq-button"
+                type="button"
+                disabled={busy || qqBusy}
+                aria-busy={qqBusy}
+                aria-describedby="auth-qq-hint"
+                onClick={() => void startQq()}
+              >
+                {/* QQ Connect's standard 16 × 16 sign-in icon. */}
+                <img src={qqConnectLogo} width="16" height="16" alt="" />
+                <span>{qqBusy ? "正在前往 QQ…" : creating ? "使用 QQ 注册" : "使用 QQ 登录"}</span>
+              </button>
+              <p className="auth-qq-hint" id="auth-qq-hint">首次用 QQ 会创建账号。已有账号请先登录，再绑定 QQ。</p>
+            </> : null}
+          </div>
+          {!qqEnabled ? <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p> : null}
           <p className="auth-mode-switch">
             {pendingCreation ? (
               <button type="button" onClick={() => switchMode(false)} disabled={busy}>返回登录</button>

@@ -95,6 +95,10 @@ _OPEN_AUTH_PATHS = {
     "/auth/bootstrap",
     "/auth/login",
     "/auth/register",
+    "/auth/qq/start",
+    "/auth/qq/callback",
+    "/api/auth/qq/callback",
+    "/auth/qq/finish",
 }
 
 _DOC_PATHS = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
@@ -202,7 +206,7 @@ async def require_login(request: Request, call_next: Any) -> Any:
     is_frontend_asset = path == "/" or path.startswith("/assets/") or path in _PUBLIC_FRONTEND_FILES
     if request.method == "OPTIONS" or is_frontend_asset or path in _REQUIRE_LOGIN_WHITELIST:
         response = await call_next(request)
-        if path.startswith("/auth/"):
+        if path.startswith(("/auth/", "/api/auth/qq/")):
             response.headers["Cache-Control"] = "no-store"
         cache_control = static_asset_cache_control(path)
         if request.method in {"GET", "HEAD"}:

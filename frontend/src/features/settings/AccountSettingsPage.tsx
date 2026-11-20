@@ -1,10 +1,11 @@
-import { Camera, Check, Eye, EyeOff, LoaderCircle, Save, ShieldCheck, Sparkles, Trash2, UserRound, X } from "lucide-react";
+import { Camera, Check, Eye, EyeOff, Link2, LoaderCircle, Save, ShieldCheck, Sparkles, Trash2, UserRound, X } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createApiClient } from "../../api/client";
 import type { AuthUser } from "../../components/AuthGate";
 import { ActionButton } from "../../components/ui/ActionButton";
 import { PasswordGuidance } from "../../components/PasswordGuidance";
 import { newPasswordError, passwordLength, passwordMaxLength, passwordMinLength } from "../auth/passwordPolicy";
+import { beginQq, canUseQq } from "../auth/qq";
 import { presetAvatarFile } from "./avatar-raster";
 import { avatarPresets, type AvatarPreset } from "./avatar-presets";
 import { PresetAvatarPicker } from "./PresetAvatarPicker";
@@ -59,6 +60,8 @@ export function AccountSettingsPage({
   const [currentPasswordError, setCurrentPasswordError] = useState("");
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [qqBusy, setQqBusy] = useState(false);
+  const [qqError, setQqError] = useState("");
   // Which built-in avatar was applied during this visit. The account only stores
   // the resulting picture, so after a reload there is no preset to highlight.
   const [presetActiveId, setPresetActiveId] = useState<string | null>(null);
@@ -102,7 +105,8 @@ export function AccountSettingsPage({
   const dirty = displayName.trim() !== savedName;
   const nameCount = displayName.trim().length;
   const preview = localAvatar || avatarUrl;
-  const initial = (displayName.trim() || account.email).slice(0, 1).toUpperCase();
+  const initial = (displayName.trim() || (account.qq_only ? "QQ" : account.email)).slice(0, 1).toUpperCase();
+  const qqAvailable = account.qq_enabled && canUseQq(apiBase);
   const passwordReady = Boolean(
     currentPassword
     && !newPasswordError(newPassword, account.email)
@@ -127,7 +131,7 @@ export function AccountSettingsPage({
         body: JSON.stringify({ display_name: displayName })
       });
       onAccountChange(payload.user);
-      setProfileNotice(payload.user.display_name ? "昵称已保存" : "已恢复为使用邮箱显示");
+      setProfileNotice(payload.user.display_name ? "昵称已保存" : account.qq_only ? "已恢复默认昵称" : "已恢复为使用邮箱显示");
     } catch (reason) {
       setProfileError(reason instanceof Error ? reason.message : "保存失败");
     } finally {
@@ -255,11 +259,23 @@ export function AccountSettingsPage({
     setVisibleFields((current) => ({ ...current, [field]: !current[field] }));
   }
 
+  async function bindQq() {
+    if (qqBusy) return;
+    setQqBusy(true);
+    setQqError("");
+    try {
+      await beginQq(apiBase, accessToken);
+    } catch (reason) {
+      setQqError(reason instanceof Error ? reason.message : "无法打开 QQ 授权，请重试。");
+      setQqBusy(false);
+    }
+  }
+
   return (
     <section className="account-settings-page">
       <header className="library-page-heading">
         <div>
-          <p>昵称和头像保存在本机账户中，与资料库内容分开。</p>
+          <p>昵称和头像保存在{account.qq_enabled || account.qq_bound ? "团团" : "本机"}账户中，与资料库内容分开。</p>
         </div>
       </header>
 
@@ -353,10 +369,10 @@ export function AccountSettingsPage({
                 </small>
               </span>
             </label>
-            <p className="account-email-line">
+            {!account.qq_only ? <p className="account-email-line">
               <span>登录邮箱</span>
               <strong>{account.email}</strong>
-            </p>
+            </p> : null}
             {profileError ? <p className="account-field-error" role="alert">{profileError}</p> : null}
             {profileNotice ? <p className="account-notice"><Check size={14} />{profileNotice}</p> : null}
             {dirty ? (
@@ -393,7 +409,24 @@ export function AccountSettingsPage({
         </section>
       </form>
 
-      <form className="account-card" onSubmit={(event) => void savePassword(event)} noValidate>
+      {qqAvailable || account.qq_bound ? <section className="account-card" aria-labelledby="account-qq-title">
+        <header className="library-foundation-heading">
+          <span><Link2 size={18} aria-hidden="true" /></span>
+          <div>
+            <h3 id="account-qq-title">QQ 登录</h3>
+            <p>{account.qq_only ? "此账户使用 QQ 登录。" : "绑定后可用 QQ 登录当前账户，邮箱密码仍然可用。"}</p>
+          </div>
+        </header>
+        {qqError ? <p className="account-field-error" role="alert">{qqError}</p> : null}
+        <footer className="account-card-footer">
+          <span>{!qqAvailable ? "QQ 登录暂不可用" : account.qq_bound ? "已绑定 QQ" : "尚未绑定"}</span>
+          {qqAvailable && !account.qq_bound ? <ActionButton variant="secondary" type="button" disabled={qqBusy} onClick={() => void bindQq()}>
+            {qqBusy ? "正在前往 QQ…" : "绑定 QQ"}
+          </ActionButton> : null}
+        </footer>
+      </section> : null}
+
+      {!account.qq_only ? <form className="account-card" onSubmit={(event) => void savePassword(event)} noValidate>
         <header className="library-foundation-heading">
           <span><ShieldCheck size={18} /></span>
           <div>
@@ -489,7 +522,7 @@ export function AccountSettingsPage({
             {passwordBusy ? "更新中…" : "更新密码"}
           </ActionButton>
         </footer>
-      </form>
+      </form> : null}
     </section>
   );
 }

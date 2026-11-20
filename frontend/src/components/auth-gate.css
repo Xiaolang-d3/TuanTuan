@@ -216,6 +216,47 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 }
 .auth-submit:hover:not(:disabled) { background: var(--color-brand-strong); }
 .auth-submit:disabled { opacity: .55; cursor: wait; }
+.auth-actions {
+  display: grid;
+  gap: 6px;
+}
+.auth-actions .auth-submit {
+  gap: 8px;
+}
+.auth-actions .auth-submit > :is(svg, img) {
+  flex: none;
+}
+.auth-qq-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.auth-qq-divider::before,
+.auth-qq-divider::after {
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+  content: "";
+}
+.auth-qq-hint {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.auth-qq-button {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: background-color .16s ease, border-color .16s ease;
+}
+.auth-qq-button:hover:not(:disabled) {
+  border-color: var(--color-brand);
+  background: var(--color-surface-subtle);
+}
 .auth-local-note { margin: -6px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.65; text-align: left; text-wrap: pretty; }
 .auth-local-note svg { display: inline-block; margin-right: 5px; vertical-align: -2px; }
 .auth-mode-switch { margin: 0; color: var(--color-text-muted); font-size: 13px; text-align: center; }
@@ -255,6 +296,7 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 .auth-status-retry { min-height: 40px; padding: 8px 14px; border: 0; border-radius: 6px; background: #252d38; color: #fff; font: inherit; cursor: pointer; }
 .auth-session-error { position: fixed; inset: 12px 12px auto; z-index: 100; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px; border: 1px solid #e9c2c2; border-radius: 8px; background: #fff5f5; color: #8f2525; }
 .auth-session-error button { border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.auth-session-notice { border-color: var(--color-border-strong); background: var(--color-surface); color: var(--color-text); }
 
 @media (max-width: 860px) {
   .auth-gate { padding: calc(76px + env(safe-area-inset-top, 0px)) 24px calc(12px + env(safe-area-inset-bottom, 0px)); color-scheme: inherit; }
