@@ -425,6 +425,23 @@ class AgentRunStore:
             )
         return int(changed)
 
+    def interrupted_write_result(self, run_id: str) -> ToolResult | None:
+        with connect(self._db_path) as conn:
+            risks = tuple(sorted(SAFE_RETRY_RISKS))
+            placeholders = ", ".join("?" for _ in risks)
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT tool_name FROM agent_tool_executions
+                WHERE run_id = ? AND status IN ('running', 'interrupted')
+                  AND risk NOT IN ({placeholders})
+                LIMIT 2
+                """,
+                (run_id, *risks),
+            ).fetchall()
+        if not rows:
+            return None
+        return self._uncertain_write_result(rows[0]["tool_name"] if len(rows) == 1 else None)
+
     def prepare_tool_call(
         self,
         run_id: str,
@@ -465,9 +482,9 @@ class AgentRunStore:
             if status in {"waiting_approval", "blocked"} and stored is not None:
                 return ToolExecutionDecision("replay", stored)
             if status == "failed" and spec.risk not in SAFE_RETRY_RISKS:
-                return ToolExecutionDecision("replay", stored or self._uncertain_write_result())
+                return ToolExecutionDecision("replay", stored or self._uncertain_write_result(tool_call.name))
             if status in {"running", "interrupted"} and spec.risk not in SAFE_RETRY_RISKS:
-                return ToolExecutionDecision("block", self._uncertain_write_result())
+                return ToolExecutionDecision("block", self._uncertain_write_result(tool_call.name))
 
             conn.execute(
                 """
@@ -561,8 +578,16 @@ class AgentRunStore:
         )
 
     @staticmethod
-    def _uncertain_write_result() -> ToolResult:
-        message = "上次本地写工具执行被中断，结果状态不确定，系统不会自动重放"
+    def _uncertain_write_result(tool_name: str | None) -> ToolResult:
+        destination = (
+            "文件库 → 知识中的待确认和已确认记录"
+            if tool_name == "propose_library_knowledge"
+            else "本次操作的目标位置"
+        )
+        message = (
+            "上次写入中断，无法确认是否已保存。为避免重复写入，系统不会自动重试。"
+            f"请先到{destination}核对。如果已保存，无需再次提交；确认缺失后，再单独提交缺失的内容。"
+        )
         return ToolResult(
             ok=False,
             status="blocked",

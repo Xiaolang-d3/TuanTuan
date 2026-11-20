@@ -38,10 +38,26 @@ export function textFromAppendMessage(message: AppendMessage): string {
     .trim();
 }
 
+function isUncertainWrite(run?: AgentRunResult) {
+  return run?.status === "failed" && run.error?.code === "tool_execution_uncertain";
+}
+
+function uncertainWriteAnswer(run: AgentRunResult, content: string): string {
+  // Archived turns from before the recovery guidance ended with a generic retry suggestion.
+  const legacyError = "上次本地写工具执行被中断，结果状态不确定，系统不会自动重放";
+  const answer = content.trim();
+  if (answer && answer !== legacyError && answer !== `${legacyError}。本次执行已终止，请处理后重新提问。`) return content;
+  const error = run.error?.message.trim();
+  if (error && error !== legacyError) return error;
+  const knowledgeWrite = run.events.some(event => event.status === "blocked" && event.tool_name === "propose_library_knowledge");
+  const destination = knowledgeWrite ? "文件库 → 知识中的待确认和已确认知识" : "本次操作的目标位置";
+  return `上次写入中断，结果尚未确认。为避免重复写入，系统已停止自动执行。请先检查${destination}。如果已经写入，无需再次提交；只有确认缺失时，才单独提交缺失的内容。`;
+}
+
 function RunErrorNote({ run, content }: { run?: AgentRunResult; content: string }) {
   if (!run) return null;
   const failed = run.status === "failed";
-  if (!failed) return null;
+  if (!failed || isUncertainWrite(run)) return null;
   const errorMessage = run.error?.message?.trim();
   const errorAlreadyShown = errorMessage && content.replace(/\s+/g, " ").includes(errorMessage.replace(/\s+/g, " "));
   if (!errorMessage || errorAlreadyShown) return null;
@@ -291,6 +307,9 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
   const generating = content.trim() && !latestEvents(agent).some((event) => event.status === "running" && event.tool_name !== "agent_thinking");
   const terminalError = !streaming && agent?.status === "failed" ? agent.error?.message?.trim() : undefined;
   const entries = processEntries(agent, streaming).flatMap((entry) => {
+    if (entry.event.data?.uncertain_previous_execution === true || (isUncertainWrite(agent) && entry.text === terminalError)) {
+      return [{ ...entry, text: "已阻止重复写入" }];
+    }
     if (!terminalError || entry.text !== terminalError) return [entry];
     // Keep a failed tool inspectable without repeating the error already shown in the answer.
     if (entry.tool === "model_provider") return [];
@@ -305,7 +324,7 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
   const visibleEntries = entries.filter(entry => !(streaming && entry.id === liveEntry?.id && entry.tool === "image_generation"));
   const compactProgress = streaming && !visibleEntries.length;
   const imageFailure = agent?.events.some(event => event.tool_name === "image_generation") && !agent?.assets?.length;
-  const outcome = !streaming ? agent?.status === "failed" ? imageFailure ? "未生成图片" : agent.error?.code === "citation_validation_failed" ? "引用校验未通过" : "生成失败"
+  const outcome = !streaming ? agent?.status === "failed" ? isUncertainWrite(agent) ? "写入结果待核对" : imageFailure ? "未生成图片" : agent.error?.code === "citation_validation_failed" ? "引用校验未通过" : "生成失败"
     : agent?.status === "cancelled" ? "已停止" : agent?.status === "waiting_user" ? "等待确认" : "" : "";
   const signature = JSON.stringify(entries);
   function jumpToLatest() {
@@ -610,7 +629,9 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
     (event) => event.tool_name === "agent_thinking"
   );
   const isActiveAssistant = (chatBusy && source.id < 0) || !!source.payload?.image_edit_pending;
-  const resultContent = resultOnlyContent(source.content, Boolean(thoughtEvent?.message));
+  const agent = source.payload?.agent;
+  const uncertainWrite = isUncertainWrite(agent);
+  const resultContent = uncertainWrite && agent ? uncertainWriteAnswer(agent, source.content) : resultOnlyContent(source.content, Boolean(thoughtEvent?.message));
   const failed = source.payload?.agent?.status === "failed";
   const assets = source.payload?.agent?.assets ?? [];
   const imagePending = isImagePending(source.payload?.agent, isActiveAssistant, stopping);
@@ -662,14 +683,14 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
                 <ActionBarPrimitive.Root className="message-actions" hideWhenRunning>
                   <MessageCopyButton content={resultContent} label="复制回答" />
                   {openDocument && source.id > 0 && (resultContent.trim() || assets.length) ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
-                  <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
+                  {!uncertainWrite && <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
                     <RefreshCw size={14} aria-hidden="true" />
-                  </ActionBarPrimitive.Reload>
+                  </ActionBarPrimitive.Reload>}
                 </ActionBarPrimitive.Root>
               </div>
               {answerModelName ? <span className="message-answer-model" aria-label={`回答模型：${answerModelName}`} title={answerModelName}>{answerModelName}</span> : null}
             </div> : <WebSourcesPanel sources={webSources} onOpen={() => openResearch()} />}
-            <span className="message-action-hint sr-only" id={`regenerate-impact-${source.id}`}>重新生成将替换本轮及后续消息</span>
+            {!uncertainWrite && <span className="message-action-hint sr-only" id={`regenerate-impact-${source.id}`}>重新生成将替换本轮及后续消息</span>}
           </>
         ) : (
           <>

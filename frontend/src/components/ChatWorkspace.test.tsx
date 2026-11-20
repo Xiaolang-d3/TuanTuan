@@ -405,6 +405,34 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByLabelText("消息发送失败")).not.toBeInTheDocument();
   });
 
+  it("shows the backend's uncertain-write guidance once during streaming and after the terminal snapshot", async () => {
+    const guidance = "上次写入是否完成尚不确定。请先在文件库核对目标记录，确认缺失后再单独提交。";
+    const event = { round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-1", status: "blocked", message: guidance, data: { uncertain_previous_execution: true } };
+    const agent: AgentRunResult = { provider: "test", platform: "local", rounds: 1, status: "done", events: [event] };
+    const props = renderChat([message, { ...assistantMessage(guidance, -12), payload: { agent } }], { chatBusy: true });
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    const persisted = { ...assistantMessage(guidance), payload: { agent: { ...agent, status: "failed" as const, error: { code: "tool_execution_uncertain", message: guidance, retryable: false } } } };
+    props.view.rerender(<ChatWorkspace {...props} messages={[message, persisted]} chatBusy={false} />);
+    expect(await screen.findByText("写入结果待核对")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "展开思考与执行过程" }));
+    expect(screen.getByText("已阻止重复写入")).toBeVisible();
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /重试|重新生成|继续执行/ })).not.toBeInTheDocument();
+  });
+
+  it("replaces the generic retry instruction in a legacy uncertain-write answer", () => {
+    const oldError = "上次本地写工具执行被中断，结果状态不确定，系统不会自动重放";
+    renderChat([message, { ...assistantMessage(`${oldError}。本次执行已终止，请处理后重新提问。`), payload: { agent: {
+      provider: "test", platform: "local", rounds: 1, status: "failed", error: { code: "tool_execution_uncertain", message: oldError, retryable: false },
+      events: [{ round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-old", status: "blocked", message: oldError, data: { uncertain_previous_execution: true } }]
+    } } }]);
+    const output = screen.getByRole("region", { name: "输出结果" });
+    expect(output).toHaveTextContent("待确认和已确认知识");
+    expect(output).toHaveTextContent("只有确认缺失时");
+    expect(screen.queryByText(/处理后重新提问/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重试|重新生成/ })).not.toBeInTheDocument();
+  });
+
   it("retains unpersisted send failures without marking the chat model unavailable", () => {
     renderChat([message], { sendError: "消息流连接中断", currentModelName: "grok-4.7", retryDraft: {
       content: "原始问题", attachmentIds: [], visionAttachmentIds: [], webSearch: false,
