@@ -117,9 +117,8 @@ html:has(.product-intro-page) { scrollbar-gutter: auto; }
 .product-intro-features p { max-width: 290px; margin: 0; color: #6c647d; font-size: 14px; line-height: 1.9; }
 .product-intro-privacy-note { margin: 32px auto 26px; max-width: 650px; color: #746d86; font-size: 12px; line-height: 1.9; text-wrap: balance; }
 .product-intro-page .public-site-footer {
-  --color-text-secondary: #45455f;
-  --color-text-muted: #655b77;
-  padding: 8px 20px max(12px, env(safe-area-inset-bottom, 0px));
+  --color-text-muted: #6c6c6c;
+  padding: 4px 20px calc(8px + env(safe-area-inset-bottom, 0px));
 }
 
 @media (max-width: 1100px) {

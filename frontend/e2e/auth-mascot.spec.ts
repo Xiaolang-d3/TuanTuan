@@ -76,6 +76,32 @@ test("reduced motion keeps the original illustration and can change live", async
   await expect(scene).toHaveAttribute("data-animated", "false");
 });
 
+test("the narrow mascot greets once, replays without shifting the form, and respects reduced motion", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
+  const mascot = page.locator(".auth-mascot-compact");
+  const image = mascot.locator(".auth-mascot-compact-image");
+  const replay = mascot.getByRole("button", { name: "让团团打个招呼" });
+  await expect(replay).toBeVisible();
+  await expect(page.locator(".auth-artwork")).toBeHidden();
+  await expect(image).toHaveCSS("animation-iteration-count", "1");
+  await expect(image).toHaveCSS("animation-name", "auth-mascot-greeting");
+  await image.evaluate(element => element.getAnimations().forEach(animation => animation.finish()));
+
+  const heading = page.getByRole("heading", { name: "登录本地账户" });
+  const before = await heading.boundingBox();
+  await replay.focus();
+  await replay.press("Enter");
+  await expect.poll(() => image.evaluate(element => element.getAnimations().length)).toBe(1);
+  await expect(replay).toBeFocused();
+  expect(await heading.boundingBox()).toEqual(before);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(mascot).toBeVisible();
+  await expect(replay).toBeHidden();
+  await expect(image).toHaveCSS("animation-name", "none");
+});
+
 test("unsupported graphics retains the static mascot", async ({ page }) => {
   await page.addInitScript(() => {
     HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;

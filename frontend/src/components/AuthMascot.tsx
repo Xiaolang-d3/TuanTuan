@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { createMascotRenderer } from "./mascotRenderer";
 
+export function CompactAuthMascot() {
+  const [greeting, setGreeting] = useState(0);
+
+  return (
+    <div className="auth-mascot-compact">
+      <div className="auth-mascot-compact-clip" aria-hidden="true">
+        <span key={greeting} className="auth-mascot-compact-image" />
+      </div>
+      <button type="button" className="auth-mascot-compact-replay" aria-label="让团团打个招呼" onClick={() => setGreeting((value) => value + 1)} />
+    </div>
+  );
+}
+
 export function AuthMascot() {
   const imageRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
