@@ -7,6 +7,7 @@ export const PRESENTATION_SETUP_TIMEOUT_MS = 120_000;
 export type PresentationJob = Pick<BackgroundJob, "id" | "status" | "revision" | "cancel_requested" | "error" | "prompt"> & {
   stage: string; confirmation_required: boolean; generation_available: boolean;
   topic?: string; page_count?: number; conversation_id?: number | null; model_name?: string;
+  kind?: string; title?: string; source_count?: number; preview_available?: boolean;
   error_code?: string; error_stage?: string; created_at?: string;
   retryable?: boolean; retry_requires_confirmation?: boolean;
   delivery_artifacts?: Array<Pick<FileArtifact, "id" | "version" | "filename">>;
@@ -20,6 +21,7 @@ export type PresentationCapabilities = {
   limits: { min_pages: number; max_pages: number; language: string; canvas: string };
   model_name?: string;
 };
+export type QuickPresentationCapabilities = { composer: boolean; available: boolean; code: string; reason: string };
 
 export function currentPresentationArtifacts(job: PresentationJob, artifacts: FileArtifact[]) {
   if (job.delivery_artifacts) return artifacts.filter(artifact => job.delivery_artifacts!.some(item => item.id === artifact.id && item.version === artifact.version));
@@ -35,6 +37,11 @@ export function createPresentationService(apiBase: string, accessToken: string) 
   return {
     activity,
     capabilities: (signal?: AbortSignal, conversationId?: number) => request<PresentationCapabilities>(`/presentations/capabilities${conversationId ? `?conversation_id=${conversationId}` : ""}`, { signal, cache: "no-store" }, PRESENTATION_SETUP_TIMEOUT_MS),
+    quickCapabilities: (conversationId: number, signal?: AbortSignal) => request<QuickPresentationCapabilities>(`/presentations/quick/capabilities?conversation_id=${conversationId}`, { signal, cache: "no-store" }),
+    createQuick: (topic: string, attachmentIds: string[], conversationId: number, key: string) => request<PresentationJob>("/presentations/quick", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, attachment_ids: attachmentIds, conversation_id: conversationId, idempotency_key: key })
+    }),
     list: (conversationId: number, signal?: AbortSignal, before?: string) => request<{ jobs: PresentationJob[]; next_cursor: string | null }>(`/presentations?conversation_id=${conversationId}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { signal, cache: "no-store" }),
     create: (topic: string, pages: number, key: string, conversationId?: number) => request<PresentationJob>("/presentations", {
       method: "POST", headers: { "Content-Type": "application/json" },

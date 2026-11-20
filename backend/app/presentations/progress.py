@@ -7,6 +7,7 @@ from ..db import connect
 
 
 _ACTIVITIES = {
+    "quick_plan": "正在编排演示内容",
     "stage1": "正在分析演示需求",
     "stage2": "正在规划内容与设计",
     "design_spec": "正在编写设计规格",

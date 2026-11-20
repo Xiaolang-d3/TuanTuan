@@ -5,6 +5,7 @@ import { ChatWorkspace } from "./ChatWorkspace";
 import type { AgentRunResult, ChatMessage, ChatRetryDraft, ChatAttachment, ChatComposerDraft, ChatWorkspaceProps } from "../features/chat/types";
 import type { DocumentReviewService } from "../features/chat/document-review-service";
 import type { DocumentService, SavedDocument } from "../features/chat/document-service";
+import { ExtensionPreviewProvider } from "../features/extensions/ExtensionPreviewContext";
 
 it("edits a mixed text/image answer as one document while retaining the composer draft", async () => {
   const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "图.png", parse_status: "parsed" };
@@ -117,6 +118,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
   onExportConversation?: () => void;
   replacementUndo?: ChatWorkspaceProps["replacementUndo"];
   onUndoReplacement?: () => Promise<void>;
+  quickPpt?: boolean;
 } = {}) {
   const props = {
     documentService: extras.documentService,
@@ -176,11 +178,51 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
     replacementUndo: extras.replacementUndo,
     onUndoReplacement: extras.onUndoReplacement
   };
-  const view = render(<ChatWorkspace {...props} />);
+  const view = render(extras.quickPpt ? <ExtensionPreviewProvider apiBase="/api" accessToken="ppt-test-session"><ChatWorkspace {...props} selectedSkillId="ppt-master" /></ExtensionPreviewProvider> : <ChatWorkspace {...props} />);
   return { ...props, view };
 }
 
 describe("ChatWorkspace", () => {
+  it.each(["主题", "仅上传资料"])("sends a quick PPT from the normal composer: %s", async mode => {
+    const topic = mode === "主题" ? "智能体架构设计" : "";
+    const attachment: ChatAttachment = { id: "ppt-source", original_filename: "讲稿.docx", kind: "document", parse_status: "parsed" };
+    const calls: Array<{ topic: string; attachment_ids: string[]; conversation_id: number; idempotency_key: string }> = [];
+    const job = { id: "quick-ppt-result", kind: "ppt.quick_generate", topic, source_count: topic ? 0 : 1, status: "queued", stage: "queued", revision: 1, conversation_id: 1, confirmation_required: false };
+    const fetchPpt = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+      const path = String(url);
+      if (path.includes("/quick/capabilities")) return Response.json({ composer: true, available: true, code: "ready", reason: "" });
+      if (path.endsWith("/presentations/quick")) {
+        calls.push(JSON.parse(String(options?.body)));
+        if (calls.length === 1) return Response.json({ detail: "服务暂未响应" }, { status: 503 });
+        return Response.json(job, { status: 201 });
+      }
+      if (path.includes("/presentations?")) return Response.json({ jobs: calls.length > 1 ? [job] : [], next_cursor: null });
+      return Response.json({ extensions: [], connections: [], execution: { available: true, reason: "" } });
+    });
+    try {
+      const chat = renderChat([], { quickPpt: true, libraryAttachments: topic ? undefined : { conversationId: 1, attachments: [attachment] } });
+      const workspace = within(chat.view.container);
+      const input = workspace.getByRole("textbox", { name: "输入消息" });
+      if (topic) fireEvent.change(input, { target: { value: topic } });
+      expect(workspace.queryByRole("form", { name: "PPT 制作要求" })).not.toBeInTheDocument();
+      const send = workspace.getByRole("button", { name: "生成 PPT" });
+      await waitFor(() => expect(send).toBeEnabled());
+      fireEvent.click(send);
+      expect(await workspace.findByRole("alert")).toHaveTextContent("服务暂未响应");
+      expect(input).toHaveValue(topic);
+      if (!topic) expect(workspace.getByRole("button", { name: "移除 讲稿.docx" })).toBeInTheDocument();
+      if (topic) fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+      else fireEvent.click(send);
+      expect(await workspace.findByRole("article", { name: `PPT：${topic || "从资料制作 PPT"}` })).toBeInTheDocument();
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toEqual(calls[1]);
+      expect(calls[0]).toMatchObject({ topic, attachment_ids: topic ? [] : [attachment.id], conversation_id: 1 });
+      expect(input).toHaveValue("");
+      expect(workspace.queryByRole("button", { name: "移除 讲稿.docx" })).not.toBeInTheDocument();
+      expect(chat.onSend).not.toHaveBeenCalled();
+    } finally { fetchPpt.mockRestore(); }
+  });
+
   it("starts explicit whole-document review of a history attachment without sending a chat message", async () => {
     const target = { source_kind: "attachment" as const, attachment_id: "document-one", source_revision: "a".repeat(64) };
     const service = { list: vi.fn().mockResolvedValue({ jobs: [] }), prepareAttachment: vi.fn().mockResolvedValue(target),

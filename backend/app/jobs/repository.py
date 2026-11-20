@@ -39,6 +39,10 @@ def decode(row) -> dict:
 
 
 def public_job(job: dict) -> dict:
+    if job["kind"] == "ppt.quick_generate":
+        return {key: job[key] for key in ("id", "kind", "status", "revision", "created_at", "updated_at", "error", "cancel_requested")} | {
+            "request": {"topic": job["request"]["topic"], "conversation_id": job["request"]["conversation_id"]},
+        }
     return {key: value for key, value in job.items() if key not in {"owner_token", "lease_expires", "snapshot", "execution"}}
 
 

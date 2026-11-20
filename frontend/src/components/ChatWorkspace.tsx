@@ -5,6 +5,8 @@ import { SkillPicker } from "../features/extensions/SkillPicker";
 import { PresentationChat } from "../features/extensions/PresentationChat";
 import { DocumentReviewPanel } from "../features/chat/DocumentReviewPanel";
 import { useExtensionPreview } from "../features/extensions/ExtensionPreviewContext";
+import type { PresentationJob, QuickPresentationCapabilities } from "../features/extensions/presentation-service";
+import { ApiError } from "../api/client";
 import { AttachmentPreviewDialog, AttachmentPreviewContext } from "../features/chat/AttachmentPreviewDialog";
 import { AssetOriginalContext, LatestGeneratedImageContext } from "../features/chat/GeneratedImage";
 import { ResultDialog } from "../features/chat/ResultDialog";
@@ -71,6 +73,7 @@ type ChatWorkspaceContentProps = ChatWorkspaceProps & {
   uploadingPreview: { filename: string; url: string } | null;
   onUpload: (file?: File) => Promise<void>;
   onRemovePendingAttachment: (attachmentId: string) => Promise<void>;
+  onClearSubmittedAttachments: (conversationId: number, ids: string[]) => void;
 };
 
 function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
@@ -87,10 +90,46 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const aui = useAui();
   const composerText = useAuiState((state) => state.composer.text);
+  const conversationId = props.currentConversationId;
+  const pptSelected = props.selectedSkillId === "ppt-master";
+  const modelScope = `${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`;
+  const [quickCheck, setQuickCheck] = useState<{ conversationId: number; modelScope: string; status: QuickPresentationCapabilities }>();
+  const [quickCheckAttempt, setQuickCheckAttempt] = useState(0);
+  const [quickPending, setQuickPending] = useState<Set<number>>(() => new Set());
+  const [quickError, setQuickError] = useState<{ conversationId: number; message: string }>();
+  const [submittedJob, setSubmittedJob] = useState<PresentationJob>();
+  const quickKeys = useRef(new Map<number, { fingerprint: string; key: string }>());
+  const quickSubmitting = useRef(new Set<number>());
+  const currentQuickScope = useRef({ conversationId, presentationService });
+  currentQuickScope.current = { conversationId, presentationService };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const quickStatus = quickCheck?.conversationId === conversationId && quickCheck.modelScope === modelScope ? quickCheck.status : undefined;
+  const quickMode = pptSelected && quickStatus?.composer !== false;
+  const quickBusy = conversationId !== null && quickPending.has(conversationId);
+  const validPptAttachments = props.pendingAttachments.every(item => item.kind === "document" && /\.(docx|pdf|txt|md)$/i.test(item.original_filename));
+  const pptProblem = !validPptAttachments ? "请移除图片或不支持的附件。PPT 可使用 Word、文字版 PDF、TXT 或 Markdown。"
+    : [...composerText.trim()].length > 16_000 ? "主题或粘贴内容最多 16,000 字，请精简后发送。" : "";
+  const quickDisabled = !quickStatus?.available || quickBusy || Boolean(pptProblem) || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable || (!composerText.trim() && !props.pendingAttachments.length);
+  useEffect(() => {
+    if (!pptSelected || !conversationId || !presentationService) return;
+    const controller = new AbortController();
+    setQuickCheck(undefined);
+    void presentationService.quickCapabilities(conversationId, controller.signal).then(status => {
+      if (!controller.signal.aborted) setQuickCheck({ conversationId, modelScope, status });
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      const missingRoute = error instanceof ApiError && error.status === 404 && error.message === "Not Found";
+      const status = { composer: !missingRoute, available: false, code: missingRoute ? "legacy" : "check_failed", reason: missingRoute ? "" : "暂时无法检查 PPT 制作服务，请重新检查。" };
+      setQuickCheck({ conversationId, modelScope, status });
+    });
+    return () => controller.abort();
+  }, [conversationId, modelScope, pptSelected, presentationService, quickCheckAttempt]);
   const [composerFocused, setComposerFocused] = useState(false);
   const sendTitle = props.attachmentBusy ? "资料处理完成后即可发送"
     : props.modelSelectionBusy ? "模型选择保存后即可发送"
     : props.modelProfileUnavailable ? "当前模型已停用，请切换模型"
+    : quickMode ? (quickBusy ? "正在提交 PPT" : pptProblem || quickStatus?.reason || "生成 PPT")
     : composerText.trim() ? "发送消息" : "找不到发送的内容";
   const showComposerHint = (!props.chatBusy && (composerFocused || (props.messages.length === 0 && props.density !== "dock"))) || composerText.length >= 180_000;
   const localDrafts = useRef(new Map<number, string>());
@@ -99,6 +138,44 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   draftsRef.current = drafts;
   const auiRef = useRef(aui);
   auiRef.current = aui;
+  async function submitQuickPpt() {
+    if (!conversationId || !presentationService || quickDisabled || quickSubmitting.current.has(conversationId)) return;
+    const draft = auiRef.current.composer().getState().text;
+    const topic = draft.trim();
+    const ids = props.pendingAttachments.map(item => item.id);
+    const fingerprint = JSON.stringify([topic, ids]);
+    const previous = quickKeys.current.get(conversationId);
+    const key = previous?.fingerprint === fingerprint ? previous.key : crypto.randomUUID();
+    quickKeys.current.set(conversationId, { fingerprint, key });
+    quickSubmitting.current.add(conversationId);
+    setQuickPending(new Set(quickSubmitting.current));
+    setQuickError(undefined);
+    const isCurrent = () => mounted.current && currentQuickScope.current.presentationService === presentationService && currentQuickScope.current.conversationId === conversationId;
+    try {
+      const job = await presentationService.createQuick(topic, ids, conversationId, key);
+      quickKeys.current.delete(conversationId);
+      if (!isCurrent()) return;
+      setSubmittedJob(job);
+      if (auiRef.current.composer().getState().text === draft) {
+        auiRef.current.composer().setText("");
+        draftsRef.current.delete(conversationId);
+        props.onPersistComposerDrafts?.();
+      }
+      props.onClearSubmittedAttachments(conversationId, ids);
+    } catch (error) {
+      if (isCurrent()) setQuickError({ conversationId, message: error instanceof Error ? error.message : "暂时无法提交 PPT，请重试。" });
+    } finally {
+      quickSubmitting.current.delete(conversationId);
+      if (mounted.current) setQuickPending(new Set(quickSubmitting.current));
+    }
+  }
+  function reuseQuickPpt(job: PresentationJob) {
+    props.onSelectSkill?.("ppt-master");
+    const current = auiRef.current.composer().getState().text;
+    const topic = job.topic ?? "";
+    if (!current.trim()) auiRef.current.composer().setText(topic);
+    props.chatInputRef.current?.focus();
+  }
   const voiceDraftRef = useRef(new VoiceDraftEditor());
   useLayoutEffect(() => { voiceDraftRef.current.observe(composerText); }, [composerText]);
   const appendVoiceTranscript = useCallback((update: VoiceTranscript) => {
@@ -306,6 +383,10 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
 
   async function acceptAttachment(file: File): Promise<"added" | "invalid" | "failed"> {
     const filename = file.name.toLowerCase();
+    if (quickMode && !/\.(pdf|docx|txt|md)$/.test(filename)) {
+      props.onAttachmentInvalid("PPT 制作支持 Word（DOCX）、文字版 PDF、TXT 或 Markdown。");
+      return "invalid";
+    }
     const supported = file.type.startsWith("image/") || /\.(png|jpe?g|webp|pdf|docx|txt|md)$/.test(filename);
     if (!supported) {
       props.onAttachmentInvalid("仅支持图片（PNG、JPG、WEBP）或文档（PDF、DOCX、TXT、MD）。");
@@ -443,7 +524,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <span>{props.modelSelectionFeedback.text}</span>
             <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
           </div>}
-          {presentationService && props.currentConversationId ? <PresentationChat service={presentationService} conversationId={props.currentConversationId} request={props.selectedSkillId === "ppt-master" ? 1 : 0} modelScope={`${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`} disabled={Boolean(props.modelSelectionBusy)} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
+          {presentationService && conversationId ? <PresentationChat service={presentationService} conversationId={conversationId} request={pptSelected && !quickMode ? 1 : 0} hideStoredForm={quickMode} modelScope={modelScope} disabled={Boolean(props.modelSelectionBusy)} submittedJob={submittedJob} onReuseQuick={reuseQuickPpt} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
             {props.documentReviewService && props.currentConversationId ? <DocumentReviewPanel service={props.documentReviewService} conversationId={props.currentConversationId} attachments={[...props.messages.flatMap(message => message.payload?.attachments ?? []), ...props.pendingAttachments]} onContentChange={handleReviewContentChange} /> : null}
           <div ref={props.chatEndRef} />
           </div>
@@ -537,7 +618,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               className="composer-file-input"
               type="file"
               multiple
-              accept=".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt,.md,image/png,image/jpeg,image/webp,application/pdf"
+              accept={quickMode ? ".pdf,.docx,.txt,.md,application/pdf" : ".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt,.md,image/png,image/jpeg,image/webp,application/pdf"}
               onChange={handleAttachmentChange}
             />
             {props.uploadingPreview ? (
@@ -562,18 +643,27 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                         <span className="composer-attachment-icon">{attachment.kind === "document" ? <FileText size={15} /> : <ImagePlus size={15} />}</span>
                         <span><strong>{attachment.original_filename}</strong><small>点击预览 · 随本轮发送</small></span>
                       </button>}
-                    <button className="composer-attachment-remove" type="button" onClick={() => void props.onRemovePendingAttachment(attachment.id)} aria-label={`移除 ${attachment.original_filename}`}>
+                    <button className="composer-attachment-remove" type="button" disabled={quickBusy} onClick={() => void props.onRemovePendingAttachment(attachment.id)} aria-label={`移除 ${attachment.original_filename}`}>
                       <X size={14} />
                     </button>
                   </article>
                 ))}
               </div>
             ) : null}
+            {quickMode ? <div className="composer-ppt-status">
+              <strong>制作 PPT</strong>
+              <span role="status">{!presentationService ? "PPT 制作服务未连接。" : !quickStatus ? "正在检查制作条件…" : quickStatus.available ? "输入主题、粘贴内容，或只上传资料。发送后自动制作，无需确认。" : quickStatus.reason}</span>
+              {quickStatus && !quickStatus.available ? <button type="button" onClick={quickStatus.code === "model_unavailable" ? props.onOpenModelSettings : () => setQuickCheckAttempt(value => value + 1)}>{quickStatus.code === "model_unavailable" ? "模型设置" : "重新检查"}</button> : null}
+              {pptProblem || quickError?.conversationId === conversationId ? <p role="alert">{pptProblem || quickError?.message}</p> : null}
+            </div> : null}
             <ComposerPrimitive.Root
               className="composer-input composer-input--enhanced"
               onFocusCapture={() => setComposerFocused(true)}
               onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setComposerFocused(false); }}
-              onSubmit={(event) => { if (props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable) event.preventDefault(); }}
+              onSubmit={(event) => {
+                if (quickMode) { event.preventDefault(); if (!props.chatBusy) void submitQuickPpt(); }
+                else if (props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable) event.preventDefault();
+              }}
             >
               <ComposerPrimitive.Input
                 ref={props.chatInputRef}
@@ -581,14 +671,14 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                 maxLength={200_000}
                 aria-label="输入消息"
                 aria-describedby="composer-input-hint"
-                placeholder={clarification ? "回答上面的问题，或直接说下一件…" : "直接说说你的想法…"}
+                placeholder={quickMode ? "例如：智能体架构设计讲解" : clarification ? "回答上面的问题，或直接说下一件…" : "直接说说你的想法…"}
                 submitMode="enter"
                 unstable_insertNewlineOnTouchEnter
                 onPaste={handleComposerPaste}
               />
               <div className="composer-bottom-row">
                 <div className="composer-shortcuts" role="group" aria-label="输入选项">
-                  <button className="composer-tool composer-attachment-tool" type="button" aria-label={props.attachmentBusy ? "附件处理中" : "添加附件"} onClick={() => attachmentInputRef.current?.click()} disabled={props.attachmentBusy} title={props.attachmentBusy ? "正在处理附件" : "添加图片或文档，也可粘贴图片或拖入文件"}>
+                  <button className="composer-tool composer-attachment-tool" type="button" aria-label={props.attachmentBusy ? "附件处理中" : "添加附件"} onClick={() => attachmentInputRef.current?.click()} disabled={props.attachmentBusy} title={props.attachmentBusy ? "正在处理附件" : quickMode ? "添加 Word、文字版 PDF 或文本资料" : "添加图片或文档，也可粘贴图片或拖入文件"}>
                     {props.attachmentBusy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Paperclip size={16} aria-hidden="true" />}
                     <span>添加资料</span>
                   </button>
@@ -637,9 +727,11 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                     </ComposerPrimitive.Cancel>
                   ) : (
                     <span className="composer-send-tooltip" title={sendTitle}>
-                      <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
+                      {quickMode ? <button type="submit" className="send-button" aria-label="生成 PPT" disabled={quickDisabled} title={sendTitle}>
+                        {quickBusy ? <LoaderCircle className="spinning" size={18} aria-hidden="true" /> : <ArrowUp size={18} aria-hidden="true" />}<span>发送</span>
+                      </button> : <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
                         <ArrowUp size={18} aria-hidden="true" /><span>发送</span>
-                      </ComposerPrimitive.Send>
+                      </ComposerPrimitive.Send>}
                     </span>
                   )}
                 </div>
@@ -720,6 +812,20 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
   const currentConversationRef = useRef(props.currentConversationId);
   currentConversationRef.current = props.currentConversationId;
   const [visionAttachmentIds, setVisionAttachmentIds] = useState<string[]>([]);
+
+  const clearSubmittedAttachments = useCallback((conversationId: number, ids: string[]) => {
+    if (currentConversationRef.current !== conversationId) return;
+    const submitted = new Set(ids);
+    for (const id of ids) {
+      const url = previewUrlsRef.current[id];
+      if (url) URL.revokeObjectURL(url);
+      delete previewUrlsRef.current[id];
+    }
+    setPreviewUrls({ ...previewUrlsRef.current });
+    setPendingAttachments(current => current.filter(item => !submitted.has(item.id)));
+    setLocalFiles(current => Object.fromEntries(Object.entries(current).filter(([id]) => !submitted.has(id))));
+    setVisionAttachmentIds(current => current.filter(id => !submitted.has(id)));
+  }, []);
 
   useEffect(() => {
     Object.values(previewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
@@ -836,6 +942,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
         uploadingPreview={uploadingPreview}
         onUpload={uploadAttachment}
         onRemovePendingAttachment={removePendingAttachment}
+        onClearSubmittedAttachments={clearSubmittedAttachments}
       />
     </AssistantRuntimeProvider>
   );

@@ -12,12 +12,12 @@ const briefExamples = [
   { label: "知识分享", template: "面向初学者介绍【请填写分享主题】，重点解释【请填写核心概念】，再给出应用场景与练习建议。", previous: "面向初学者制作一份知识分享，先解释核心概念，再给出应用场景与练习建议。" }
 ];
 
-type Props = { service: PresentationService; conversationId: number; request: number; modelScope?: string; disabled?: boolean; onOpenModelSettings: () => void; onContentChange?: (conversationId: number, hasContent: boolean) => void };
+type Props = { service: PresentationService; conversationId: number; request: number; modelScope?: string; disabled?: boolean; hideStoredForm?: boolean; submittedJob?: PresentationJob; onReuseQuick?: (job: PresentationJob) => void; onOpenModelSettings: () => void; onContentChange?: (conversationId: number, hasContent: boolean) => void };
 // The keyed inner component drops all draft, preview and request state on scope changes.
 export function PresentationChat(props: Props) {
   return <ConversationPresentations key={props.conversationId} {...props} />;
 }
-function ConversationPresentations({ service, conversationId, request, modelScope, disabled, onOpenModelSettings, onContentChange }: Props) {
+function ConversationPresentations({ service, conversationId, request, modelScope, disabled, hideStoredForm, submittedJob, onReuseQuick, onOpenModelSettings, onContentChange }: Props) {
   const drafts = presentationDrafts(service);
   const initialDraft = useRef(drafts.get(conversationId));
   const [jobs, setJobs] = useState<PresentationJob[]>([]);
@@ -25,6 +25,7 @@ function ConversationPresentations({ service, conversationId, request, modelScop
   const [readError, setReadError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [formOpen, setFormOpen] = useState(request > 0 || Boolean(initialDraft.current?.open));
+  const formVisible = formOpen && !hideStoredForm;
   const [topic, setTopic] = useState(initialDraft.current?.topic ?? "");
   const [pages, setPages] = useState(initialDraft.current?.pages ?? 8);
   const [retryTarget, setRetryTarget] = useState(initialDraft.current?.retry);
@@ -61,7 +62,7 @@ function ConversationPresentations({ service, conversationId, request, modelScop
       setAcknowledgeRetry(false);
     }
   }, [retryJob, retryTarget]);
-  useEffect(() => { onContentChange?.(conversationId, formOpen || jobs.length > 0 || Boolean(readError)); }, [conversationId, formOpen, jobs.length, readError, onContentChange]);
+  useEffect(() => { onContentChange?.(conversationId, formVisible || jobs.length > 0 || Boolean(readError)); }, [conversationId, formVisible, jobs.length, readError, onContentChange]);
   const merge = useCallback((incoming: PresentationJob[]) => {
     if (!mounted.current) return;
     setJobs(previous => {
@@ -74,6 +75,9 @@ function ConversationPresentations({ service, conversationId, request, modelScop
       return [...values.values()].sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "") || a.id.localeCompare(b.id));
     });
   }, [conversationId]);
+  useEffect(() => {
+    if (submittedJob?.conversation_id === conversationId) { merge([submittedJob]); setRefresh(value => value + 1); }
+  }, [submittedJob, conversationId, merge]);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -99,16 +103,17 @@ function ConversationPresentations({ service, conversationId, request, modelScop
     return () => { controller.abort(); clearTimeout(timer); };
   }, [service, conversationId, merge, refresh]);
   useEffect(() => {
-    if (!formOpen) return;
+    if (!formVisible) return;
     const controller = new AbortController();
     setChecking(true); setCapabilities(null); setError("");
     void service.capabilities(controller.signal, conversationId).then(result => { if (!controller.signal.aborted) setCapabilities(result); })
       .catch(caught => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "制作环境检查失败，请重试。"); })
       .finally(() => { if (!controller.signal.aborted) setChecking(false); });
     return () => controller.abort();
-  }, [service, conversationId, modelScope, formOpen, checkRevision]);
-  useEffect(() => { if (formOpen) formRef.current?.scrollIntoView?.({ block: "nearest" }); }, [formOpen]);
+  }, [service, conversationId, modelScope, formVisible, checkRevision]);
+  useEffect(() => { if (formVisible) formRef.current?.scrollIntoView?.({ block: "nearest" }); }, [formVisible]);
   function recreate(job: PresentationJob) {
+    if (job.kind === "ppt.quick_generate") { onReuseQuick?.(job); return; }
     setTopic(job.topic || ""); setPages(job.page_count || 8); key.current = crypto.randomUUID(); setFormOpen(true); setError("");
     setRetryTarget(["failed", "interrupted"].includes(job.status) ? { id: job.id, revision: job.revision, uncertain: job.retry_requires_confirmation ?? Boolean(job.progress?.outcome_uncertain) } : undefined);
     setAcknowledgeRetry(false);
@@ -142,7 +147,7 @@ function ConversationPresentations({ service, conversationId, request, modelScop
     {readError ? <div className="ppt-read-error" role="alert"><p>PPT 任务暂时无法读取：{readError}</p><button className="extension-button" type="button" onClick={() => setRefresh(value => value + 1)}>重新读取任务</button></div> : null}
     {nextCursor ? <button type="button" className="ppt-older-button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "正在读取…" : "查看更早的 PPT"}</button> : null}
     {jobs.map(job => <PresentationJobCard key={job.id} job={job} service={service} onChange={next => merge([next])} onRecreate={recreate} onOpenModelSettings={onOpenModelSettings} />)}
-    {formOpen ? <form className="ppt-chat-form" aria-label="PPT 制作要求" onSubmit={event => void create(event)} ref={formRef}>
+    {formVisible ? <form className="ppt-chat-form" aria-label="PPT 制作要求" onSubmit={event => void create(event)} ref={formRef}>
       <header><div><FileSliders size={21} aria-hidden="true" /><h3>一起完成这份演示文稿</h3></div><button type="button" aria-label="收起制作要求" className="ppt-refresh-button" disabled={busy} onClick={() => setFormOpen(false)}><X size={17} /></button></header>
       <p>{retryTarget ? "将在原任务中重试。修改主题或页数后会重新确认需求与设计，之前的制作记录保留。" : "先说清楚内容与目标。内容方向和设计方案都会交由你确认。"}</p>
       <ol className="ppt-brief-steps" aria-label="制作流程"><li>填写要求</li><li>确认需求与设计</li><li>预览和下载</li></ol>

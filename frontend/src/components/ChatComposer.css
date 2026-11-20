@@ -58,6 +58,10 @@
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .send-button.stop-button:hover:not(:disabled) { color: var(--color-text); background: var(--color-border); }
 .composer-input-hint { display: flex; align-items: center; justify-content: flex-end; gap: 12px; min-height: 18px; padding: 6px 4px 0; color: var(--color-text-muted); font-size: 12px; line-height: 18px; opacity: 0; visibility: hidden; transition: opacity .15s ease; }
 .composer-input-hint.is-active { opacity: 1; visibility: visible; }
+.composer-ppt-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 0 4px 8px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.55; }
+.composer-ppt-status strong { color: var(--color-text); white-space: nowrap; }
+.composer-ppt-status button { padding: 2px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--color-brand-strong); text-decoration: underline; text-underline-offset: 2px; }
+.composer-ppt-status p { width: 100%; margin: 0; color: var(--color-danger); }
 .composer-input-hint .composer-keyboard-hint { display: inline-flex; align-items: center; gap: 5px; }
 .composer-input-hint kbd { padding: 0; border: 0; background: transparent; font: inherit; line-height: 14px; }
 .composer-hint-divider { padding: 0 3px; }
