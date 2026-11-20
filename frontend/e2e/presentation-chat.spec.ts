@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { expect, test } from "./test-fixtures";
 import { defaultAgentSettings } from "../src/constants";
 
-test("chat PPT keeps its task, confirms both decisions, previews and downloads", async ({ page }) => {
+for (const quick of [true, false]) test(quick ? "hosted chat PPT sends from the composer, previews and downloads" : "chat PPT keeps its task, confirms both decisions, previews and downloads", async ({ page }) => {
   test.setTimeout(60_000);
   // Keep this offline fixture deterministic; external font stalls must not
   // consume the budget for two confirmations and several page reloads.
@@ -35,7 +35,8 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
     "/conversations": [conversation(1), conversation(2)], "/chat/messages": [], "/agent/runs/current": { run: null },
     "/document-reviews": { jobs: [] },
     "/extensions": { extensions: [{ id: "ppt-master", kind: "skill", name: "PPT Master", enabled: true, user_invocable: true, permissions: [], source: "builtin" }], connections: [], execution: { available: true, reason: "AI PPT 制作已就绪" } },
-    "/presentations/capabilities": { available: true, reason: "AI PPT 制作已就绪", model_name: "会话文本模型", limits: { min_pages: 1, max_pages: 20, language: "zh-CN", canvas: "ppt169" } }
+    "/presentations/capabilities": { available: true, reason: "AI PPT 制作已就绪", model_name: "会话文本模型", limits: { min_pages: 1, max_pages: 20, language: "zh-CN", canvas: "ppt169" } },
+    "/presentations/quick/capabilities": { composer: quick, available: quick, code: quick ? "ready" : "legacy", reason: "" }
   };
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -43,6 +44,13 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api/, "");
     const method = route.request().method();
+    if (path === "/presentations/quick" && method === "POST") {
+      const body = route.request().postDataJSON();
+      expect(body).toMatchObject({ topic: "智能体架构设计", attachment_ids: [], conversation_id: 1 });
+      expect(body.idempotency_key).toBeTruthy();
+      const job = { id: "a".repeat(32), kind: "ppt.quick_generate", topic: body.topic, page_count: 2, conversation_id: 1, status: "running", stage: "quick_plan", revision: 1, confirmation_required: false, cancel_requested: false, created_at: "2026-11-04 08:00:00" };
+      jobs.push(job); return route.fulfill({ json: job, status: 201 });
+    }
     if (/^\/presentations\/[ab]{32}\/retry$/.test(path) && method === "POST") {
       const body = route.request().postDataJSON();
       expect(body.expected_revision).toBe(jobs[0].revision);
@@ -81,6 +89,30 @@ test("chat PPT keeps its task, confirms both decisions, previews and downloads",
   await page.getByRole("button", { name: "技能", exact: true }).click();
   await page.getByRole("button", { name: "PPT Master", exact: true }).click();
   const form = page.getByRole("form", { name: "PPT 制作要求" });
+  if (quick) {
+    await expect(form).toHaveCount(0);
+    const input = page.getByRole("textbox", { name: "输入消息" });
+    await input.fill("智能体架构设计");
+    await expect(page.getByRole("button", { name: "生成 PPT" })).toBeEnabled();
+    await input.press("Enter");
+    const card = page.getByRole("article", { name: "PPT：智能体架构设计" });
+    await expect(card.getByText("正在把内容组织成逐页演示。")).toBeVisible();
+    await expect(input).toHaveValue("");
+    Object.assign(jobs[0], { status: "succeeded", revision: 2, stage: "quick_preview", preview_available: true });
+    await card.getByRole("button", { name: "查看逐页预览" }).click();
+    const dialog = page.getByRole("dialog", { name: "PPT 逐页预览" });
+    await expect(dialog.getByAltText("第 1 页预览")).toBeVisible();
+    await dialog.getByRole("button", { name: "关闭窗口" }).click();
+    const download = page.waitForEvent("download");
+    await card.getByRole("button", { name: "下载 PPTX" }).click();
+    expect((await download).suggestedFilename()).toBe("result.pptx");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.evaluate(() => document.documentElement.scrollWidth)).resolves.toBeLessThanOrEqual(390);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(card.getByRole("button", { name: "下载 PPTX" })).toBeVisible();
+    expect(errors).toEqual([]);
+    return;
+  }
   await form.getByRole("button", { name: "知识分享", exact: true }).click();
   await expect(form.getByLabel("演示主题与要求")).toHaveValue(/【请填写分享主题】/);
   await expect(form.getByRole("button", { name: "开始制作" })).toBeDisabled();

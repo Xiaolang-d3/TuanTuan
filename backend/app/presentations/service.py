@@ -120,6 +120,19 @@ def public_presentation(job: dict) -> dict:
     error_code = _model_failure_code(job) or _output_failure_code(job)
     from .retry import public_retry
     delivered = (job.get("result") or {}).get("artifacts") if job["status"] == "succeeded" else None
+    if job["kind"] == "ppt.quick_generate":
+        checkpoint = job["checkpoint"]
+        pages = checkpoint.get("pages")
+        return {key: job[key] for key in ("id", "kind", "status", "revision", "created_at", "updated_at", "cancel_requested")} | {
+            "topic": job["request"]["topic"], "title": checkpoint.get("title"), "page_count": pages,
+            "source_count": len(job["request"]["sources"]), "conversation_id": job["request"]["conversation_id"],
+            "model_name": job["snapshot"]["model_selection"].get("model_name", ""),
+            "stage": checkpoint.get("stage", "queued"), "confirmation_required": False, "prompt": "",
+            "generation_available": True, "retryable": False, "error_code": error_code,
+            "error": {**_MODEL_FAILURES, **OUTPUT_FAILURES}.get(error_code, job["error"]),
+            "progress": public_progress(job), "preview_available": (job["result"] or {}).get("preview_available"),
+            **({"delivery_artifacts": delivered} if isinstance(delivered, list) else {}),
+        }
     return {key: job[key] for key in ("id", "kind", "status", "revision", "created_at", "updated_at", "error", "cancel_requested")} | {
         "topic": job["request"].get("topic", "演示文稿"),
         "page_count": job["request"].get("options", {}).get("page_count", 8),
@@ -208,7 +221,7 @@ class PresentationService:
         from ..jobs.repository import decode
         context.check_workspace()
         self._conversation(conversation_id)
-        condition = "kind='ppt.generate' AND json_extract(request_json,'$.conversation_id')=?"
+        condition = "kind IN ('ppt.generate','ppt.quick_generate') AND json_extract(request_json,'$.conversation_id')=?"
         parameters = [conversation_id]
         with connect() as conn:
             if before:
@@ -239,7 +252,7 @@ class PresentationService:
 
     def get(self, job_id: str, context: ExtensionContext) -> dict:
         job = self.jobs.get(job_id, context)
-        if job["kind"] != "ppt.generate":
+        if job["kind"] not in {"ppt.generate", "ppt.quick_generate"}:
             raise JobNotFound("制作任务不存在")
         return job
 
@@ -254,6 +267,8 @@ class PresentationService:
     def retry(self, job_id: str, values: dict, context: ExtensionContext) -> dict:
         from .retry import retry_presentation
         job = self.get(job_id, context)
+        if job["kind"] != "ppt.generate":
+            raise JobConflict("快速制作不支持在原任务中重新调用模型，请核对结果后再重新发送。")
         self._check_entry()
         runtime = self._runtime()
         snapshot = ExtensionRunSnapshot.model_validate(job["snapshot"])

@@ -37,6 +37,8 @@ async def lifespan(_: FastAPI):
     from .jobs.service import job_service
     from .presentations.worker import register_preparation_handler
     register_preparation_handler(job_service)
+    from .presentations.quick_worker import register_quick_handler
+    register_quick_handler(job_service)
     from .library.source_backfill import enqueue_pending_backfills, register_backfill_handler
     from .extensions.contracts import ExtensionContext
     from .workspace import list_user_ids

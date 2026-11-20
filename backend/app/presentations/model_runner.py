@@ -73,7 +73,7 @@ class PptModelRunner:
         self.retry = state_for(job["id"])
         self.allow_replay = self.retry["count"] > 0
 
-    async def generate_stage(self, stage: str, inputs: dict, selection: dict, *, instructions: str) -> dict:
+    async def generate_stage(self, stage: str, inputs: dict, selection: dict, *, instructions: str, retry_attempts: int | None = None) -> dict:
         if not is_bound_selection(selection):
             raise ValueError("PPT 制作需要固定的模型版本绑定")
         stage = stage_name(stage, self.retry)
@@ -104,7 +104,7 @@ class PptModelRunner:
             parameters={"max_output_tokens": 16000},
         )
         job_id, attempt = self.job["id"], self.job["owner_token"]
-        total_attempts = 1 + model_retry_attempts()
+        total_attempts = 1 + (model_retry_attempts() if retry_attempts is None else retry_attempts)
         for attempt_no in range(1, total_attempts + 1):
             request_id = self.ledger.reserve(job_id, attempt, stage, self.context)
             try:
