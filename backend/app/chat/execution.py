@@ -358,6 +358,13 @@ async def stream_chat_response(
         if abandon_snapshot:
             clear_run_snapshot(conversation_id)
 
+    if cached_execution is None and not recovering_terminal_result:
+        try:
+            validated_kernel = validate_kernel_selection(conversation_kernel)
+            kernel_runtime = resolve_kernel_runtime(validated_kernel, runtime)
+        except KernelUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     if cached_execution is not None or recovered_user_message is not None:
         task_id = int(persisted_run.get("task_id") or 0) or None
         attachment_context, attachment_summaries, image_urls = "", [], []
@@ -369,11 +376,6 @@ async def stream_chat_response(
         history = []
         agent_input = str(persisted_run.get("user_content") or payload.content)
     else:
-        try:
-            validated_kernel = validate_kernel_selection(conversation_kernel)
-            kernel_runtime = resolve_kernel_runtime(validated_kernel, runtime)
-        except KernelUnavailable as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
         task_id = ensure_active_task(conversation_id)
         attachment_context, attachment_summaries, image_urls = _attachment_context(
             conversation_id, payload.attachment_ids, payload.vision_attachment_ids
