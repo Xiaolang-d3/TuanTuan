@@ -2,7 +2,9 @@ import { ApiError, createApiClient, fetchWithTimeout } from "../../api/client";
 import type { ImageEditRequest, ImageEditResult } from "../chat/ImageEditor";
 import type { ChatAttachment } from "../chat/types";
 
-export type StudioModel = { id: string; name: string; sizes: string[] };
+export type StudioImageOperation = { sizes: string[] };
+export type StudioImageCapabilities = { generate: StudioImageOperation; edit: StudioImageOperation | null };
+export type StudioModel = { id: string; name: string; sizes: string[]; capabilities?: StudioImageCapabilities };
 export type StudioOptions = { default_profile_id: string | null; models: StudioModel[]; can_edit?: boolean };
 export type StudioStatus = "running" | "done" | "failed" | "uncertain";
 export type StudioTask = {
@@ -26,7 +28,13 @@ export function createImageStudioApi(apiBase: string, accessToken: string, fetch
     return response.blob();
   }
   return {
-    options: (signal?: AbortSignal) => fetchJson<StudioOptions>("/image-studio/options", { signal }),
+    async options(signal?: AbortSignal) {
+      const options = await fetchJson<StudioOptions>("/image-studio/options", { signal });
+      return {
+        ...options,
+        models: options.models.map(model => ({ ...model, sizes: model.capabilities?.generate.sizes ?? model.sizes })),
+      };
+    },
     history({ offset, limit, q, status, signal }: StudioHistoryQuery = {}) {
       const params = new URLSearchParams();
       if (offset != null) params.set("offset", String(offset));

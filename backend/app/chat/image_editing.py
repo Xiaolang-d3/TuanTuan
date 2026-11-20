@@ -16,6 +16,7 @@ from ..db import connect, json_dump
 from ..domain import ModelResponse
 from ..domain.agent import ModelImageOutput
 from ..models import ModelProviderError
+from ..models.image_adapters import connection_image_adapter
 from .image_assets import asset_file, asset_metadata, persist_images
 
 
@@ -151,10 +152,10 @@ async def edit_generated_image(asset_id: str, request: ImageEditIn) -> dict:
     selection = {key: connection[key] for key in ("profile_id", "profile_revision", "connection_id", "connection_revision", "model_name", "model_protocol")} if connection else {}
     size = None
     if studio and connection:
-        from .studio_generate import supported_sizes
+        adapter = connection_image_adapter(connection)
         original_size = f'{source.get("width")}x{source.get("height")}'
-        if original_size in supported_sizes(connection['model_name'], connection['model_protocol'], connection['model_base_url']):
-            size = original_size
+        if original_size in adapter.edit_sizes:
+            size = adapter.size_for_wire("edit", original_size)
     if studio:
         from .studio_generate import release_edit, try_reserve_edit
         if not try_reserve_edit(operation_id, source['conversation_id']):
@@ -213,15 +214,11 @@ async def _render_edit(path, request, connection, prompt, mark_submitted, *, siz
             image = image.resize((request.width, request.height), Image.Resampling.LANCZOS)
             response = ModelResponse(images=[ModelImageOutput(item_id="resize-0", base64_data=base64.b64encode(png_bytes(image)).decode())])
         else:
-            from ..models.openai_images import OpenAIImagesProvider
-            provider = OpenAIImagesProvider(api_key=connection["api_key"], model=connection["model_name"],
-                                             base_url=connection["model_base_url"] or None)
-            try:
+            adapter = connection_image_adapter(connection)
+            async with adapter.open_editor(connection) as provider:
                 image_data = png_bytes(image)
                 mask = selection_mask(image.size, request.strokes) if request.mode == 'erase' else None
                 mark_submitted()
                 response = await provider.edit_image(image_data, prompt, mask=mask,
                                                      transparent=request.mode == "background", size=size)
-            finally:
-                await provider._client.close()
     return response

@@ -6,7 +6,6 @@ import hashlib
 import logging
 import threading
 from pathlib import Path
-from typing import Literal
 from uuid import UUID
 
 from openai import APIStatusError
@@ -16,20 +15,15 @@ from ..agent.image_design_skill import image_design_prompt
 from ..agent.model_purposes import resolve_purpose_connection, selection_catalog
 from ..db import connect, json_dump
 from ..domain import AgentMessage, ModelRequest
-from ..model_protocol import model_protocol_for_profile, resolve_model_protocol
+from ..model_protocol import model_protocol_for_profile
 from ..models import ModelProviderError
-from ..models.openai_images import OpenAIImagesProvider
-from ..models.openai_responses import OpenAIResponsesProvider
+from ..models.image_adapters import ImageAdapter, ImageSize, connection_image_adapter, image_adapter
 from ..models.selection import select_model_for_purpose
 from ..observability.model_context import model_call_scope
 from ..workspace import resolve_db_path
 from .image_assets import begin_generation, persist_images
 
 log = logging.getLogger(__name__)
-Size = Literal["auto", "1024x1024", "1536x1024", "1024x1536"]
-# Model IDs, not speculative name prefixes. Unknown/custom Images endpoints
-# still work with the same minimal default wire contract as the chat adapter.
-_GPT_SIZES = {"gpt-image-1", "gpt-image-1-mini", "gpt-image-1.5", "gpt-image-2"}
 _UNCERTAIN = "暂未确认生成结果。请先检查所属对话或服务记录，不会自动重新生成。"
 _active: dict[Path, tuple[str, int, asyncio.Task]] = {}
 # Short-lived generation reservations (until scheduled) and in-flight edits.
@@ -46,7 +40,7 @@ class GenerateIn(BaseModel):
     request_id: UUID
     prompt: str = Field(min_length=1, max_length=8000)
     profile_id: str | None = Field(default=None, min_length=1, max_length=120)
-    size: Size = "auto"
+    size: ImageSize = "auto"
 
     @field_validator("prompt")
     @classmethod
@@ -54,16 +48,6 @@ class GenerateIn(BaseModel):
         if not value.strip():
             raise ValueError("请填写画面描述")
         return value.strip()
-
-
-def supported_sizes(model: str, protocol: str, base: str) -> list[str]:
-    name = model.strip().lower()
-    if resolve_model_protocol(name, protocol, base) == "images":
-        if name in _GPT_SIZES:
-            return ["auto", "1024x1024", "1536x1024", "1024x1536"]
-        if name in {"dall-e-2", "dall-e-3"}:
-            return ["auto", "1024x1024"]
-    return ["auto"]
 
 
 def studio_options() -> dict:
@@ -80,7 +64,10 @@ def studio_options() -> dict:
         base = source["effective_base_url"]
         name = profile["model_name"]
         protocol = model_protocol_for_profile(name, source["protocol"], profile.get("capabilities"), base)
-        models.append({"id": profile["id"], "name": name, "sizes": supported_sizes(name, protocol, base)})
+        adapter = image_adapter(name, protocol, base)
+        if adapter is not None:
+            models.append({"id": profile["id"], "name": name, "sizes": adapter.generate_sizes,
+                           "capabilities": adapter.public_capabilities()})
     return {"default_profile_id": selected["profile_id"], "models": models, "can_edit": edit_selection["eligible"]}
 
 
@@ -158,8 +145,8 @@ async def submit(request: GenerateIn) -> str:
         if _existing(conn, task_id, digest):
             return task_id
     connection = resolve_purpose_connection("image", profile_id=request.profile_id)
-    if request.size not in supported_sizes(connection["model_name"], connection["model_protocol"], connection["model_base_url"]):
-        raise ValueError("所选模型不支持此画幅，请重新选择")
+    adapter = connection_image_adapter(connection)
+    wire_size = adapter.size_for_wire("generate", request.size)
 
     reserved = False
     try:
@@ -182,7 +169,7 @@ async def submit(request: GenerateIn) -> str:
                          "VALUES (?,?,?,?,?,?,?,'running')", (task_id, digest, cid, request.prompt,
                          connection["profile_id"], connection["model_name"], request.size))
         # create_task copies contextvars, including the authenticated workspace.
-        task = asyncio.create_task(_execute(task_id, cid, request, connection), name=f"image-studio-{task_id}")
+        task = asyncio.create_task(_execute(task_id, cid, request, connection, adapter, wire_size), name=f"image-studio-{task_id}")
         with _lock:
             _active[workspace] = (task_id, cid, task)
         task.add_done_callback(lambda finished: _retire(workspace, finished))
@@ -227,29 +214,21 @@ def _publish(task_id: str, cid: int, result: dict, provider: str) -> None:
         conn.execute("UPDATE image_studio_tasks SET status='done',error='' WHERE id=?", (task_id,))
 
 
-def _provider(connection: dict):
-    images = resolve_model_protocol(connection["model_name"], connection["model_protocol"], connection["model_base_url"]) == "images"
-    # The only other eligible image route is Grok 4.7's native Responses tool;
-    # never send a paid request through a fallback/automatic retry adapter.
-    cls = OpenAIImagesProvider if images else OpenAIResponsesProvider
-    return cls(api_key=connection["api_key"], model=connection["model_name"], base_url=connection["model_base_url"])
-
-
-async def _execute(task_id: str, cid: int, request: GenerateIn, connection: dict) -> None:
+async def _execute(task_id: str, cid: int, request: GenerateIn, connection: dict,
+                   adapter: ImageAdapter, wire_size: str | None) -> None:
     sent = False
-    provider = None
     try:
         effective_prompt = image_design_prompt(request.prompt)
         call = ModelRequest(messages=[AgentMessage(role="user", content=effective_prompt)], image_generation=True,
-                            image_size=None if request.size == "auto" else request.size, allow_option_fallback=False)
-        provider = _provider(connection)
-        cached = begin_generation(task_id, cid, connection)
-        if cached is None:
-            with model_call_scope(connection, task_id, selection_reason=connection.get("selection_reason", "")):
-                sent = True
-                response = await provider.generate(call)
-            cached = persist_images(task_id, response, connection["model_name"], prompt=effective_prompt)
-        _publish(task_id, cid, cached, provider.name)
+                            image_size=wire_size, allow_option_fallback=False)
+        async with adapter.open(connection) as provider:
+            cached = begin_generation(task_id, cid, connection)
+            if cached is None:
+                with model_call_scope(connection, task_id, selection_reason=connection.get("selection_reason", "")):
+                    sent = True
+                    response = await provider.generate(call)
+                cached = persist_images(task_id, response, connection["model_name"], prompt=effective_prompt)
+            _publish(task_id, cid, cached, provider.name)
     except asyncio.CancelledError:
         _set_error(task_id, "uncertain" if sent else "failed", _UNCERTAIN if sent else "任务已在调用前停止。")
         raise
@@ -263,6 +242,3 @@ async def _execute(task_id: str, cid: int, request: GenerateIn, connection: dict
             _set_error(task_id, "failed", message)
         else:
             _set_error(task_id, "uncertain", _UNCERTAIN)
-    finally:
-        if provider is not None:
-            await provider._client.close()

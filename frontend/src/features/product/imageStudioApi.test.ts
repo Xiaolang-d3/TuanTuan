@@ -19,6 +19,17 @@ describe("image studio transport", () => {
     expect(JSON.parse(init.body)).toEqual(body);
   });
 
+  it("uses operation capabilities and accepts legacy size lists", async () => {
+    const models = [
+      { id: "legacy", name: "Legacy", sizes: ["auto"] },
+      { id: "current", name: "Current", sizes: ["auto"], capabilities: { generate: { sizes: ["auto", "1536x1024"] }, edit: null } },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ models, default_profile_id: "current" })));
+    const api = createImageStudioApi("/api", "fixture", createApiClient("/api", "fixture"));
+    const options = await api.options();
+    expect(options.models).toEqual([models[0], { ...models[1], sizes: ["auto", "1536x1024"] }]);
+  });
+
   it("reads archived bytes using the work ID and authenticated transport", async () => {
     const raw = vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/png" } }));
     vi.stubGlobal("fetch", raw);

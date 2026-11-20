@@ -83,6 +83,12 @@ def test_options_use_eligible_models_and_never_resolve_secrets(workspace, monkey
             assert sizes[workspace['private-image-v9']] == sizes[workspace['grok-4.7']] == ['auto']
             assert workspace['gpt-4.1'] not in sizes
             assert opts['can_edit'] is True
+            capabilities = {m['id']: m['capabilities'] for m in opts['models']}
+            assert capabilities[workspace['gpt-image-2']] == {
+                'generate': {'sizes': sizes[workspace['gpt-image-2']]},
+                'edit': {'sizes': sizes[workspace['gpt-image-2']]},
+            }
+            assert capabilities[workspace['grok-4.7']] == {'generate': {'sizes': ['auto']}, 'edit': None}
             catalog = studio.selection_catalog()
             grok_only = {**catalog, 'profiles': [p for p in catalog['profiles'] if p['id'] == workspace['grok-4.7']]}
             monkeypatch.setattr(studio, 'selection_catalog', lambda: grok_only)
@@ -137,7 +143,8 @@ def test_submit_binds_wire_params_actual_dimensions_and_chat(workspace, monkeypa
 
 
 def test_reject_unknown_size_and_ineligible_model_before_attempt(workspace,monkeypatch):
-    monkeypatch.setattr(studio,'_provider',lambda *_:pytest.fail('must not call provider'))
+    from app.models.image_adapters import ImageAdapter
+    monkeypatch.setattr(ImageAdapter, 'open', lambda *_: pytest.fail('must not call provider'))
     async def run():
         async with httpx.AsyncClient(transport=app_transport(),base_url='http://test') as api:
             for model,size,code in [('private-image-v9','1536x1024',400),('grok-4.7','1024x1024',400),
