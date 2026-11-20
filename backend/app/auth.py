@@ -95,7 +95,7 @@ def public_auth_config() -> dict[str, bool]:
     """Return only the information a browser needs to decide whether to log in."""
     with _connect_auth() as conn:
         exists = conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
-    return {"enabled": True, "setup_required": not exists, "registration_open": True}
+    return {"enabled": True, "setup_required": not exists, "registration_open": True, "qq_enabled": get_settings().qq_origin is not None}
 
 
 def _encode(value: bytes) -> str:
@@ -159,6 +159,7 @@ def _validate_password(password: str, email: str = "") -> None:
 
 # Match the form's email syntax without a DNS lookup; these are local accounts.
 _EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+QQ_ACCOUNT_SUFFIX = "@qq.tuantuan.invalid"
 # An unknown email still performs the same expensive password check.
 _DUMMY_PASSWORD_HASH = _hash_password(secrets.token_urlsafe(32))
 
@@ -167,6 +168,8 @@ def authenticate(email: str, password: str, client: str | None = None) -> str:
     normalized = email.strip().lower()
     if not normalized or len(normalized) > 320 or not 1 <= len(password) <= LEGACY_PASSWORD_MAX_LENGTH:
         raise HTTPException(status_code=422, detail="请输入邮箱和密码，密码不能超过 500 位")
+    if normalized.endswith(QQ_ACCOUNT_SUFFIX):
+        raise HTTPException(status_code=422, detail="请使用 QQ 登录，或输入你的登录邮箱")
     check_login_allowed(normalized, client)
     with _connect_auth() as conn:
         row = conn.execute(
@@ -185,7 +188,7 @@ def authenticate(email: str, password: str, client: str | None = None) -> str:
 
 def register_user(email: str, password: str, *, initial_only: bool = False) -> str:
     normalized_email = email.strip().lower()
-    if len(normalized_email) > 320 or not _EMAIL_PATTERN.fullmatch(normalized_email):
+    if len(normalized_email) > 320 or normalized_email.endswith(QQ_ACCOUNT_SUFFIX) or not _EMAIL_PATTERN.fullmatch(normalized_email):
         raise HTTPException(status_code=422, detail="请输入有效的邮箱地址，长度不能超过 320 个字符")
     _validate_password(password, normalized_email)
     password_hash = _hash_password(password)
@@ -282,18 +285,23 @@ def _safe_avatar_path(user_id: int, relpath: str) -> Path | None:
 
 def _account_from_row(row: Any) -> dict[str, Any]:
     relpath = str(row["avatar_relpath"] or "")
-    return {
+    account = {
         "id": int(row["id"]),
         "email": str(row["email"]),
         "display_name": str(row["display_name"] or ""),
         "has_avatar": _safe_avatar_path(int(row["id"]), relpath) is not None,
     }
+    if get_settings().qq_origin or row["qq_only"] is not None:
+        account.update(qq_enabled=get_settings().qq_origin is not None, qq_bound=row["qq_only"] is not None)
+    if row["qq_only"]:
+        account["qq_only"] = True
+    return account
 
 
 def get_account(user_id: int) -> dict[str, Any]:
     with _connect_auth() as conn:
         row = conn.execute(
-            f"SELECT {_ACCOUNT_COLUMNS} FROM users WHERE id = ?",
+            f"SELECT {_ACCOUNT_COLUMNS}, (SELECT qq_only FROM auth_qq_identities WHERE user_id = users.id) AS qq_only FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     if row is None:

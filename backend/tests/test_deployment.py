@@ -314,12 +314,17 @@ def test_smoke_environment_never_inherits_operator_credentials(tmp_path, monkeyp
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert "TUANTUAN_BENCHMARK_ENV_FILE" not in env
+    assert "TUANTUAN_QQ_ENV_FILE" not in env
+    assert not {"QQ_APP_ID", "QQ_APP_KEY", "QQ_REDIRECT_URI"} & env.keys()
 
 
 def test_release_uses_stable_service_config_outside_release(tmp_path, monkeypatch):
     monkeypatch.setenv("ARTIFICIAL_ANALYSIS_API_KEY", "fixture-do-not-inherit")
+    monkeypatch.setenv("QQ_APP_KEY", "fixture-do-not-inherit")
     env = deployment.runtime_environment(tmp_path, {"data_dir": str(tmp_path / "real")}, NEW)
     assert env["TUANTUAN_BENCHMARK_ENV_FILE"] == str(tmp_path / "service.env")
+    assert env["TUANTUAN_QQ_ENV_FILE"] == str(tmp_path / "service.env")
+    assert "QQ_APP_KEY" not in env
     assert "ARTIFICIAL_ANALYSIS_API_KEY" not in env
     assert env["PYTHON_DOTENV_DISABLED"] == "1"
     assert env["TUANTUAN_DEPLOYMENT_MODE"] == "hosted"

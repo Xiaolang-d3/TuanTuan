@@ -1,6 +1,6 @@
 import { readStorageItem, removeStorageItem } from "../../storage";
 
-export type AuthUser = { id?: number; email: string; display_name?: string; has_avatar?: boolean };
+export type AuthUser = { id?: number; email: string; display_name?: string; has_avatar?: boolean; qq_enabled?: boolean; qq_bound?: boolean; qq_only?: boolean };
 export type AuthSession = { access_token: string; user: AuthUser };
 export const tokenStorageKey = "tuantuan-auth-token";
 

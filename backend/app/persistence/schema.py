@@ -462,5 +462,21 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 
+CREATE TABLE IF NOT EXISTS auth_qq_identities (
+    app_id TEXT NOT NULL,
+    subject_hash TEXT NOT NULL,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    qq_only INTEGER NOT NULL CHECK (qq_only IN (0, 1)),
+    PRIMARY KEY (app_id, subject_hash)
+);
+CREATE TABLE IF NOT EXISTS auth_qq_flows (
+    key_hash TEXT PRIMARY KEY,
+    browser_hash TEXT NOT NULL,
+    app_id TEXT NOT NULL,
+    session_hash TEXT,
+    subject_hash TEXT,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_qq_flows_expiry ON auth_qq_flows(expires_at);
 
 """

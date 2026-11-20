@@ -1071,8 +1071,8 @@ export function App({
 
   const identityMenu = (
     <AppIdentityMenu
-      userEmail={userEmail}
-      accountName={user.display_name}
+      userEmail={user.qq_only ? "QQ 登录" : userEmail}
+      accountName={user.display_name || (user.qq_only ? "QQ 用户" : undefined)}
       avatarUrl={avatarUrl}
       activeView={activeView}
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
@@ -1262,7 +1262,7 @@ export function App({
             <HomePage
               key={userEmail}
               fetchJson={fetchJson}
-              accountName={user.display_name?.trim() || userEmail.split("@")[0]}
+              accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
@@ -1299,7 +1299,7 @@ export function App({
                   libraryReady={libraryReady}
                   sourceTitle={librarySources.find(source => !source.trashed_at)?.title}
                   fileCount={sourceCount}
-                  accountEmail={user.email}
+                  accountEmail={user.qq_only ? "QQ 登录" : user.email}
                   accountName={user.display_name}
                   modelName={savedAgentSettings.model_name}
                   apiKeyConfigured={savedAgentSettings.api_key_configured}
