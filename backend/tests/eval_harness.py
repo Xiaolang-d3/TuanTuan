@@ -5,32 +5,30 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from .behavior_checks import (
+from app.agent.behavior_checks import (
     apply_classifier_output,
     apply_planner_output,
     ask_user_behavior,
     simulated_tool_names,
     unverified_experience_claims,
 )
-from .orchestration import (
-    TOOL_POLICIES,
-    route_task,
-)
-from .runtime import validate_web_citations
+from app.agent.orchestration import TOOL_POLICIES, route_task
+from app.agent.runtime import validate_web_citations
 
 
 AVAILABLE_TOOLS = set(TOOL_POLICIES)
-CASES_DIR = Path(__file__).resolve().parents[3] / "evals" / "cases"
+CASES_DIR = Path(__file__).with_name("eval_cases")
 
 
-def load_eval_cases(*names: str) -> list[dict[str, Any]]:
-    files = [CASES_DIR / name for name in names] if names else sorted(CASES_DIR.glob("*.json"))
+def load_eval_cases() -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
-    for path in files:
+    for path in sorted(CASES_DIR.glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, list):
             raise ValueError(f"{path} 必须是 JSON 数组")
         cases.extend(payload)
+    if not cases:
+        raise ValueError(f"{CASES_DIR} 没有评测用例")
     return cases
 
 
@@ -106,10 +104,10 @@ async def _run_progress_dialogue(vars_: dict[str, Any]) -> dict[str, Any]:
     This tests orchestration contracts with scripted model decisions. It does
     not measure a live model's independent decision quality or contact services.
     """
-    from ..domain import AgentMessage, ModelResponse
-    from ..models import ModelProviderRegistry
-    from ..tools import AskUserTool, ToolRegistry
-    from .runtime import AgentRuntime
+    from app.agent.runtime import AgentRuntime
+    from app.domain import AgentMessage, ModelResponse
+    from app.models import ModelProviderRegistry
+    from app.tools import AskUserTool, ToolRegistry
 
     class DialogueModel:
         name = "progress-eval"

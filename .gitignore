@@ -9,7 +9,7 @@ __pycache__/
 venv/
 
 # Node / Vite
-node_modules/
+node_modules
 dist/
 .vite/
 
@@ -44,10 +44,6 @@ source-loop-implementation.png
 .DS_Store
 .idea/
 .vscode/
-
-# Promptfoo eval artifacts
-evals/.promptfoo/
-evals/promptfoo-errors.log
 
 # Isolated feature worktrees
 .worktrees/

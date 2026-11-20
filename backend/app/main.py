@@ -37,6 +37,8 @@ async def lifespan(_: FastAPI):
     from .jobs.service import job_service
     from .presentations.worker import register_preparation_handler
     register_preparation_handler(job_service)
+    from .presentations.quick_worker import register_quick_handler
+    register_quick_handler(job_service)
     from .library.source_backfill import enqueue_pending_backfills, register_backfill_handler
     from .extensions.contracts import ExtensionContext
     from .workspace import list_user_ids
@@ -70,6 +72,8 @@ async def lifespan(_: FastAPI):
             await confirmation_maintenance
         with suppress(asyncio.CancelledError):
             await dsh_maintenance
+        from .chat.studio_generate import shutdown_generations
+        await shutdown_generations()
         confirmation_sessions.close_all()
         await confirmation_servers.close_all()
         await close_dsh_runtime()
@@ -252,7 +256,7 @@ async def require_login(request: Request, call_next: Any) -> Any:
     root = ensure_workspace(int(user["id"]))
     with use_workspace(int(user["id"]), root):
         response = await call_next(request)
-        if path.startswith("/auth/"):
+        if path.startswith(("/auth/", "/image-studio/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

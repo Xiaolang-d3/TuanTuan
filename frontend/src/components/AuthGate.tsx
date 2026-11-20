@@ -5,9 +5,10 @@ import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
 import { beginQq, canUseQq, clearQqReturn, readQqReturn } from "../features/auth/qq";
-import { productIntroHash } from "../app/public-routing";
+import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
-import { AuthMascot } from "./AuthMascot";
+import { AuthMascot, CompactAuthMascot } from "./AuthMascot";
+import { PublicSiteFooter } from "./PublicSiteFooter";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
 import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/passwordPolicy";
@@ -332,6 +333,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           <div className="auth-heading">
             <h2 className="auth-form-title">{qqEnabled ? creating ? "创建团团账户" : "登录团团账户" : creating ? "创建本地账户" : "登录本地账户"}</h2>
             <p className="auth-subtitle">{creating ? qqEnabled ? "选择邮箱或 QQ，开始你的工作空间" : "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
+            <CompactAuthMascot />
           </div>
           {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
           {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建{qqEnabled ? "团团" : "本地"}账户，并自动登录。</p> : null}
@@ -487,6 +489,10 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
         <ThemeToggleButton className="auth-theme-toggle" />
       </nav>
       {children}
+      <PublicSiteFooter links={[
+        { href: productPrivacyHash, label: "隐私说明" },
+        { href: "https://github.com/Xiaolang-d3/TuanTuan/issues/new/choose", label: "帮助与反馈", external: true },
+      ]} />
     </main>
   );
 }

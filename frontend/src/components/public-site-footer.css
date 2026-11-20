@@ -1,0 +1,48 @@
+.public-site-footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.public-site-footer-nav { min-inline-size: 0; }
+
+.public-site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-site-footer-links li { min-inline-size: 0; }
+
+.public-site-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  max-inline-size: 100%;
+  padding: 1px 6px;
+  border-radius: 8px;
+  color: inherit;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  text-underline-offset: .24em;
+}
+
+.public-site-footer a:is(:hover, :focus-visible) { text-decoration: underline; }
+.public-site-footer a:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+
+/* The deployed HTML still has an ICP link as a fallback before React mounts. */
+body:has(.public-site-footer-icp) > a[href="https://beian.miit.gov.cn/"] { display: none; }

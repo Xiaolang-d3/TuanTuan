@@ -25,9 +25,9 @@ ENGINEERING = """<main><article><a href="/engineering/agent-tools"><img src="htt
 <article><a href="/engineering/eval"><h3>Evaluating agents</h3><time dateTime="2026-10-01">Oct 1, 2026</time></a></article></main>"""
 
 
-def test_official_news_sources_cover_six_publishers():
+def test_official_news_sources_cover_seven_publishers():
     publishers = {source.publisher for source in sources.configured_sources([]) if source.kind == "news" and source.publisher}
-    assert publishers == {"OpenAI", "Claude", "Gemini", "DeepSeek", "千问", "混元", "Hugging Face", "OpenRouter"}
+    assert publishers == {"OpenAI", "Claude", "Gemini", "DeepSeek", "千问", "混元", "OpenRouter"}
     assert all(sources.safe_public_url(source.url) for source in sources.configured_sources([]) if source.adapter != "market_search")
 
 

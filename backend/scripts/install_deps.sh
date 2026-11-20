@@ -4,7 +4,7 @@
 #
 #   install_deps.sh [VENV] [runtime|dev|build]
 #
-#   runtime  requirements-lock.txt                        (start-remote.sh, production)
+#   runtime  requirements-lock.txt                        (production)
 #   dev      requirements-dev-lock.txt (runtime + tests)   (dev.sh, CI tests)
 #   build    runtime + requirements-build-lock.txt         (desktop sidecar build)
 #

@@ -92,7 +92,7 @@ class ContainerBackend:
             return BackendStatus(False, "probe_failed", "执行环境检查失败，请检查 Docker 与固定镜像配置")
         return BackendStatus(True, "ready", "隔离执行环境已就绪", self.image)
 
-    async def prepare(self, context: ExtensionContext, job_id: str, *, attempt: str | None = None, fence=None) -> "ContainerHandle":
+    async def prepare(self, context: ExtensionContext, job_id: str, *, attempt: str | None = None, fence=None, directory: str = "") -> "ContainerHandle":
         context.check_workspace()
         if not re.fullmatch(r"[a-f0-9]{32}", job_id):
             raise ValueError("无效任务标识")
@@ -100,7 +100,8 @@ class ContainerBackend:
         if not status.available:
             raise ExecutionUnavailable(status.reason)
         root = current_workspace_root()
-        files = WorkspaceFiles(root / "jobs" / job_id, boundary=root)
+        job_root = root / "jobs" / job_id
+        files = WorkspaceFiles(job_root / safe_resource_path(directory) if directory else job_root, boundary=root)
         attempt = attempt or uuid.uuid4().hex
         name = container_name(context, job_id, attempt)
         handle = ContainerHandle(self, name, context, files, fence=fence)

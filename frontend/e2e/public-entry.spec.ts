@@ -56,3 +56,67 @@ test("a minimal split sign-in page links to a public product page on desktop and
   await expect(page.getByRole("heading", { name: /理解你的想法/ })).toBeVisible();
   await expect(page.getByRole("link", { name: "返回登录" })).toBeVisible();
 });
+
+test("the public site shows one centered and usable ICP link on both public pages", async ({ page, baseURL }) => {
+  const icpNumber = "鄂ICP备2026067631号-1";
+  const icpUrl = "https://beian.miit.gov.cn/";
+  // Serve only local fixtures, even while exercising the production hostname.
+  await page.route("https://xiaocheng.online/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (["/auth/config", "/api/auth/config"].includes(url.pathname)) {
+      await route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } });
+      return;
+    }
+    const local = new URL(url.pathname + url.search, baseURL);
+    const response = await route.fetch({ url: local.href, maxRedirects: 0 });
+    if (url.pathname !== "/") {
+      await route.fulfill({ response });
+      return;
+    }
+    const legacy = `<a href="${icpUrl}" style="position:fixed;bottom:2px;right:8px">${icpNumber}</a>`;
+    await route.fulfill({ response, body: (await response.text()).replace("</body>", `${legacy}</body>`) });
+  });
+  const footer = page.getByRole("contentinfo", { name: "网站页脚" });
+  async function checkRegistration(viewportWidth: number) {
+    const link = footer.getByRole("link", { name: icpNumber });
+    await expect(link).toHaveAttribute("href", icpUrl);
+    await expect(page.getByRole("link", { name: icpNumber, exact: true })).toHaveCount(1);
+    await expect(page.locator(`body > a[href="${icpUrl}"]`)).toBeHidden();
+    await link.scrollIntoViewIfNeeded();
+    await expect(link).toBeInViewport();
+    const bounds = (await link.boundingBox())!;
+    expect(bounds.x + bounds.width / 2).toBeCloseTo(viewportWidth / 2, 0);
+    return bounds;
+  }
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 375, height: 667 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("https://xiaocheng.online/");
+    const loginHeading = page.getByRole("heading", { name: "登录本地账户" });
+    await expect(loginHeading).toBeVisible();
+
+    const registration = await checkRegistration(viewport.width);
+    const privacy = footer.getByRole("link", { name: "隐私说明" });
+    const feedback = footer.getByRole("link", { name: "帮助与反馈" });
+    const privacyBounds = (await privacy.boundingBox())!;
+    const feedbackBounds = (await feedback.boundingBox())!;
+    expect(privacyBounds.y).toBeCloseTo(feedbackBounds.y, 0);
+    expect(registration.y).toBeGreaterThanOrEqual(privacyBounds.y + privacyBounds.height);
+
+    await privacy.click();
+    const privacySection = page.getByRole("region", { name: "你的资料，始终由你掌握。" });
+    await expect(privacySection).toBeFocused();
+    const privacyHeading = privacySection.getByRole("heading", { level: 2 });
+    await expect(privacyHeading).toBeInViewport({ ratio: 1 });
+    const headerBounds = (await page.locator(".product-intro-header").boundingBox())!;
+    expect((await privacyHeading.boundingBox())!.y).toBeGreaterThanOrEqual(headerBounds.y + headerBounds.height);
+    await checkRegistration(viewport.width);
+
+    await page.goto("https://xiaocheng.online/#/about");
+    const introHeading = page.getByRole("heading", { name: /理解你的想法/ });
+    await expect(introHeading).toBeFocused();
+    await expect(introHeading).toBeInViewport({ ratio: 1 });
+    await footer.getByRole("link", { name: "返回登录" }).click();
+    await expect(loginHeading).toBeVisible();
+  }
+});

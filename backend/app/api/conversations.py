@@ -14,6 +14,7 @@ from ..chat.conversations import (
     reset_conversation_context,
     update_conversation,
 )
+from ..chat.execution import is_chat_running
 from ..agent.run_store import AgentRunStore, TERMINAL_RUN_STATUSES
 from .dependencies import require_conversation
 from .schemas import ConversationForkIn, ConversationIn
@@ -94,6 +95,11 @@ def conversations_update(
 @router.delete("/conversations/{conversation_id}")
 def conversations_delete(conversation_id: int) -> dict[str, Any]:
     require_conversation(conversation_id)
+    if is_chat_running(conversation_id):
+        raise HTTPException(status_code=409, detail="请先停止当前生成任务")
+    from ..chat.studio_generate import is_conversation_running
+    if is_conversation_running(conversation_id):
+        raise HTTPException(status_code=409, detail="图片仍在生成，请在完成后删除对话")
     try:
         delete_conversation_attachments(conversation_id)
         from ..chat.image_assets import delete_images

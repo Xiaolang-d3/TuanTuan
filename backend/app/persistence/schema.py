@@ -35,6 +35,32 @@ CREATE TABLE IF NOT EXISTS chat_image_assets (
     metadata_json TEXT NOT NULL,
     UNIQUE(operation_id, provider_item_id)
 );
+CREATE TABLE IF NOT EXISTS image_studio_tasks (
+    id TEXT PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    request_hash TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    profile_id TEXT,
+    model_name TEXT NOT NULL DEFAULT '',
+    size TEXT NOT NULL DEFAULT 'auto',
+    status TEXT NOT NULL CHECK(status IN ('running','done','failed','uncertain')),
+    error TEXT NOT NULL DEFAULT '',
+    source_asset_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_studio_tasks_created ON image_studio_tasks(created_at DESC,id DESC);
+CREATE TABLE IF NOT EXISTS image_studio_deleted_requests (id TEXT PRIMARY KEY);
+CREATE TRIGGER IF NOT EXISTS studio_task_deleted AFTER DELETE ON image_studio_tasks
+BEGIN
+    INSERT OR IGNORE INTO image_studio_deleted_requests(id) VALUES (OLD.id);
+END;
+CREATE TABLE IF NOT EXISTS image_studio_works (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL UNIQUE,
+    source_id INTEGER NOT NULL UNIQUE REFERENCES library_sources(id) ON DELETE CASCADE,
+    asset_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+);
 CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL DEFAULT '新对话',

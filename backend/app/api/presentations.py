@@ -20,6 +20,7 @@ from ..execution.builtin_runtime import BuiltinRuntime
 from ..extensions.runtime_snapshot import ExtensionRunSnapshot, resolve_snapshot
 from ..presentations.contracts import PresentationRequest
 from ..presentations.service import presentation_service, public_presentation
+from ..presentations import quick_service
 from ..presentations.confirmation_constraints import UnsupportedPresentationInput, validate_submission
 from ..workspace import use_workspace, workspace_root_for
 
@@ -149,6 +150,26 @@ def presentation_capabilities(response: Response, conversation_id: int | None = 
     response.headers["Cache-Control"] = "no-store"
     return _execute(lambda context: presentation_service.capabilities(context, conversation_id=conversation_id)
                     if conversation_id is not None else presentation_service.capabilities(context))
+
+
+async def _execute_quick(operation):
+    try:
+        return await operation(ExtensionContext.current())
+    except (JobNotFound, JobConflict, PermissionError, ValueError) as exc:
+        status = 404 if isinstance(exc, JobNotFound) else 409 if isinstance(exc, JobConflict) else 403 if isinstance(exc, PermissionError) else 422
+        raise HTTPException(status, str(exc), headers={"Cache-Control": "no-store"}) from None
+
+
+@router.get("/presentations/quick/capabilities")
+async def quick_capabilities(response: Response, conversation_id: int = Query(gt=0)):
+    response.headers["Cache-Control"] = "no-store"
+    return await _execute_quick(lambda context: quick_service.capabilities(context, conversation_id, service=presentation_service))
+
+
+@router.post("/presentations/quick", status_code=201)
+async def create_quick_presentation(payload: quick_service.QuickInput, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return public_presentation(await _execute_quick(lambda context: quick_service.create(payload, context, service=presentation_service)))
 
 
 @router.get("/presentations")

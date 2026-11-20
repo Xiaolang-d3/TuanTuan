@@ -381,6 +381,17 @@ def test_production_rejects_malformed_allowed_hosts(tmp_path, hosts):
         deployment.runtime_environment(tmp_path, {"data_dir": "data", "model_allowed_hosts": hosts}, NEW)
 
 
+def test_production_quick_ppt_image_must_be_explicit_and_pinned(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUANTUAN_QUICK_PPT_IMAGE", "not-inherited")
+    image = "registry.example.test/quick-ppt@sha256:" + "b" * 64
+    config = {"data_dir": "data", "quick_ppt_image": image}
+    env = deployment.runtime_environment(tmp_path, config, NEW)
+    assert env["TUANTUAN_QUICK_PPT_IMAGE"] == image and env["TUANTUAN_DEPLOYMENT_MODE"] == "hosted"
+    assert "TUANTUAN_QUICK_PPT_IMAGE" not in deployment.runtime_environment(tmp_path, config, NEW, smoke_data=tmp_path / "smoke")
+    with pytest.raises(ValueError, match="quick_ppt_image"):
+        deployment.runtime_environment(tmp_path, {**config, "quick_ppt_image": "quick-ppt:latest"}, NEW)
+
+
 def test_invalid_production_config_is_rejected_before_service_stop(tmp_path, monkeypatch):
     monkeypatch.setattr(deployment, "service", lambda *_: pytest.fail("must not stop live service"))
     with pytest.raises(ValueError, match="model_allowed_hosts"):

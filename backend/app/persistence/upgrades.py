@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    45: "image_studio_history_and_works",
     44: "ppt_definite_failure_retry",
     43: "conversation_kernel_forks",
     42: "user_memory",
@@ -183,6 +184,9 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                     SELECT 'library',CAST(id AS TEXT),'pending' FROM library_sources""")
                 conn.execute("""INSERT OR IGNORE INTO document_source_state(source_kind,source_key,backfill_status)
                     SELECT 'attachment',id,'pending' FROM attachments WHERE kind='document'""")
+            if tables and version < 45:
+                from .studio_migration import backfill_image_studio
+                backfill_image_studio(conn)
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)",
                 (DB_SCHEMA_VERSION, migration_name(DB_SCHEMA_VERSION)),

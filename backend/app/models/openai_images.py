@@ -44,8 +44,9 @@ class OpenAIImagesProvider(OpenAICompatibleProvider):
             # Live Packy routes reject response_format despite the tutorial's
             # optional-parameter table. Send only the documented minimum; never
             # negotiate by resending a potentially billed generation.
+            options = {"size": request.image_size} if request.image_size is not None else {}
             raw = await self._client.with_options(timeout=300, max_retries=0).images.generate(
-                model=self._model, prompt=prompt, n=1,
+                model=self._model, prompt=prompt, n=1, **options,
             )
             result = await self._response_from_images(raw)
         except APIError as exc:
@@ -65,7 +66,7 @@ class OpenAIImagesProvider(OpenAICompatibleProvider):
         return result
 
     async def edit_image(self, image: bytes, prompt: str, *, mask: bytes | None = None,
-                         transparent: bool = False) -> ModelResponse:
+                         transparent: bool = False, size: str | None = None) -> ModelResponse:
         """One explicit edit; never retry or fall back to a billed generation."""
         arguments: dict[str, Any] = {
             "model": self._model, "prompt": prompt, "n": 1,
@@ -75,6 +76,8 @@ class OpenAIImagesProvider(OpenAICompatibleProvider):
             arguments["mask"] = ("mask.png", mask, "image/png")
         if transparent:
             arguments["background"] = "transparent"
+        if size is not None:
+            arguments["size"] = size
         started_at = perf_counter()
         try:
             raw = await self._client.with_options(timeout=300, max_retries=0).images.edit(**arguments)

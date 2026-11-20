@@ -5,6 +5,7 @@ import { ChatWorkspace } from "./ChatWorkspace";
 import type { AgentRunResult, ChatMessage, ChatRetryDraft, ChatAttachment, ChatComposerDraft, ChatWorkspaceProps } from "../features/chat/types";
 import type { DocumentReviewService } from "../features/chat/document-review-service";
 import type { DocumentService, SavedDocument } from "../features/chat/document-service";
+import { ExtensionPreviewProvider } from "../features/extensions/ExtensionPreviewContext";
 
 it("edits a mixed text/image answer as one document while retaining the composer draft", async () => {
   const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "图.png", parse_status: "parsed" };
@@ -117,6 +118,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
   onExportConversation?: () => void;
   replacementUndo?: ChatWorkspaceProps["replacementUndo"];
   onUndoReplacement?: () => Promise<void>;
+  quickPpt?: boolean;
 } = {}) {
   const props = {
     documentService: extras.documentService,
@@ -176,11 +178,51 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
     replacementUndo: extras.replacementUndo,
     onUndoReplacement: extras.onUndoReplacement
   };
-  const view = render(<ChatWorkspace {...props} />);
+  const view = render(extras.quickPpt ? <ExtensionPreviewProvider apiBase="/api" accessToken="ppt-test-session"><ChatWorkspace {...props} selectedSkillId="ppt-master" /></ExtensionPreviewProvider> : <ChatWorkspace {...props} />);
   return { ...props, view };
 }
 
 describe("ChatWorkspace", () => {
+  it.each(["主题", "仅上传资料"])("sends a quick PPT from the normal composer: %s", async mode => {
+    const topic = mode === "主题" ? "智能体架构设计" : "";
+    const attachment: ChatAttachment = { id: "ppt-source", original_filename: "讲稿.docx", kind: "document", parse_status: "parsed" };
+    const calls: Array<{ topic: string; attachment_ids: string[]; conversation_id: number; idempotency_key: string }> = [];
+    const job = { id: "quick-ppt-result", kind: "ppt.quick_generate", topic, source_count: topic ? 0 : 1, status: "queued", stage: "queued", revision: 1, conversation_id: 1, confirmation_required: false };
+    const fetchPpt = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+      const path = String(url);
+      if (path.includes("/quick/capabilities")) return Response.json({ composer: true, available: true, code: "ready", reason: "" });
+      if (path.endsWith("/presentations/quick")) {
+        calls.push(JSON.parse(String(options?.body)));
+        if (calls.length === 1) return Response.json({ detail: "服务暂未响应" }, { status: 503 });
+        return Response.json(job, { status: 201 });
+      }
+      if (path.includes("/presentations?")) return Response.json({ jobs: calls.length > 1 ? [job] : [], next_cursor: null });
+      return Response.json({ extensions: [], connections: [], execution: { available: true, reason: "" } });
+    });
+    try {
+      const chat = renderChat([], { quickPpt: true, libraryAttachments: topic ? undefined : { conversationId: 1, attachments: [attachment] } });
+      const workspace = within(chat.view.container);
+      const input = workspace.getByRole("textbox", { name: "输入消息" });
+      if (topic) fireEvent.change(input, { target: { value: topic } });
+      expect(workspace.queryByRole("form", { name: "PPT 制作要求" })).not.toBeInTheDocument();
+      const send = workspace.getByRole("button", { name: "生成 PPT" });
+      await waitFor(() => expect(send).toBeEnabled());
+      fireEvent.click(send);
+      expect(await workspace.findByRole("alert")).toHaveTextContent("服务暂未响应");
+      expect(input).toHaveValue(topic);
+      if (!topic) expect(workspace.getByRole("button", { name: "移除 讲稿.docx" })).toBeInTheDocument();
+      if (topic) fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+      else fireEvent.click(send);
+      expect(await workspace.findByRole("article", { name: `PPT：${topic || "从资料制作 PPT"}` })).toBeInTheDocument();
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toEqual(calls[1]);
+      expect(calls[0]).toMatchObject({ topic, attachment_ids: topic ? [] : [attachment.id], conversation_id: 1 });
+      expect(input).toHaveValue("");
+      expect(workspace.queryByRole("button", { name: "移除 讲稿.docx" })).not.toBeInTheDocument();
+      expect(chat.onSend).not.toHaveBeenCalled();
+    } finally { fetchPpt.mockRestore(); }
+  });
+
   it("starts explicit whole-document review of a history attachment without sending a chat message", async () => {
     const target = { source_kind: "attachment" as const, attachment_id: "document-one", source_revision: "a".repeat(64) };
     const service = { list: vi.fn().mockResolvedValue({ jobs: [] }), prepareAttachment: vi.fn().mockResolvedValue(target),
@@ -361,6 +403,34 @@ describe("ChatWorkspace", () => {
     expect(screen.getByRole("button", { name: "重试回答" })).toBeInTheDocument();
     expect(screen.queryByText("服务不可用")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("消息发送失败")).not.toBeInTheDocument();
+  });
+
+  it("shows the backend's uncertain-write guidance once during streaming and after the terminal snapshot", async () => {
+    const guidance = "上次写入是否完成尚不确定。请先在文件库核对目标记录，确认缺失后再单独提交。";
+    const event = { round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-1", status: "blocked", message: guidance, data: { uncertain_previous_execution: true } };
+    const agent: AgentRunResult = { provider: "test", platform: "local", rounds: 1, status: "done", events: [event] };
+    const props = renderChat([message, { ...assistantMessage(guidance, -12), payload: { agent } }], { chatBusy: true });
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    const persisted = { ...assistantMessage(guidance), payload: { agent: { ...agent, status: "failed" as const, error: { code: "tool_execution_uncertain", message: guidance, retryable: false } } } };
+    props.view.rerender(<ChatWorkspace {...props} messages={[message, persisted]} chatBusy={false} />);
+    expect(await screen.findByText("写入结果待核对")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "展开思考与执行过程" }));
+    expect(screen.getByText("已阻止重复写入")).toBeVisible();
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /重试|重新生成|继续执行/ })).not.toBeInTheDocument();
+  });
+
+  it("replaces the generic retry instruction in a legacy uncertain-write answer", () => {
+    const oldError = "上次本地写工具执行被中断，结果状态不确定，系统不会自动重放";
+    renderChat([message, { ...assistantMessage(`${oldError}。本次执行已终止，请处理后重新提问。`), payload: { agent: {
+      provider: "test", platform: "local", rounds: 1, status: "failed", error: { code: "tool_execution_uncertain", message: oldError, retryable: false },
+      events: [{ round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-old", status: "blocked", message: oldError, data: { uncertain_previous_execution: true } }]
+    } } }]);
+    const output = screen.getByRole("region", { name: "输出结果" });
+    expect(output).toHaveTextContent("待确认和已确认知识");
+    expect(output).toHaveTextContent("只有确认缺失时");
+    expect(screen.queryByText(/处理后重新提问/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重试|重新生成/ })).not.toBeInTheDocument();
   });
 
   it("retains unpersisted send failures without marking the chat model unavailable", () => {
@@ -823,15 +893,21 @@ describe("ChatWorkspace", () => {
     const writeText = vi.fn().mockReturnValue(new Promise<void>((resolve) => { resolveCopy = resolve; }));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     renderChat([message, assistantMessage("助手回答")]);
-    fireEvent.click(screen.getByRole("button", { name: "复制消息" }));
-    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
+    const copyMessage = screen.getByRole("button", { name: "复制消息" });
+    const copyAnswer = screen.getByRole("button", { name: "复制回答" });
+    fireEvent.click(copyMessage);
+    fireEvent.click(copyAnswer);
     expect(await screen.findByText("正在复制其他消息，请稍后重试")).toBeVisible();
     expect(writeText).toHaveBeenCalledTimes(1);
     await act(async () => resolveCopy());
+    expect(copyMessage).toHaveAttribute("title", "已复制");
+
     writeText.mockResolvedValueOnce(undefined);
-    fireEvent.click(screen.getByRole("button", { name: "复制回答" }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("助手回答"));
-    expect(await screen.findAllByText("已复制")).toHaveLength(2);
+    await act(async () => { fireEvent.click(copyAnswer); });
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(writeText).toHaveBeenLastCalledWith("助手回答");
+    expect(copyAnswer).toHaveAttribute("title", "已复制");
+    expect(screen.getAllByText("已复制")).toHaveLength(2);
   });
 
   it("does not show an old copy result after the message changes", async () => {

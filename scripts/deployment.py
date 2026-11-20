@@ -171,6 +171,10 @@ def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: 
         ):
             raise ValueError("model_allowed_hosts must be a list of exact hostnames")
         env["TUANTUAN_MODEL_ALLOWED_HOSTS"] = ",".join(host.lower() for host in hosts)
+        image = config.get("quick_ppt_image", "")
+        if not isinstance(image, str) or (image and not re.fullmatch(r"[A-Za-z0-9._:/-]+@sha256:[a-f0-9]{64}", image)):
+            raise ValueError("quick_ppt_image must be a Docker image pinned by sha256 digest")
+        env["TUANTUAN_QUICK_PPT_IMAGE"] = image
         # Stable, explicitly provisioned secret, not inherited from the operator.
         # Used by hosted channels; existing model credentials stay in keyring.
         master_key = root / "secret-master-key"

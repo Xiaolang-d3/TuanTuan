@@ -8,6 +8,8 @@ import { PresentationPageImage as PageImage } from "./PresentationPageImage";
 import { PresentationPreview } from "./PresentationPreview";
 
 const steps = ["整理资料", "需求确认", "设计确认", "页面与讲稿", "导出预览"];
+const quickSteps = ["读取资料", "编排内容", "导出 PPTX", "生成预览"];
+const quickStages = ["quick_sources", "quick_plan", "quick_export", "quick_preview"];
 export const isPresentationActive = (job: PresentationJob) => ["queued", "running", "waiting_user"].includes(job.status);
 function phase(job: PresentationJob) {
   if (job.status === "succeeded") return 5;
@@ -29,6 +31,14 @@ function failedStageLabel(job: PresentationJob) {
 }
 function description(job: PresentationJob) {
   if (job.cancel_requested) return "正在停止制作，请稍候。";
+  if (job.kind === "ppt.quick_generate") {
+    if (job.status === "succeeded") return job.preview_available === false ? "已生成可编辑 PPTX。暂未能生成预览，仍可下载并打开文件。" : "演示文稿已制作完成，可逐页预览或下载可编辑文件。";
+    if (job.status === "failed") return "未能完成制作。核对下方原因后可重新发送。";
+    if (job.status === "interrupted") return "制作已中断。请核对结果后再决定是否重新发送。";
+    if (job.status === "cancelled") return "制作已取消。";
+    if (job.status === "queued") return "已提交，等待后台开始制作。";
+    return ["正在整理你提供的资料。", "正在把内容组织成逐页演示。", "正在生成可编辑的 PPTX。", "正在从 PPTX 生成逐页预览。"][Math.max(0, quickStages.indexOf(job.stage))];
+  }
   if (job.status === "succeeded") return "演示文稿已制作完成，可查看逐页预览或下载可编辑文件。";
   if (job.status === "failed") return `失败阶段：${failedStageLabel(job)}。原要求已保留。`;
   if (job.status === "cancelled") return "任务已停止，原要求已保留，可以编辑后重新制作。";
@@ -109,17 +119,19 @@ export function PresentationJobCard({ job, service, onChange, onRecreate, onOpen
   const completed = job.progress?.pages_completed;
   const total = job.progress?.pages_total;
   const connectionFailure = job.status === "failed" && job.error_code === "service_unavailable";
-  const currentPhase = phase(job);
-  const fullTopic = job.topic || "演示文稿";
-  const firstLine = fullTopic.trim().split(/\r?\n/)[0];
+  const quick = job.kind === "ppt.quick_generate";
+  const stageLabels = quick ? quickSteps : steps;
+  const currentPhase = quick ? (job.status === "succeeded" ? quickSteps.length : Math.max(0, quickStages.indexOf(job.stage))) : phase(job);
+  const fullTopic = job.topic || "";
+  const firstLine = (job.title || fullTopic || (quick ? "从资料制作 PPT" : "演示文稿")).trim().split(/\r?\n/)[0];
   const title = [...firstLine].length > 64 ? `${[...firstLine].slice(0, 64).join("")}…` : firstLine;
   const previews = artifacts.filter(item => /^P\d{2}\.png$/.test(item.filename)).sort((a, b) => a.filename.localeCompare(b.filename));
   const pptx = artifacts.find(item => item.filename.toLowerCase().endsWith(".pptx"));
-  const progress = <ol className="ppt-stage-list" aria-label="制作阶段">{steps.map((step, index) => <li key={step} className={index < currentPhase ? "done" : index === currentPhase ? "current" : ""} aria-current={index === currentPhase ? "step" : undefined}><span aria-hidden="true">{index < currentPhase ? <Check size={12} /> : index + 1}</span>{step}</li>)}</ol>;
+  const progress = <ol className="ppt-stage-list" aria-label="制作阶段">{stageLabels.map((step, index) => <li key={step} className={index < currentPhase ? "done" : index === currentPhase ? "current" : ""} aria-current={index === currentPhase ? "step" : undefined}><span aria-hidden="true">{index < currentPhase ? <Check size={12} /> : index + 1}</span>{step}</li>)}</ol>;
   const status = job.status === "failed" ? "制作失败" : job.status === "cancelled" ? "制作已取消" : job.status === "interrupted" ? "制作已中断" : job.status === "succeeded" ? "制作完成" : job.cancel_requested ? "正在取消" : job.confirmation_required ? "需要你确认" : job.status === "queued" ? "等待开始" : "正在制作";
   return <article className={`ppt-chat-card is-${job.status}`} aria-label={`PPT：${title}`}>
-    <header className="ppt-card-heading"><FileSliders size={22} aria-hidden="true" /><div><h3>{title}</h3><p>{job.status === "succeeded" && previews.length ? `${previews.length} 页` : `建议 ${job.page_count ?? 8} 页`} · 16:9{job.model_name ? ` · ${job.model_name}` : ""}</p></div><span className="ppt-card-status">{active && !job.confirmation_required ? <LoaderCircle size={14} className="extension-spinning" aria-hidden="true" /> : null}{status}</span></header>
-    {title !== fullTopic ? <details className="ppt-original-brief"><summary>查看制作要求</summary><p>{fullTopic}</p></details> : null}
+    <header className="ppt-card-heading"><FileSliders size={22} aria-hidden="true" /><div><h3>{title}</h3><p>{quick ? (job.page_count ? `${job.page_count} 页` : "自动编排") : job.status === "succeeded" && previews.length ? `${previews.length} 页` : `建议 ${job.page_count ?? 8} 页`} · 16:9{job.source_count ? ` · ${job.source_count} 份资料` : ""}{job.model_name ? ` · ${job.model_name}` : ""}</p></div><span className="ppt-card-status">{active && !job.confirmation_required ? <LoaderCircle size={14} className="extension-spinning" aria-hidden="true" /> : null}{status}</span></header>
+    {fullTopic && title !== fullTopic ? <details className="ppt-original-brief"><summary>查看制作要求</summary><p>{fullTopic}</p></details> : null}
     {active ? progress : null}
     <p className="ppt-card-description" role="status">{description(job)}</p>
     {activity || elapsed !== null || (completed !== undefined && completed > 0) ? <div className="ppt-card-progress" aria-label="制作进度">
@@ -127,7 +139,7 @@ export function PresentationJobCard({ job, service, onChange, onRecreate, onOpen
       {elapsed !== null ? <p className="ppt-request-wait">本次请求已等待 {elapsedTime(elapsed)}</p> : null}
       {completed !== undefined && completed > 0 ? <p className="ppt-pages-completed">已完成 {completed} 页<span> · {total === null || total === undefined ? "总页数待确认" : `共 ${total} 页`}</span></p> : null}
     </div> : null}
-    {job.error ? <p className="ppt-card-error" role="alert">{connectionFailure ? "当次模型调用连接失败。可检查模型设置后，在原任务中重试。" : job.error}</p> : null}
+    {job.error ? <p className="ppt-card-error" role="alert">{connectionFailure && !quick ? "当次模型调用连接失败。可检查模型设置后，在原任务中重试。" : job.error}</p> : null}
     {["failed", "interrupted"].includes(job.status) && job.progress?.outcome_uncertain ? <p className="ppt-card-guidance">当次请求结果待核对，系统不会自动重复请求。请先核对原任务与模型调用记录，再决定是否重做。</p> : null}
     {error ? <p className="ppt-card-error" role="alert">{error}</p> : null}
     {confirmRetry ? <div className="ppt-card-error" role="alert"><p>上次请求的结果尚未确认，重试可能重复调用模型并产生费用。确认后将在原任务继续。</p><button type="button" className="extension-button" disabled={busy} onClick={() => retry(true)}>确认重试</button><button type="button" className="extension-button" disabled={busy} onClick={() => setConfirmRetry(false)}>取消重试</button></div> : null}
@@ -143,11 +155,11 @@ export function PresentationJobCard({ job, service, onChange, onRecreate, onOpen
       {previews.length ? <button className="extension-button" type="button" onClick={() => setExpanded(true)}>查看逐页预览</button> : null}
       {job.error_code && ["authentication_failed", "model_unavailable", "protocol_unsupported", "service_unavailable"].includes(job.error_code) ? <button type="button" className="extension-button" onClick={onOpenModelSettings}>检查模型设置</button> : null}
       {retryable ? <button type="button" className="extension-button primary" disabled={busy} onClick={() => uncertainRetry ? setConfirmRetry(true) : retry()}><RotateCcw size={14} />重试制作</button> : null}
-      {!active ? <button type="button" className="extension-button" disabled={busy} onClick={() => onRecreate(job)}>{job.status === "succeeded" ? "以此要求新建" : "编辑要求后重做"}</button> : null}
+      {!active && (!quick || fullTopic) ? <button type="button" className="extension-button" disabled={busy} onClick={() => onRecreate(job)}>{quick ? "将原要求填入输入框" : job.status === "succeeded" ? "以此要求新建" : "编辑要求后重做"}</button> : null}
       {active ? <button type="button" className="extension-button" disabled={busy || job.cancel_requested} onClick={() => void operate(async () => { const next = await service.cancel(job.id); if (mounted.current) onChange(next); })}><Square size={13} />{job.cancel_requested ? "正在取消…" : "取消制作"}</button> : null}
       <button className="ppt-refresh-button" type="button" disabled={busy} onClick={() => void operate(async () => { const next = await service.get(job.id); if (mounted.current) onChange(next); })}>刷新状态</button>
     </div>
-    {!active ? <p className="ppt-card-guidance">刷新只会更新状态，不会重新制作。{job.status === "succeeded" ? "以此要求新建将创建新任务。" : retryable ? "重试与编辑要求都在原任务继续；未修改要求时保留已确认内容和已完成页面。" : "编辑要求后可重新制作。"}</p> : null}
+    {!active && !quick ? <p className="ppt-card-guidance">刷新只会更新状态，不会重新制作。{job.status === "succeeded" ? "以此要求新建将创建新任务。" : retryable ? "重试与编辑要求都在原任务继续；未修改要求时保留已确认内容和已完成页面。" : "编辑要求后可重新制作。"}</p> : null}
     {job.status === "succeeded" && previews[0] ? <div className="ppt-card-cover"><PageImage key={`${previews[0].id}:${previews[0].version}`} service={service} artifact={previews[0]} page={1} onOpen={() => { setPreviewPage(`${previews[0].id}:${previews[0].version}`); setExpanded(true); }} /><span>{previews.length} 页预览已就绪</span></div> : null}
     {!active ? <details className="ppt-stage-history"><summary>查看制作过程</summary>{progress}</details> : null}
     {confirmation ? <PreviewDialog title="PPT 确认" wide onClose={() => setConfirmation("")}><iframe className="presentation-confirmation-frame" title={`PPT ${job.stage === "stage1_recommended" ? "需求" : "设计"}确认`} src={confirmation} referrerPolicy="no-referrer" /></PreviewDialog> : null}

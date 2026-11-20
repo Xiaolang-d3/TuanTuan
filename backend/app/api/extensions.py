@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
@@ -12,6 +13,7 @@ from ..extensions.repository import ExtensionNotFound, ExtensionRepository, Exte
 from ..extensions.skills import MAX_ARCHIVE_BYTES, SkillService, import_plugin, list_mcp, save_mcp
 from ..extensions import discovery
 from ..presentations.service import presentation_service
+from ..presentations import quick_service
 from ..execution.builtin_runtime import UPSTREAM_COMMIT
 
 router = APIRouter(tags=["extensions"])
@@ -60,10 +62,16 @@ def execute(operation):
 
 
 @router.get("/extensions")
-def catalog(response: Response):
+async def catalog(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    return execute(lambda context: {"extensions": repository.list(context), "connections": list_mcp(context),
-        "execution": {**presentation_service.capabilities(context), "adapter": "ppt-master", "upstream_commit": UPSTREAM_COMMIT}})
+    result = await asyncio.to_thread(execute, lambda context: {"extensions": repository.list(context), "connections": list_mcp(context)})
+    if quick_service.uses_composer():
+        readiness = await quick_service.capabilities(ExtensionContext.current(), None, service=presentation_service)
+        result["execution"] = {**readiness, "adapter": "quick-ppt"}
+    else:
+        readiness = await asyncio.to_thread(execute, presentation_service.capabilities)
+        result["execution"] = {**readiness, "adapter": "ppt-master", "upstream_commit": UPSTREAM_COMMIT}
+    return result
 
 
 @router.get("/skills")

@@ -113,7 +113,23 @@ jobs:
         working-directory: backend
         env:
           EMBEDDING_BACKEND: hash
-        run: python -m pytest tests -q --junitxml=pytest-report.xml
+        # Keep tests from each file together while running the full suite.
+        run: python -m pytest tests -q -n 2 --dist loadfile --durations=20 --junitxml=pytest-report.xml
+      - name: Verify the hosted PPT runner
+        run: |
+          docker build -t tuantuan-quick-ppt-ci -f backend/scripts/quick-ppt/Dockerfile backend
+          workspace=$(mktemp -d)
+          cat > "$workspace/plan.json" <<'JSON'
+          {"title":"智能体架构","slides":[{"layout":"cover","title":"智能体架构","takeaway":"从规划走向可验证的执行","items":[]},{"layout":"process","title":"任务如何执行","takeaway":"每一步都留下可核验的结果","items":[{"label":"规划","text":"明确目标与边界"},{"label":"核验","text":"检查输出是否满足要求"}]},{"layout":"summary","title":"下一步","takeaway":"先验证最小闭环","items":[{"label":"试点","text":"选取一个真实任务测试"}]}]}
+          JSON
+          for action in export preview; do
+            docker run --rm --network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+              --memory=512m --memory-swap=512m --cpus=1 --pids-limit=128 --user "$(id -u):$(id -g)" \
+              --tmpfs /tmp:rw,nosuid,nodev,size=64m --mount "type=bind,source=$workspace,target=/workspace" \
+              tuantuan-quick-ppt-ci python3 -I /opt/quick-ppt/run.py "$action"
+          done
+          test -s "$workspace/deck.pptx"
+          test -s "$workspace/previews/03.png"
       - name: Summarize failing backend tests
         if: failure()
         working-directory: backend

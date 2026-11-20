@@ -1,0 +1,10 @@
+**
+!requirements-lock.txt
+!requirements-ppt-lock.txt
+!app/
+!app/presentations/
+!app/presentations/quick_plan.py
+!app/presentations/quick_renderer.py
+!scripts/
+!scripts/quick-ppt/
+!scripts/quick-ppt/run.py

@@ -8,9 +8,9 @@ import { webSearchOptionsFromMessage, webSearchConfigurationIssue } from "./webS
 import type { AgentCapabilities } from "../../types";
 import type { RefObject } from "react";
 
-type Options = { apiBase: string; accessToken: string; fetchJson: ReturnType<typeof createApiClient>; currentConversationId: number | null; currentConversationIdRef: RefObject<number | null>; modelProfileId?: string | null; setErrorMessage: (message: string) => void; setNoticeMessage: (message: string) => void; refreshConversations: () => Promise<unknown>; onLibraryChanged: () => Promise<void> };
+type Options = { apiBase: string; accessToken: string; fetchJson: ReturnType<typeof createApiClient>; currentConversationId: number | null; currentConversationIdRef: RefObject<number | null>; modelProfileId?: string | null; preserveSendErrorOnConversationChange?: boolean; setErrorMessage: (message: string) => void; setNoticeMessage: (message: string) => void; refreshConversations: () => Promise<unknown>; onLibraryChanged: () => Promise<void> };
 
-export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, selectedSkillId, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options & { selectedSkillId?: string | null }) {
+export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, selectedSkillId, preserveSendErrorOnConversationChange = false, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options & { selectedSkillId?: string | null }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const [chatBusy, setChatBusy] = useState(false);
@@ -27,14 +27,18 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
 
   const [chatAttachmentBusy, setChatAttachmentBusy] = useState(false);
   const sendingRef = useRef(false);
-  useEffect(() => { setSendError(null); setReplacementUndo(null); }, [currentConversationId]);
+  useEffect(() => {
+    if (!preserveSendErrorOnConversationChange) setSendError(null);
+    setReplacementUndo(null);
+  }, [currentConversationId, preserveSendErrorOnConversationChange]);
 
-  async function refreshChat(conversationId = currentConversationId) {
+  async function refreshChat(conversationId = currentConversationId, shouldApply?: () => boolean) {
     if (!conversationId) return;
     const [messages, durableRunResponse] = await Promise.all([
       fetchJson<ChatMessage[]>(`/chat/messages?conversation_id=${conversationId}`),
       fetchJson<{ run: DurableAgentRunSummary | null }>(`/agent/runs/current?conversation_id=${conversationId}`)
     ]);
+    if (shouldApply && !shouldApply()) return messages;
     setChatMessages(messages);
     const interruptedDraft = interruptedRunRetryDraft(durableRunResponse.run, messages);
     if (interruptedDraft) {
@@ -119,6 +123,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     rewindMessageId?: number,
     modelProfileIdOverride?: string | null,
     expectedWebSearchProvider?: string,
+    historyOverride?: ChatMessage[],
   ) {
     const content = contentOverride.trim();
     const targetConversationId = conversationIdOverride ?? currentConversationId;
@@ -175,7 +180,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
         agent: { provider: "openai", platform: "manual", rounds: 0, status: "done", events: [] }
       }
     };
-    setChatMessages((current) => [...current, optimisticMessage, optimisticAssistant]);
+    setChatMessages((current) => [...(historyOverride ?? current), optimisticMessage, optimisticAssistant]);
     let terminalReceived = false;
     let streamError: string | null = null;
     const isCurrentRun = () => chatAgentRef.current === agent && currentConversationIdRef.current === conversationId;
@@ -279,7 +284,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
       agentId: "tuantuan",
       threadId: String(conversationId),
       initialMessages: [
-        ...chatMessages.map((message) => ({
+        ...(historyOverride ?? chatMessages).map((message) => ({
           id: String(message.id),
           role: message.role,
           content: message.content
@@ -562,5 +567,5 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     }
   }
   useEffect(() => () => chatAgentRef.current?.abortRun(), []);
-  return { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask };
+  return { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, setSendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask };
 }

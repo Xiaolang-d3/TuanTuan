@@ -55,6 +55,53 @@ class ChatStreamingApiTest(unittest.TestCase):
         finally:
             main_module.get_agent_runtime = original
 
+    def test_resume_interrupted_write_streams_and_saves_verification_guidance(self) -> None:
+        from app.agent.runtime import AgentRuntime, _tool_call_fingerprint
+        from app.domain import ToolCall
+        from app.models import ModelProviderRegistry
+        from app.tooling import ToolSpec
+        from app.tools import ToolRegistry
+
+        cid = self.client.post("/conversations", json={"title": "写入中断"}).json()["id"]
+        task = ensure_active_task(cid)
+        run_id = "interrupted-write-ag-ui"
+        content = "记住我熟悉 Python"
+        user = save_chat_message("user", content, conversation_id=cid, task_id=task)
+        store = AgentRunStore()
+        store.start_run(run_id, conversation_id=cid, task_id=task, user_content=content)
+        store.bind_messages(run_id, user_message_id=user["id"])
+        store.checkpoint(run_id, AgentRunSnapshot(
+            resume_mode="checkpoint", route_kind="library_update", needs_plan=True,
+            messages=[AgentMessage(role="user", content=content)],
+        ))
+        tool = ToolCall(id="pending-write", name="propose_library_knowledge", arguments={"statements": ["熟悉 Python"]})
+        fingerprint = _tool_call_fingerprint(tool.name, tool.arguments)
+        store.prepare_tool_call(run_id, fingerprint, tool, ToolSpec(
+            name=tool.name, title="记录知识", risk="local_pending_write", capabilities=frozenset({"library.write"}),
+        ))
+        store.interrupt_active_runs()
+
+        runtime = AgentRuntime(
+            models=ModelProviderRegistry(), tools=ToolRegistry(), model_provider="test",
+            platform_name="local", max_tool_rounds=3, run_store=store,
+        )
+        with patch.object(runtime, "run", wraps=runtime.run) as execute:
+            events = self.with_runtime(runtime, lambda: self.run_ag_ui(cid, content, run_id))
+            replay = self.with_runtime(runtime, lambda: self.run_ag_ui(cid, content, run_id))
+        execute.assert_not_called()
+        self.assertEqual(events[-1]["code"], "tool_execution_uncertain")
+        self.assertEqual(replay[-1]["code"], "tool_execution_uncertain")
+        history = self.client.get("/chat/messages", params={"conversation_id": cid}).json()
+        self.assertEqual([msg["role"] for msg in history], ["user", "assistant"])
+        guidance = history[-1]["content"]
+        self.assertIn("文件库 → 知识", guidance)
+        self.assertIn("确认缺失后", guidance)
+        self.assertEqual(events[-1]["message"], guidance)
+        self.assertFalse(history[-1]["payload"]["agent"]["error"]["retryable"])
+        with db.connect() as conn:
+            entry = conn.execute("SELECT status, attempt_count FROM agent_tool_executions WHERE run_id = ?", (run_id,)).fetchone()
+        self.assertEqual(tuple(entry), ("interrupted", 1))
+
     def test_clarification_restores_a_legacy_attachment_preview_before_runtime(self) -> None:
         cid = self.client.post("/conversations", json={"title": "附件续接"}).json()["id"]
         text = "前页内容。" * 300 + "\n第二页项目：负责工具编排与中断恢复。"
