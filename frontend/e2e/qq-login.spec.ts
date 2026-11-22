@@ -60,6 +60,18 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
 });
 
+test("the QQ login entry is visible while QQ authorization is unavailable", async ({ page }) => {
+  await page.route("**/auth/config", route => route.fulfill({
+    json: { enabled: true, setup_required: false, registration_open: true, qq_enabled: false }
+  }));
+  await page.goto("/");
+  const button = page.getByRole("button", { name: "使用 QQ 登录" });
+  await expect(button).toBeVisible();
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAccessibleDescription("QQ 登录暂未开通。");
+  await page.screenshot({ path: resolve(output, "login-qq-unavailable.png"), fullPage: true });
+});
+
 test("email and QQ entry points remain reachable on desktop and mobile", async ({ page }) => {
   await page.route("**/auth/config", route => route.fulfill({
     json: { enabled: true, setup_required: false, registration_open: true, qq_enabled: true }
