@@ -16,7 +16,7 @@ test("core smoke: account imports a file, chats with it and reloads saved histor
   // seeded. Registration, file operations and chat all use the actual APIs.
   await seedFirstRunDone(page, email);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /创建本地账户|登录本地账户/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /创建本地账户|欢迎登录/ })).toBeVisible();
   if (await page.getByRole("button", { name: "没有账号？创建账号", exact: true }).isVisible()) {
     await page.getByRole("button", { name: "没有账号？创建账号", exact: true }).click();
   }
