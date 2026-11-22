@@ -39,7 +39,9 @@ describe("AuthGate", () => {
     const button = await screen.findByRole("button", { name: "使用 QQ 登录" });
     expect(button).toBeVisible();
     expect(button).toBeDisabled();
-    expect(button).toHaveAccessibleDescription("QQ 登录暂未开通。");
+    expect(button).not.toHaveAccessibleDescription();
+    expect(screen.queryByText(/QQ 登录暂未开通/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/只保存在这台设备/)).not.toBeInTheDocument();
     fireEvent.click(button);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
@@ -49,7 +51,7 @@ describe("AuthGate", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ qq_enabled: true, setup_required: false }))));
     render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
     expect(await screen.findByRole("button", { name: "使用 QQ 登录" })).toBeEnabled();
-    expect(screen.getByRole("heading", { name: "登录团团账户" })).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "欢迎登录" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "没有账号？创建账号" }));
     expect(screen.getByRole("button", { name: "使用 QQ 注册" })).toBeEnabled();
@@ -645,7 +647,7 @@ describe("account session lifecycle", () => {
     expect(screen.getByLabelText("邮箱")).toHaveValue("owner@example.com");
     expect(screen.getByLabelText("密码")).toHaveValue("");
     expect(screen.queryByLabelText("确认密码")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "登录本地账户" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "欢迎登录" })).toBeInTheDocument();
   });
 
   it("does not expose registration when the server closes it", async () => {
