@@ -323,7 +323,8 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
     return <AuthStatus message={error} alert onRetry={() => { setError(""); setBootNonce((value) => value + 1); }} />;
   }
   if (!config) return <AuthStatus message="正在连接登录服务…" />;
-  const qqEnabled = config.qq_enabled && canUseQq(apiBase);
+  const showQq = typeof config.qq_enabled === "boolean" && canUseQq(apiBase);
+  const qqEnabled = showQq && config.qq_enabled === true;
   const confirmMismatch = Boolean(registering && passwordConfirmation && password.normalize("NFC") !== passwordConfirmation.normalize("NFC"));
   const livePasswordError = creating && password ? newPasswordError(password, email) : undefined;
   return (
@@ -431,12 +432,12 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               {qqEnabled ? <Mail size={16} aria-hidden="true" /> : null}
               <span>{cooldown ? `${cooldown} 秒后重试` : busy ? (creating ? "正在创建…" : "正在登录…") : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录"}</span>
             </button>
-            {qqEnabled ? <>
+            {showQq ? <>
               <div className="auth-qq-divider" aria-hidden="true">或</div>
               <button
                 className="auth-submit auth-qq-button"
                 type="button"
-                disabled={busy || qqBusy}
+                disabled={!qqEnabled || busy || qqBusy}
                 aria-busy={qqBusy}
                 aria-describedby="auth-qq-hint"
                 onClick={() => void startQq()}
@@ -445,7 +446,9 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
                 <img src={qqConnectLogo} width="16" height="16" alt="" />
                 <span>{qqBusy ? "正在前往 QQ…" : creating ? "使用 QQ 注册" : "使用 QQ 登录"}</span>
               </button>
-              <p className="auth-qq-hint" id="auth-qq-hint">首次用 QQ 会创建账号。已有账号请先登录，再绑定 QQ。</p>
+              <p className="auth-qq-hint" id="auth-qq-hint">{qqEnabled
+                ? "首次用 QQ 会创建账号。已有账号请先登录，再绑定 QQ。"
+                : "QQ 登录暂未开通。"}</p>
             </> : null}
           </div>
           {!qqEnabled ? <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p> : null}

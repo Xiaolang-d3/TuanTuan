@@ -25,13 +25,27 @@ describe("AuthGate", () => {
     document.documentElement.style.colorScheme = "";
   });
 
-  it("offers QQ registration and login only when the service enables QQ", async () => {
+  it("keeps the QQ entry hidden when the server has no QQ configuration field", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => authConfig()));
     render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
     await screen.findByLabelText("邮箱");
     expect(screen.queryByRole("button", { name: "使用 QQ 登录" })).not.toBeInTheDocument();
-    cleanup();
+  });
 
+  it("shows QQ login without starting authorization when QQ is disabled", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ qq_enabled: false, setup_required: false })));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    const button = await screen.findByRole("button", { name: "使用 QQ 登录" });
+    expect(button).toBeVisible();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription("QQ 登录暂未开通。");
+    fireEvent.click(button);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+  });
+
+  it("enables QQ registration and login when authorized by the service", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ qq_enabled: true, setup_required: false }))));
     render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
     expect(await screen.findByRole("button", { name: "使用 QQ 登录" })).toBeEnabled();
