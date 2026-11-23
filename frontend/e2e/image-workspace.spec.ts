@@ -15,6 +15,8 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   const works: StudioWork[] = [];
   const requests: StudioRequest[] = [];
   const reads: string[] = [];
+  let finishFirst!: () => void;
+  const firstGeneration = new Promise<void>(resolve => { finishFirst = resolve; });
   const created_at = "2026-11-18T00:00:00Z";
   const output = resolve("..", "tmp", "image-workspace");
   await mkdir(output, { recursive: true });
@@ -59,6 +61,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
       expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024", comparison_key: "a".repeat(64) });
       expect(requests.some(prior => prior.request_id === body.request_id)).toBe(false);
       requests.push(body);
+      if (requests.length === 1) await firstGeneration;
       const asset = image(`result-${requests.length}`, `海报-${requests.length}.png`);
       if (requests.length === 2) Object.assign(asset, { width: 480, height: 740 });
       history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [asset] });
@@ -109,6 +112,30 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     const submit = workspace.getByRole("button", { name: "生成图片", exact: true });
     await expect(submit).toBeEnabled();
     await submit.click();
+    const stage = workspace.getByRole("region", { name: "本次图片生成" });
+    if (text === prompts[0]) {
+      try {
+        await expect(stage.getByRole("heading", { name: "生成中" })).toBeVisible();
+        await expect(workspace.getByLabel("创作历史", { exact: true })).toHaveCount(0);
+        const field = stage.locator(".studio-dot-matrix");
+        const wave = () => field.evaluate(el => getComputedStyle(el, "::after").animationName);
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        expect(await wave()).toBe("studio-dot-wave");
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await field.evaluate(el => el.clientWidth === el.parentElement!.clientWidth && el.clientHeight === el.parentElement!.clientHeight)).toBe(true);
+        }
+        await page.screenshot({ path: resolve(output, "generation.png") });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        expect(await wave()).toBe("none");
+        await page.emulateMedia({ reducedMotion: null });
+      } finally {
+        finishFirst();
+      }
+    }
+    await expect(stage.getByRole("heading", { name: "图片已生成" })).toBeVisible();
+    await expect(stage.getByRole("img", { name: /^海报-/ })).toBeVisible();
+    await stage.getByRole("button", { name: "返回创作广场" }).click();
     const tile = workspace.getByRole("article").filter({ has: page.getByRole("button", { name: `查看 ${text}`, exact: true }) });
     await expect(tile.locator("img")).toBeVisible();
     await expect(tile.getByText("已完成", { exact: true })).toHaveCount(0);

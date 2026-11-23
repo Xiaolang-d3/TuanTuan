@@ -48,6 +48,50 @@ describe("图片工作台",()=>{
     fireEvent.change(screen.getByLabelText("画面描述"),{target:{value:"  夏日海报  "}});fireEvent.click(screen.getByRole("button",{name:"生成图片"}));
     await waitFor(()=>expect(api.generate).toHaveBeenCalledWith({prompt:"夏日海报",size:"1536x1024",profile_id:"p1",comparison_key:"image.generate:p1",request_id:expect.stringMatching(/^[0-9a-f-]{36}$/i)}));
   });
+  it("提交即离开广场，返回不中断任务，结果留在本次生成视图", async () => {
+    const { api } = setup([task]);
+    let finish!: () => void;
+    api.generate.mockImplementationOnce(request => new Promise(resolve => {
+      api.task.mockResolvedValueOnce({ ...task, id: request.request_id, prompt: request.prompt });
+      finish = () => resolve({ id: request.request_id });
+    }));
+    const previous = await screen.findByRole("button", { name: "查看 海边画面" });
+    fireEvent.change(screen.getByLabelText("画面描述"), { target: { value: "新的风景" } });
+    const submit = screen.getByRole("button", { name: "生成图片" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    const stage = screen.getByRole("region", { name: "本次图片生成" });
+    expect(within(stage).getByRole("heading", { name: "生成中" })).toHaveFocus();
+    expect(within(stage).getByText("新的风景")).toBeVisible();
+    expect(previous).not.toBeInTheDocument();
+    fireEvent.click(within(stage).getByRole("button", { name: "返回创作广场" }));
+    expect(screen.getByRole("button", { name: "查看 海边画面" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "查看任务" }));
+    finish();
+    const result = screen.getByRole("region", { name: "本次图片生成" });
+    expect(await within(result).findByRole("heading", { name: "图片已生成" })).toBeVisible();
+    expect(await within(result).findByRole("img", { name: "海报.png" })).toBeVisible();
+    expect(within(result).queryByText(/正在根据描述生成/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看 海边画面" })).not.toBeInTheDocument();
+    expect(api.generate).toHaveBeenCalledTimes(1);
+  });
+  it("生成失败后停止动画并在当前视图显示原因", async () => {
+    const { api } = setup();
+    api.generate.mockImplementationOnce(async request => {
+      api.task.mockResolvedValueOnce({ ...task, id: request.request_id, prompt: request.prompt,
+        status: "failed", assets: [], error: "图片服务暂时不可用" });
+      return { id: request.request_id };
+    });
+    fireEvent.change(screen.getByLabelText("画面描述"), { target: { value: "新的风景" } });
+    const submit = screen.getByRole("button", { name: "生成图片" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    const stage = screen.getByRole("region", { name: "本次图片生成" });
+    expect(await within(stage).findByRole("heading", { name: "生成失败" })).toBeVisible();
+    expect(within(stage).getByRole("alert")).toHaveTextContent("图片服务暂时不可用");
+    expect(stage.querySelector(".studio-generation-animation")).not.toBeInTheDocument();
+    expect(api.generate).toHaveBeenCalledTimes(1);
+  });
   it("下拉框显示当前模型，只列出可用且不重复的模型名称", async () => {
     setup([], [{ ...model, id: "duplicate" }, model, { ...model, id: "p2", name: "插画模型" }, { ...model, id: "disabled", name: "停用模型" }], false, true, ["disabled"], model.id);
     const picker = screen.getByRole("combobox", { name: "图片模型" });
@@ -70,14 +114,15 @@ describe("图片工作台",()=>{
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
     expect(await screen.findByText("模型配置已变化")).toBeVisible();
-    expect(draft).toHaveValue("秋日市集");
-    expect(submit).toBeDisabled();
+    expect(screen.getByLabelText("画面描述")).toHaveValue("秋日市集");
+    const retry = screen.getByRole("button", { name: "生成图片" });
+    expect(retry).toBeDisabled();
     expect(api.task).not.toHaveBeenCalled();
     await waitFor(() => expect(resolvePreview).toBeTypeOf("function"));
     resolvePreview({ ...originalPreview, comparison_key: "new-preview" });
-    await waitFor(() => expect(submit).toBeEnabled());
+    await waitFor(() => expect(retry).toBeEnabled());
     expect(api.generate).toHaveBeenCalledTimes(1);
-    fireEvent.click(submit);
+    fireEvent.click(retry);
     await waitFor(() => expect(api.generate).toHaveBeenLastCalledWith(expect.objectContaining({ comparison_key: "new-preview", profile_id: null, prompt: "秋日市集" })));
   });
   it("历史分页、搜索和筛选可组合，且不会发生成请求",async()=>{
