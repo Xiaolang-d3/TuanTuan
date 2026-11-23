@@ -1,6 +1,39 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test } from "./test-fixtures";
+import { expect, test, type Page } from "./test-fixtures";
+import { tokenStorageKey } from "../src/features/auth/session";
+
+const icpNumber = "鄂ICP备2026067631号-1";
+const icpUrl = "https://beian.miit.gov.cn/";
+const fallbackIcpLink = `body > a[href="${icpUrl}"]`;
+
+async function mockHostedSite(page: Page, baseURL: string | undefined, responses: Record<string, unknown> = {}) {
+  // Serve only local fixtures, even while exercising the production hostname.
+  await page.route("https://xiaocheng.online/**", async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/api\//, "/");
+    if (path === "/auth/config") {
+      await route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } });
+      return;
+    }
+    if (path in responses) {
+      await route.fulfill({ json: responses[path] });
+      return;
+    }
+    if (path !== "/" && !path.startsWith("/assets/") && !/\.[a-z0-9]+$/i.test(path)) {
+      await route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } });
+      return;
+    }
+    const local = new URL(url.pathname + url.search, baseURL);
+    const response = await route.fetch({ url: local.href, maxRedirects: 0 });
+    if (path !== "/") {
+      await route.fulfill({ response });
+      return;
+    }
+    const legacy = `<a href="${icpUrl}" style="position:fixed;bottom:2px;right:8px">${icpNumber}</a>`;
+    await route.fulfill({ response, body: (await response.text()).replace("</body>", `${legacy}</body>`) });
+  });
+}
 
 test("the sign-in page shows the mascot on desktop and links to the product page at both sizes", async ({ page }) => {
   await page.route("**/auth/config", (route) => route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } }));
@@ -59,30 +92,13 @@ test("the sign-in page shows the mascot on desktop and links to the product page
 });
 
 test("the public site shows one centered and usable ICP link on both public pages", async ({ page, baseURL }) => {
-  const icpNumber = "鄂ICP备2026067631号-1";
-  const icpUrl = "https://beian.miit.gov.cn/";
-  // Serve only local fixtures, even while exercising the production hostname.
-  await page.route("https://xiaocheng.online/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (["/auth/config", "/api/auth/config"].includes(url.pathname)) {
-      await route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } });
-      return;
-    }
-    const local = new URL(url.pathname + url.search, baseURL);
-    const response = await route.fetch({ url: local.href, maxRedirects: 0 });
-    if (url.pathname !== "/") {
-      await route.fulfill({ response });
-      return;
-    }
-    const legacy = `<a href="${icpUrl}" style="position:fixed;bottom:2px;right:8px">${icpNumber}</a>`;
-    await route.fulfill({ response, body: (await response.text()).replace("</body>", `${legacy}</body>`) });
-  });
+  await mockHostedSite(page, baseURL);
   const footer = page.getByRole("contentinfo", { name: "网站页脚" });
   async function checkRegistration(viewportWidth: number) {
     const link = footer.getByRole("link", { name: icpNumber });
     await expect(link).toHaveAttribute("href", icpUrl);
     await expect(page.getByRole("link", { name: icpNumber, exact: true })).toHaveCount(1);
-    await expect(page.locator(`body > a[href="${icpUrl}"]`)).toBeHidden();
+    await expect(page.locator(fallbackIcpLink)).toBeHidden();
     await link.scrollIntoViewIfNeeded();
     await expect(link).toBeInViewport();
     const bounds = (await link.boundingBox())!;
@@ -120,4 +136,21 @@ test("the public site shows one centered and usable ICP link on both public page
     await footer.getByRole("link", { name: "返回登录" }).click();
     await expect(loginHeading).toBeVisible();
   }
+});
+
+test("the injected ICP link is hidden in the signed-in workspace", async ({ page, baseURL }) => {
+  await page.addInitScript(key => sessionStorage.setItem(key, "icp-e2e-token"), tokenStorageKey);
+  await mockHostedSite(page, baseURL, {
+    "/auth/me": { user: { id: 1, email: "workspace@example.test", display_name: "测试用户", has_avatar: false } },
+    "/system/database-status": { status: "ready", schema_version: 44, required_schema_version: 44 },
+    "/conversations": [{ id: 5, title: "备案回归测试", updated_at: "2026-11-21T00:00:00Z" }],
+    "/chat/messages": [],
+    "/agent/runs/current": { run: null },
+  });
+
+  await page.goto("https://xiaocheng.online/#/chat/5");
+  await expect(page.locator(".app-shell.chat-focused")).toBeVisible();
+  await expect(page.locator(fallbackIcpLink)).toHaveCount(1);
+  await expect(page.locator(fallbackIcpLink)).toBeHidden();
+  await expect(page.getByRole("link", { name: icpNumber, exact: true })).toHaveCount(0);
 });

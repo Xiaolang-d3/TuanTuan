@@ -44,5 +44,5 @@
 .public-site-footer a:is(:hover, :focus-visible) { text-decoration: underline; }
 .public-site-footer a:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 
-/* The deployed HTML still has an ICP link as a fallback before React mounts. */
-body:has(.public-site-footer-icp) > a[href="https://beian.miit.gov.cn/"] { display: none; }
+/* Once React renders, only the public footer owns ICP display. */
+body:has(> #root > *) > a[href="https://beian.miit.gov.cn/"] { display: none; }
