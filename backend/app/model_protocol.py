@@ -111,6 +111,14 @@ def is_image_generation_model(model_name: str, configured: str | None = "auto", 
     )
 
 
+def supports_image_edit(model_name: str, configured: str | None = "auto", base_url: str = "") -> bool:
+    """Whether the Images adapter can edit with this model."""
+    name = model_name.strip().lower().rsplit("/", 1)[-1]
+    # Keep compatibility with custom Images gateways, but never advertise a
+    # known generation-only model as an editor.
+    return name != "dall-e-3" and resolve_model_protocol(model_name, configured, base_url) == "images"
+
+
 def base_url_for_protocol(
     base_url: str | None,
     protocol: ResolvedModelProtocol,

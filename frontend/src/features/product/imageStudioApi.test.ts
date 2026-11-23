@@ -9,7 +9,7 @@ describe("image studio transport", () => {
     const raw = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "task" }), { status: 202 }));
     vi.stubGlobal("fetch", raw);
     const api = createImageStudioApi("/api", "fixture", createApiClient("/api", "fixture"));
-    const body = { request_id: "task", prompt: "夏日海报", profile_id: "alternate", size: "1536x1024" };
+    const body = { request_id: "task", prompt: "夏日海报", profile_id: "alternate", size: "1536x1024", comparison_key: "preview-key" };
     await expect(api.generate(body)).resolves.toEqual({ id: "task" });
     expect(raw).toHaveBeenCalledTimes(1);
     const [url, init] = raw.mock.calls[0];
@@ -17,6 +17,17 @@ describe("image studio transport", () => {
     expect(init.method).toBe("POST");
     expect(init.headers.get("Authorization")).toBe("Bearer fixture");
     expect(JSON.parse(init.body)).toEqual(body);
+  });
+
+  it("uses operation capabilities and accepts legacy size lists", async () => {
+    const models = [
+      { id: "legacy", name: "Legacy", sizes: ["auto"] },
+      { id: "current", name: "Current", sizes: ["auto"], capabilities: { generate: { sizes: ["auto", "1536x1024"] }, edit: null } },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ models, default_profile_id: "current" })));
+    const api = createImageStudioApi("/api", "fixture", createApiClient("/api", "fixture"));
+    const options = await api.options();
+    expect(options.models).toEqual([models[0], { ...models[1], sizes: ["auto", "1536x1024"] }]);
   });
 
   it("reads archived bytes using the work ID and authenticated transport", async () => {

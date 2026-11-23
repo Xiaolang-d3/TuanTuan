@@ -60,7 +60,8 @@ def image_generation_intent(text: str, *, image_model_selected: bool = False) ->
 
 def begin_generation(operation_id: str, conversation_id: int, selection: dict[str, Any], db_path=None) -> dict | None:
     fields = ("profile_id", "profile_revision", "connection_id", "connection_revision", "model_name", "model_protocol")
-    selection = {**{k: selection[k] for k in fields if k in selection},
+    public_details = {key: selection[key] for key in ("service_name", "selection_reason") if key in selection} if "service_name" in selection else {}
+    selection = {**{k: selection[k] for k in fields if k in selection}, **public_details,
                  **({"stages": {name: {k: stage[k] for k in fields if k in stage} for name, stage in selection["stage_selections"].items()}}
                     if selection.get("stage_selections") else {})}
     with connect(db_path) as conn:

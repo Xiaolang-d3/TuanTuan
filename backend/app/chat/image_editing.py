@@ -12,10 +12,13 @@ from openai import APIStatusError
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, Field, model_validator
 
+from ..agent.image_selection import bind_image_selection
+from ..agent.model_purposes import resolve_purpose_connection
 from ..db import connect, json_dump
 from ..domain import ModelResponse
 from ..domain.agent import ModelImageOutput
 from ..models import ModelProviderError
+from ..models.image_adapters import connection_image_adapter
 from .image_assets import asset_file, asset_metadata, persist_images
 
 
@@ -43,6 +46,9 @@ class ImageEditIn(BaseModel):
     height: int = Field(default=1024, ge=16, le=8192)
     rotation: Literal[0, 90, 180, 270] = 0
     flip: bool = False
+    profile_id: str | None = Field(default=None, min_length=1, max_length=120)
+    comparison_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    confirm_data_boundary: bool = False
 
     @model_validator(mode="after")
     def validate_edit(self):
@@ -110,7 +116,10 @@ async def edit_generated_image(asset_id: str, request: ImageEditIn) -> dict:
     path, _, _ = asset_file(asset_id)
     operation_id = str(request.operation_id)
     # Bind the operation to the source and *all* edit parameters, not just a model.
-    digest = hashlib.sha256(json_dump({"asset_id": asset_id, **request.model_dump(mode="json")}).encode()).hexdigest()
+    intent = request.model_dump(mode="json", exclude={"comparison_key", "confirm_data_boundary"})
+    if request.profile_id is None:
+        intent.pop("profile_id")
+    digest = hashlib.sha256(json_dump({"asset_id": asset_id, **intent}).encode()).hexdigest()
     with connect() as conn:
         existing = conn.execute("SELECT * FROM chat_image_operations WHERE id=?", (operation_id,)).fetchone()
         studio = conn.execute("""SELECT 1 FROM chat_image_assets a JOIN image_studio_tasks t
@@ -147,14 +156,23 @@ async def edit_generated_image(asset_id: str, request: ImageEditIn) -> dict:
         prompt += f"\n位置评论 {index}（从左到右 {comment.x:.1%}，从上到下 {comment.y:.1%}）：{comment.text}"
     if request.comments:
         label += "\n" + "\n".join(f"位置 {index}：{comment.text}" for index, comment in enumerate(request.comments, 1))
-    connection = None if request.mode == "resize" else _image_connection()
+    connection = None
+    if request.mode != "resize":
+        if studio or request.comparison_key or request.profile_id or request.confirm_data_boundary:
+            connection = bind_image_selection("image.edit", request.profile_id, asset_id=asset_id,
+                                              comparison_key=request.comparison_key, confirmed=request.confirm_data_boundary,
+                                              resolver=resolve_purpose_connection)
+        else:
+            connection = _image_connection()
     selection = {key: connection[key] for key in ("profile_id", "profile_revision", "connection_id", "connection_revision", "model_name", "model_protocol")} if connection else {}
+    if connection:
+        selection.update({key: connection[key] for key in ("service_name", "selection_reason") if key in connection})
     size = None
     if studio and connection:
-        from .studio_generate import supported_sizes
+        adapter = connection_image_adapter(connection)
         original_size = f'{source.get("width")}x{source.get("height")}'
-        if original_size in supported_sizes(connection['model_name'], connection['model_protocol'], connection['model_base_url']):
-            size = original_size
+        if original_size in adapter.edit_sizes:
+            size = adapter.size_for_wire("edit", original_size)
     if studio:
         from .studio_generate import release_edit, try_reserve_edit
         if not try_reserve_edit(operation_id, source['conversation_id']):
@@ -213,15 +231,11 @@ async def _render_edit(path, request, connection, prompt, mark_submitted, *, siz
             image = image.resize((request.width, request.height), Image.Resampling.LANCZOS)
             response = ModelResponse(images=[ModelImageOutput(item_id="resize-0", base64_data=base64.b64encode(png_bytes(image)).decode())])
         else:
-            from ..models.openai_images import OpenAIImagesProvider
-            provider = OpenAIImagesProvider(api_key=connection["api_key"], model=connection["model_name"],
-                                             base_url=connection["model_base_url"] or None)
-            try:
+            adapter = connection_image_adapter(connection)
+            async with adapter.open_editor(connection) as provider:
                 image_data = png_bytes(image)
                 mask = selection_mask(image.size, request.strokes) if request.mode == 'erase' else None
                 mark_submitted()
                 response = await provider.edit_image(image_data, prompt, mask=mask,
                                                      transparent=request.mode == "background", size=size)
-            finally:
-                await provider._client.close()
     return response

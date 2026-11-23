@@ -39,6 +39,16 @@ test("image workspace makes three drafts, restores settings, edits and archives 
         { id: "selected", name: "横图模型", sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"] },
       ],
     } });
+    if (path === "/agent/model-selection/preview") {
+      const body = request.postDataJSON();
+      const candidates = [
+        { profile_id: "square-only", model_name: "默认图片模型", service_name: "服务 A", eligible: true, sizes: ["auto"] },
+        { profile_id: "selected", model_name: "横图模型", service_name: "服务 B", eligible: true, sizes: ["auto", "1024x1024", "1536x1024", "1024x1536"] },
+      ];
+      const selection = candidates.find(item => item.profile_id === (body.profile_id || (body.operation === "image.edit" ? "selected" : "square-only")))!;
+      return route.fulfill({ json: { eligible: true, selection: { ...selection, reason: "本次使用" }, candidates,
+        comparison_key: body.operation === "image.edit" ? "e".repeat(64) : "a".repeat(64), requires_confirmation: body.operation === "image.edit" } });
+    }
     if (path === "/image-studio/history") return route.fulfill({ json: { items: history.filter(t =>
       (!url.searchParams.get("q") || t.prompt.includes(url.searchParams.get("q")!)) &&
       (!url.searchParams.get("status") || t.status === url.searchParams.get("status"))
@@ -46,7 +56,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     if (path === "/image-studio/generate") {
       const body = request.postDataJSON() as StudioRequest;
       expect(body.request_id).toMatch(/^[0-9a-f-]{36}$/i);
-      expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024" });
+      expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024", comparison_key: "a".repeat(64) });
       expect(requests.some(prior => prior.request_id === body.request_id)).toBe(false);
       requests.push(body);
       history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [image(`result-${requests.length}`, `海报-${requests.length}.png`)] });
@@ -58,7 +68,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     }
     if (path === "/chat-assets/result-1/edits") {
       const body = request.postDataJSON();
-      expect(body).toMatchObject({ mode: "edit", prompt: "把背景改成暖橙色" });
+      expect(body).toMatchObject({ mode: "edit", prompt: "把背景改成暖橙色", comparison_key: "e".repeat(64), confirm_data_boundary: true });
       const edited = image("edited", "海报-定稿.png");
       history.unshift({ ...history.find(t => t.assets[0].id === "result-1")!, id: body.operation_id, prompt: body.prompt, assets: [edited], source_asset_id: "result-1" });
       return route.fulfill({ json: { assets: [edited], conversation_id: 42, message_id: 44 } });
@@ -112,6 +122,8 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await expect(editPrompt).toHaveCSS("box-shadow", "none");
   await expect(editPrompt).toHaveCSS("resize", "none");
   const editSubmit = page.getByRole("button", { name: "生成新版本", exact: true });
+  await expect(editSubmit).toBeDisabled();
+  await page.getByRole("checkbox", { name: /同意将原图发送到.*服务 B/ }).check();
   await expect(editSubmit).toBeEnabled();
   await page.screenshot({ path: resolve(output, "edit.png"), animations: "disabled" });
   await editSubmit.click();

@@ -139,7 +139,7 @@ def test_studio_edit_error_does_not_repeat(clients, monkeypatch, sent, expected)
         raise ModelProviderError('request_timeout', '测试模拟的服务异常')
 
     monkeypatch.setattr(image_editing, '_render_edit', fail)
-    monkeypatch.setattr(image_editing, '_image_connection', lambda: {
+    monkeypatch.setattr(image_editing, 'bind_image_selection', lambda *args, **kwargs: {
         'profile_id': 'p', 'profile_revision': 1, 'connection_id': 'c', 'connection_revision': 1,
         'model_name': 'test', 'model_protocol': 'images', 'model_base_url': 'https://test.invalid'})
     edit_id = str(uuid4())
@@ -154,11 +154,80 @@ def test_studio_edit_error_does_not_repeat(clients, monkeypatch, sent, expected)
     assert not owner.get('/image-studio/history?status=running').json()['items']
 
 
+def test_studio_cross_service_edit_requires_current_confirmation(clients, monkeypatch):
+    from app.agent.model_catalog import create_model_connection, get_model_catalog
+
+    owner, other = clients
+    with use_workspace(1):
+        source, original = _image('unbound', create_conversation('图片创作')['id'])
+        for name in ('工作室 A', '工作室 B'):
+            create_model_connection({'name': name, 'api_key': 'fixture', 'model_name': 'gpt-image-2',
+                                     'model_protocol': 'images', 'model_base_url': 'https://test.invalid'})
+        chosen = next(p['id'] for p in get_model_catalog()['profiles'] if p['model_name'] == 'gpt-image-2')
+    edit = AsyncMock(return_value=ModelResponse(images=[ModelImageOutput(
+        item_id='edited', base64_data=base64.b64encode(original).decode())]))
+    monkeypatch.setattr('app.models.openai_images.OpenAIImagesProvider.edit_image', edit)
+    query = {'operation': 'image.edit', 'asset_id': source['id'], 'profile_id': chosen}
+    assert other.post('/agent/model-selection/preview', json=query).status_code == 404
+    preview = owner.post('/agent/model-selection/preview', json=query).json()
+    assert preview['requires_confirmation'] is True
+    assert {item['service_name'] for item in preview['candidates']} == {'工作室 A', '工作室 B'}
+    request = {'operation_id': str(uuid4()), 'mode': 'edit', 'prompt': '改为暖色', 'profile_id': chosen}
+    url = f"/chat-assets/{source['id']}/edits"
+    rejected = owner.post(url, json={**request, 'confirm_data_boundary': True})
+    assert rejected.json()['detail']['code'] == 'image_data_boundary_confirmation_required'
+    stale = owner.post(url, json={**request, 'comparison_key': '0' * 64, 'confirm_data_boundary': True})
+    assert stale.json()['detail']['code'] == 'model_selection_changed'
+    edit.assert_not_awaited()
+    result = owner.post(url, json={**request, 'comparison_key': preview['comparison_key'], 'confirm_data_boundary': True})
+    assert result.status_code == 200, result.text
+    replay = owner.post(url, json=request)
+    assert replay.json()['assets'] == result.json()['assets']
+    edit.assert_awaited_once()
+    task = owner.get(f"/image-studio/tasks/{request['operation_id']}").json()
+    assert task['service_name'] == preview['selection']['service_name'] and task['selection_reason'] == '本次指定'
+
+
+def test_generation_only_model_is_not_eligible_for_studio_edit(clients, monkeypatch):
+    from app.agent.model_catalog import create_model_connection, get_model_catalog
+
+    owner, _ = clients
+    with use_workspace(1):
+        source, _ = _image('generation-only', create_conversation('图片创作')['id'])
+        create_model_connection({'name': '出图服务', 'api_key': 'fixture', 'model_name': 'dall-e-3',
+                                 'model_protocol': 'images', 'model_base_url': 'https://api.openai.com/v1'})
+        profile_id = next(p['id'] for p in get_model_catalog()['profiles'] if p['model_name'] == 'dall-e-3')
+
+    edit = AsyncMock()
+    monkeypatch.setattr('app.models.openai_images.OpenAIImagesProvider.edit_image', edit)
+    options = owner.get('/image-studio/options').json()
+    model = next(m for m in options['models'] if m['id'] == profile_id)
+    assert model['capabilities'] == {'generate': {'sizes': ['auto', '1024x1024']}, 'edit': None}
+    assert options['can_edit'] is False
+
+    preview = '/agent/model-selection/preview'
+    generate = owner.post(preview, json={'operation': 'image.generate', 'profile_id': profile_id}).json()
+    assert generate['eligible'] is True and generate['selection']['profile_id'] == profile_id
+    edit_preview = {'operation': 'image.edit', 'asset_id': source['id']}
+    for query in (edit_preview, {**edit_preview, 'profile_id': profile_id}):
+        result = owner.post(preview, json=query).json()
+        assert result['eligible'] is False and result['selection'] is None
+        candidate = next(c for c in result['candidates'] if c['profile_id'] == profile_id)
+        assert candidate['eligible'] is False and '不支持图片编辑' in candidate['reason_code']
+
+    response = owner.post(f"/chat-assets/{source['id']}/edits", json={
+        'operation_id': str(uuid4()), 'mode': 'edit', 'prompt': '改为暖色', 'profile_id': profile_id,
+    })
+    assert response.status_code == 400, response.text
+    assert '不支持图片编辑' in response.json()['detail']
+    edit.assert_not_awaited()
+
+
 def test_studio_edit_preserves_supported_original_size(clients, monkeypatch):
     owner, _ = clients
     with use_workspace(1):
         source, original = _image('landscape', create_conversation('图片创作')['id'], dimensions=(1536, 1024))
-    monkeypatch.setattr('app.chat.image_editing._image_connection', lambda: {
+    monkeypatch.setattr('app.chat.image_editing.bind_image_selection', lambda *args, **kwargs: {
         'profile_id': 'p', 'profile_revision': 1, 'connection_id': 'c', 'connection_revision': 1,
         'model_name': 'gpt-image-2', 'model_protocol': 'images', 'api_key': 'fixture', 'model_base_url': 'https://test.invalid',
     })

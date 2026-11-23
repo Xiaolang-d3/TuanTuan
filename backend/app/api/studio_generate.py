@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from ..agent.image_selection import ImageSelectionConflict
 from ..chat.studio_generate import GenerateIn, StudioConflict, studio_options, submit
 from ..secret_store import SecretStoreUnavailable
 
@@ -15,6 +16,8 @@ def image_studio_options() -> dict:
 async def image_studio_generate(request: GenerateIn) -> dict:
     try:
         return {"id": await submit(request)}
+    except ImageSelectionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.detail()) from exc
     except StudioConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:

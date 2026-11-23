@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
-import type { StudioTask, createImageStudioApi } from "./imageStudioApi";
+import { studioAdmissionConflict, type StudioTask, type createImageStudioApi } from "./imageStudioApi";
 
 export type StudioApi = ReturnType<typeof createImageStudioApi>;
 export type StatusFilter = StudioTask["status"] | "";
@@ -90,7 +90,7 @@ export function useImageWorkspace(api: StudioApi, enabled: boolean, accountKey: 
     }
     void read();return () => {c.abort();clearTimeout(timer);};
   },[api,enabled,receipt,locked,check,remember]);
-  async function submit<T>(snapshot: GenerateInput, modelName: string, send: (id: string) => Promise<T>, source?:string) {
+  async function submit<T>(snapshot: GenerateInput, modelName: string, send: (id: string) => Promise<T>, source?: string, onAdmissionConflict?: (message: string) => void) {
     if(!enabled || !checked || receipt || busy.current)return false;
     busy.current=true;setLocked(true);setIssue("");setNotFound(false);
     try {
@@ -100,6 +100,15 @@ export function useImageWorkspace(api: StudioApi, enabled: boolean, accountKey: 
       if(mounted.current)settled.current();
       return true;
     } catch(e) {
+      if (studioAdmissionConflict(e)) {
+        saveReceipt(key, null);
+        if (mounted.current) {
+          setReceipt(null);
+          setRecent(null);
+          onAdmissionConflict?.(e.message);
+        }
+        return false;
+      }
       if(!mounted.current)return false;
       if(e instanceof ApiError && [400,401,403,404,422].includes(e.status)) {
         // Validation and authorization errors occur before admission.
