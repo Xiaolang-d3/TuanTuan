@@ -45,10 +45,8 @@ export function AgentKernelSettings({ choices, defaultKernel, busy, onChange }: 
           ))}
         </select>
       </label>
-      {current?.available === false ? (
+      {current?.available === false && (
         <p className="agent-kernel-settings-warning" role="status"><CircleAlert size={14} />当前默认内核暂不可用；新对话会先使用团团内核。</p>
-      ) : (
-        <p className="agent-kernel-settings-note">切换已有且已有消息的对话时，系统会新建一条带上下文摘要的分支，原任务不会中断。</p>
       )}
     </section>
   );

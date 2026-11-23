@@ -750,6 +750,14 @@ describe("ChatWorkspace", () => {
     expect(screen.getByRole("button", { name: "附件处理中" })).toBeDisabled();
   });
 
+  it.each(["page", "dock"] as const)("keeps the model picker and send button but no kernel control in the %s composer", (density) => {
+    const { view } = renderChat([message], { density, currentModelName: "grok-4.7" });
+    const workspace = within(view.container);
+    expect(workspace.getByRole("button", { name: "切换模型，当前 grok-4.7" })).toBeInTheDocument();
+    expect(workspace.getByRole("button", { name: "发送" })).toBeInTheDocument();
+    expect(workspace.queryByRole("button", { name: /内核|DeepSeek Harness/ })).not.toBeInTheDocument();
+  });
+
   it("keeps a greeting focused on messages and one model picker", () => {
     const greeting = { ...assistantMessage("你好，有什么可以帮你？"), payload: { model_selection: {
       profile_id: "grok", connection_id: "local", profile_revision: 1, connection_revision: 1, model_name: "grok-4.7"
