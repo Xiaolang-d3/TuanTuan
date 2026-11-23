@@ -132,6 +132,7 @@ export type ChatRetryDraft = {
   webSearchSourcePreference?: WebSearchSourcePreference;
   webSearchProvider?: string;
   runId?: string;
+  runAcknowledged?: boolean;
   rewindMessageId?: number;
   reason?: "send_failed" | "interrupted";
 };
@@ -212,6 +213,9 @@ export type ChatWorkspaceProps = ResultServices & {
   hiddenMessageCount: number;
   chatBusy: boolean;
   currentConversationId: number | null;
+  webSearchEnabled?: boolean;
+  webSearchAvailable?: boolean;
+  onWebSearchChange?: (enabled: boolean) => void;
   libraryAttachments?: { conversationId: number; attachments: ChatAttachment[] } | null;
   onLibraryAttachmentsConsumed?: () => void;
   composerDraft?: ChatComposerDraft | null;

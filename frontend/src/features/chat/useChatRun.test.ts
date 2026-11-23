@@ -13,7 +13,7 @@ vi.mock("@ag-ui/client", () => ({
   }
 }));
 
-function setup(selectedSkillId?: string | null) {
+function setup(selectedSkillId?: string | null, webSearchEnabled = false) {
   let finish!: () => void;
   client.runAgent.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
   const currentConversationIdRef = { current: 1 as number | null };
@@ -24,7 +24,7 @@ function setup(selectedSkillId?: string | null) {
     apiBase: "/test-api", accessToken: "test-only-session",
     fetchJson: fetchJson as ReturnType<typeof createApiClient>,
     currentConversationId: 1, currentConversationIdRef,
-    selectedSkillId,
+    selectedSkillId, webSearchEnabled,
     setErrorMessage, setNoticeMessage,
     refreshConversations: vi.fn().mockResolvedValue([]),
     onLibraryChanged: vi.fn().mockResolvedValue(undefined)
@@ -107,19 +107,31 @@ describe("useChatRun stream reconciliation", () => {
     expect(draft).toMatchObject({ attachmentIds: ["doc-1"], webSearch: true, webSearchTopic: "finance", webSearchSourcePreference: "technical", webSearchProvider: "tavily", runId: original.runId });
     fetchJson.mockResolvedValue({ web_research: { enabled: true, provider: "tavily", supported_topics: ["auto", "general", "news", "finance"], supports_technical_preference: true } });
     client.runAgent.mockImplementationOnce(async () => emit("onStateSnapshotEvent", { event: { snapshot } }));
-    await act(() => result.current.sendChatMessage(draft.content, draft.attachmentIds, draft.visionAttachmentIds, draft.webSearch, draft.webSearchTopic, draft.webSearchSourcePreference, undefined, draft.runId, draft.rewindMessageId, draft.modelProfileId, draft.webSearchProvider));
-    expect(client.runAgent.mock.calls[1][0]).toMatchObject({ runId: original.runId, forwardedProps: { webSearchTopic: "finance", webSearchSourcePreference: "technical", webSearchProvider: "tavily" } });
+    await act(() => result.current.retryChatMessage(draft));
+    expect(client.runAgent.mock.calls[1][0]).toMatchObject({ runId: original.runId, forwardedProps: { webSearch: true, webSearchTopic: "finance", webSearchSourcePreference: "technical", webSearchProvider: "tavily" } });
     expect(fetchJson).not.toHaveBeenCalled(); // Same-run replay may return stored results without using the current service.
   });
 
-  it("omits search overrides so the server can inherit a waiting task or recognize a new topic", async () => {
+  it("uses the current setting when an unacknowledged retry might create a turn", async () => {
+    const { result } = setup();
+    client.runAgent.mockImplementationOnce(async () => { throw new Error("未收到服务端响应"); });
+    await act(() => result.current.sendChatMessage(userMessage.content, [], [], true));
+    const draft = result.current.retryChatDraft!;
+    expect(draft).toMatchObject({ webSearch: true });
+    expect(draft.runAcknowledged).toBeUndefined();
+    client.runAgent.mockImplementationOnce(async () => emit("onStateSnapshotEvent", { event: { snapshot } }));
+    await act(() => result.current.retryChatMessage(draft));
+    expect(client.runAgent.mock.calls[1][0]).toMatchObject({ runId: draft.runId, forwardedProps: { webSearch: false } });
+  });
+
+  it("does not inherit search consent for a new waiting-task reply", async () => {
     const { result } = setup();
     const pendingUser: ChatMessage = { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "news", source_preference: "technical", provider: "tavily" } } };
     const pendingAssistant: ChatMessage = { ...assistantMessage, payload: { agent: { provider: "test", platform: "local", rounds: 1, status: "waiting_user", events: [] } } };
     act(() => result.current.setChatMessages([pendingUser, pendingAssistant]));
     client.runAgent.mockImplementationOnce(async () => emit("onStateSnapshotEvent", { event: { snapshot } }));
     await act(() => result.current.sendChatMessage("继续查最新发布"));
-    expect(client.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("webSearch");
+    expect(client.runAgent.mock.calls[0][0].forwardedProps).toHaveProperty("webSearch", false);
     expect(client.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("webSearchTopic");
   });
 
@@ -135,7 +147,7 @@ describe("useChatRun stream reconciliation", () => {
   });
 
   it("checks the saved provider before deleting messages for regeneration", async () => {
-    const { result, fetchJson } = setup();
+    const { result, fetchJson } = setup(undefined, true);
     const original: ChatMessage = { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "news", source_preference: "none", provider: "tavily" } } };
     act(() => result.current.setChatMessages([original, assistantMessage]));
     fetchJson.mockResolvedValue({ web_research: { enabled: true, provider: "agent_search", supported_topics: ["auto", "general", "news"], supports_technical_preference: false } });
@@ -177,7 +189,7 @@ describe("useChatRun stream reconciliation", () => {
   });
 
   it("validates capability support before editing a historical search turn", async () => {
-    const { result, fetchJson } = setup();
+    const { result, fetchJson } = setup(undefined, true);
     const original: ChatMessage = { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "news", source_preference: "technical", provider: "agent_search" } } };
     act(() => result.current.setChatMessages([original, assistantMessage]));
     fetchJson.mockResolvedValue({ web_research: { enabled: true, provider: "agent_search", supported_topics: ["auto", "general", "news"], supports_technical_preference: false } });
@@ -190,7 +202,7 @@ describe("useChatRun stream reconciliation", () => {
   });
 
   it("preserves the historical search options for edit and sends provider only as an expected binding", async () => {
-    const { result, fetchJson } = setup();
+    const { result, fetchJson } = setup(undefined, true);
     const original: ChatMessage = { ...userMessage, payload: { attachments: [{ id: "old-doc", kind: "document", original_filename: "old.pdf", parse_status: "parsed" }], web_search_options: { version: 1, enabled: true, topic: "finance", source_preference: "technical", provider: "tavily" } } };
     act(() => result.current.setChatMessages([original, assistantMessage]));
     fetchJson.mockImplementation(async (path: string) => path === "/agent/capabilities" ? { web_research: { enabled: true, provider: "tavily", supported_topics: ["auto", "general", "news", "finance"], supports_technical_preference: true } } : path.startsWith("/chat/messages?") ? [] : { run: null });
@@ -202,7 +214,7 @@ describe("useChatRun stream reconciliation", () => {
   });
 
   it("locks duplicate regeneration clicks while the provider preflight is pending", async () => {
-    const { result, fetchJson } = setup();
+    const { result, fetchJson } = setup(undefined, true);
     const original: ChatMessage = { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "news", source_preference: "none", provider: "tavily" } } };
     act(() => result.current.setChatMessages([original, assistantMessage]));
     let confirm!: (value: unknown) => void;
@@ -406,11 +418,11 @@ describe("useChatRun stream reconciliation", () => {
   });
 });
 
-it("uses server-resolved automatic search options when a new turn needs retry", async () => {
-  const { result } = setup();
+it("records the resolved binding when an enabled turn needs retry", async () => {
+  const { result } = setup(undefined, true);
   client.runAgent.mockImplementationOnce(async () => {
     const forwarded = client.runAgent.mock.calls[0][0].forwardedProps;
-    expect(forwarded).not.toHaveProperty("webSearch");
+    expect(forwarded).toHaveProperty("webSearch", true);
     emit("onCustomEvent", { event: { name: "tuantuan.user_message", value: { ...userMessage, payload: { web_search_options: { version: 1, enabled: true, topic: "auto", source_preference: "none", provider: "tavily" } } } } });
     throw new Error("stream failed");
   });

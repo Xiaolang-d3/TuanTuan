@@ -136,7 +136,7 @@ class ChatStreamingApiTest(unittest.TestCase):
                 })
                 self.assertEqual(response.status_code, 422)
 
-    def test_new_turns_resolve_automatic_search_without_transport_flags(self) -> None:
+    def test_new_turns_use_web_search_only_with_opt_in(self) -> None:
         captured = []
         class Runtime:
             async def run_stream(self, *args, **kwargs):
@@ -144,18 +144,25 @@ class ChatStreamingApiTest(unittest.TestCase):
                 yield AgentStreamEvent(type="completed", result=AgentRunResult(
                     content="普通回答", provider="test", platform="manual", rounds=1,
                 ))
-        for enabled, forwarded, expected in [(True, {}, True), (False, {}, False), (True, {"webSearch": False}, False)]:
+        for enabled, forwarded, expected in [
+            (True, {}, False),
+            (False, {}, False),
+            (True, {"webSearch": False}, False),
+            (True, {"webSearch": True}, True),
+        ]:
             with self.subTest(enabled=enabled, forwarded=forwarded):
-                conversation = self.client.post("/conversations", json={"title": "自动搜索"}).json()
+                conversation = self.client.post("/conversations", json={"title": "搜索开关"}).json()
                 settings = SimpleNamespace(web_research_enabled=enabled, resolved_web_search_provider="tavily")
                 with patch.object(main_module, "get_settings", return_value=settings):
-                    self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "你好", f"auto-{conversation['id']}", forwarded=forwarded))
+                    self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                        conversation["id"], "请联网搜索最新新闻", f"search-{conversation['id']}", forwarded=forwarded,
+                    ))
                 self.assertEqual(captured[-1].enabled, expected)
                 self.assertEqual((captured[-1].topic, captured[-1].source_preference), ("auto", "none"))
                 messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
                 self.assertEqual(messages[-2]["payload"]["web_search_options"]["enabled"], expected)
 
-    def test_confirmation_inherits_search_options_and_explicit_false_is_preserved(self) -> None:
+    def test_confirmation_requires_consent_and_inherits_search_preferences(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "搜索配置继承"}).json()
         original = WebSearchOptions(enabled=True, topic="finance", source_preference="technical", provider="tavily")
         captured = []
@@ -173,6 +180,11 @@ class ChatStreamingApiTest(unittest.TestCase):
         with patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="tavily")):
             pause()
             self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "继续", "inherited-search"))
+            self.assertEqual(captured[-1], original.model_copy(update={"enabled": False}))
+            pause()
+            self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                conversation["id"], "继续", "opt-in-search", forwarded={"webSearch": True},
+            ))
             self.assertEqual(captured[-1], original)
             pause()
             self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "继续", "disabled-search",
@@ -181,6 +193,15 @@ class ChatStreamingApiTest(unittest.TestCase):
         self.assertEqual((captured[-1].topic, captured[-1].source_preference), ("auto", "none"))
         messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
         self.assertEqual(messages[-2]["payload"]["web_search_options"], captured[-1].model_dump())
+        with patch.object(main_module, "get_settings", return_value=SimpleNamespace(
+            web_research_enabled=True, resolved_web_search_provider="tavily",
+        )):
+            pause()
+            self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                conversation["id"], "换个话题，写一封邮件", "abandoned-search",
+            ))
+        self.assertFalse(captured[-1].enabled)
+        self.assertEqual(captured[-1].topic, "auto")
 
     def test_provider_change_and_unsupported_capability_fail_before_new_messages(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "服务能力校验"}).json()
@@ -192,7 +213,7 @@ class ChatStreamingApiTest(unittest.TestCase):
             response = self.client.post("/ag-ui", json={
                 "threadId": str(conversation["id"]), "runId": "changed-provider", "state": {},
                 "messages": [{"id": "user", "role": "user", "content": "继续"}],
-                "tools": [], "context": [], "forwardedProps": {},
+                "tools": [], "context": [], "forwardedProps": {"webSearch": True},
             })
             self.assertEqual(response.status_code, 409)
             self.assertIn("搜索服务", response.json()["detail"])

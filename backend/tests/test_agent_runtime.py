@@ -460,6 +460,25 @@ class MixedRunEgressTest(unittest.IsolatedAsyncioTestCase):
             [step.tool_name for step in resumed.plan.steps], ["get_library_context"]
         )
 
+    async def test_turning_search_off_prevents_sending_a_previously_pending_query(self) -> None:
+        paused = await runtime_for(
+            ScriptedModel([
+                ModelResponse(content=self.PLAN),
+                ModelResponse(tool_calls=[ToolCall(id="read-1", name="get_library_context", arguments={})]),
+                ModelResponse(tool_calls=[ToolCall(id="web-1", name="search_public_web", arguments={"query": "最新 AI 趋势"})]),
+            ]),
+            CountingTool("get_library_context"),
+            CountingTool("search_public_web"),
+        ).run(self.MIXED_QUERY, web_search_options=WebSearchOptions(enabled=True))
+        self.assertEqual(paused.snapshot.pending_search_queries, ["最新 AI 趋势"])
+
+        search = CountingTool("search_public_web")
+        model = ScriptedModel([ModelResponse(content="仅依据本地资料回答。")])
+        await runtime_for(model, CountingTool("get_library_context"), search).run(
+            APPROVE_OPTION_LABEL, resume=paused.snapshot, web_search_options=WebSearchOptions(),
+        )
+        self.assertEqual(search.calls, 0)
+
     async def test_checkpoint_resume_keeps_prior_approval_without_repausing(self) -> None:
         paused = await runtime_for(
             ScriptedModel([
