@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { expect, test } from "./test-fixtures";
 
 for (const theme of ["light", "dark"] as const) {
-  test(`generated image preview is edge-to-edge with separate actions in ${theme}`, async ({ page }) => {
+  test(`generated image stays in the thread with icon actions and dimensions in the preview in ${theme}`, async ({ page }) => {
     // Deterministic UI fixture, not a paid model response or the user's private image.
     const image = await page.evaluate(() => {
       const canvas = document.createElement("canvas");
@@ -44,7 +44,22 @@ for (const theme of ["light", "dark"] as const) {
     await page.goto("/#/chat/9");
     const card = page.getByRole("figure", { name: "模型生成图片" });
     const preview = card.getByRole("button", { name: "预览 生成图片-1.png", exact: true });
+    const reply = page.locator(".message.assistant");
+    const actions = reply.locator(".message-actions");
+    const save = actions.getByRole("button", { name: "保存 生成图片-1.png 到文件库", exact: true });
+    const download = actions.getByRole("button", { name: "下载原图", exact: true });
     await expect(preview.locator("img")).toBeVisible();
+    await expect(reply.getByText("1200 × 960", { exact: true })).toHaveCount(0);
+    await expect(reply.getByRole("button", { name: "导出 PNG", exact: true })).toHaveCount(0);
+    await expect(actions.getByRole("button", { name: "复制回答", exact: true })).toHaveCount(1);
+    await page.mouse.move(0, 0);
+    await expect(save).toHaveCSS("opacity", "0");
+    await expect(download).toHaveCSS("opacity", "0");
+    await expect(save).toHaveText("");
+    await expect(download).toHaveText("");
+    await preview.hover();
+    await expect(download).toHaveCSS("opacity", "1");
+    await page.mouse.move(0, 0);
     await expect(card.locator("..")).toHaveClass("message-image-output");
     await expect(card.locator("..")).toHaveCSS("padding", "0px");
     await expect(card.locator("..")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
@@ -68,21 +83,24 @@ for (const theme of ["light", "dark"] as const) {
     await expect(preview).toHaveCSS("outline-offset", "-2px");
     await expect(preview).toHaveCSS("box-shadow", "none");
     await expect(preview).toHaveCSS("border-color", "rgba(0, 0, 0, 0)");
-    await expect(card.locator("figcaption").getByRole("button", { name: "保存 生成图片-1.png 到文件库", exact: true })).toBeVisible();
-    const output = resolve("..", "..", "output", "generated-image-card");
+    await expect(save).toHaveCSS("opacity", "1");
+    await card.getByText("生成提示词", { exact: true }).click();
+    const output = resolve("..", "output", "generated-image-card");
     await mkdir(output, { recursive: true });
     for (const width of [1135, 768, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await expect.poll(() => card.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await expect(preview.locator("img")).toHaveCSS("object-fit", "contain");
-      await card.screenshot({ path: resolve(output, `card-${theme}-${width}.png`), animations: "disabled" });
+      await reply.screenshot({ path: resolve(output, `card-${theme}-${width}.png`), animations: "disabled" });
     }
     await preview.click();
-    await expect(page.getByRole("dialog", { name: "生成图片-1.png 预览", exact: true })).toBeVisible();
+    const imageDialog = page.getByRole("dialog", { name: "生成图片-1.png 预览", exact: true });
+    await expect(imageDialog).toBeVisible();
+    await expect(imageDialog.getByText("1200 × 960", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "关闭附件预览", exact: true }).click();
     const downloading = page.waitForEvent("download");
-    await card.getByRole("button", { name: "下载原图", exact: true }).click();
+    await download.click();
     const stream = await (await downloading).createReadStream();
     const chunks = [];
     for await (const chunk of stream) chunks.push(chunk);

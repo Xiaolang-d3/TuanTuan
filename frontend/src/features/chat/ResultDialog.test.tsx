@@ -31,6 +31,15 @@ function services(overrides: ResultServices = {}): ResultServices {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("chat result reader and archive", () => {
+  it.each([["image/png", "图.png", false], ["image/webp", "图.webp", true]])("offers PNG conversion only when useful for %s", async (mime, filename, convert) => {
+    const asset = { id: "image", kind: "image" as const, origin: "generated" as const, original_filename: filename, parse_status: "parsed" as const };
+    const imageManifest: ArtifactManifest = { ...manifest, artifacts: [{ selector: "asset:image", kind: "image", filename, mime_type: mime, asset, can_index: false }] };
+    const api = services({ onLoadResults: vi.fn().mockResolvedValue(imageManifest), onLoadAttachment: vi.fn() });
+    render(<ResultDialog messageId={12} services={api} onClose={vi.fn()} />);
+    expect(await screen.findByRole("button", { name: "下载原图" })).toBeEnabled();
+    expect(!!screen.queryByRole("button", { name: "导出 PNG" })).toBe(convert);
+  });
+
   it("renders the shared Markdown reader and downloads Markdown and text with sources", async () => {
     render(<ResultDialog messageId={12} services={services()} onClose={vi.fn()} />);
     expect(await screen.findByRole("heading", { name: "报告" })).toBeInTheDocument();

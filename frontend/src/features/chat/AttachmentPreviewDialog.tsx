@@ -60,10 +60,11 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
   const canPan = imageScale > fitScale + .001;
 
   function fitImage(image: HTMLImageElement) {
-    const viewport = bodyRef.current;
-    if (!viewport?.clientWidth || !viewport.clientHeight || !image.naturalWidth || !image.naturalHeight) return;
-    const compact = viewport.clientWidth <= 600;
+    if (!image.naturalWidth || !image.naturalHeight) return;
     setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
+    const viewport = bodyRef.current;
+    if (!viewport?.clientWidth || !viewport.clientHeight) return;
+    const compact = viewport.clientWidth <= 600;
     setFitScale(Math.min(1, Math.max(1, viewport.clientWidth - (compact ? 32 : 64)) / image.naturalWidth, Math.max(1, viewport.clientHeight - 112) / image.naturalHeight));
   }
 
@@ -170,6 +171,8 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
   }
 
   const formatLabel = { image: "图片", pdf: "PDF", markdown: "Markdown", text: "文本", word: "Word", file: "附件" }[format];
+  const width = imageSize?.width ?? attachment.width;
+  const height = imageSize?.height ?? attachment.height;
   return createPortal(
     <div className={`chat-attachment-backdrop${format === "image" ? " is-image-backdrop" : ""}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={dialogRef} className={`chat-attachment-dialog${format === "image" ? " is-image-preview" : ""}`} role="dialog" aria-modal="true" aria-label={`${attachment.original_filename} 预览`}
@@ -179,7 +182,7 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
             if (event.key === "ArrowLeft" && galleryIndex > 0) { event.preventDefault(); onNavigate?.(gallery[galleryIndex - 1]); }
             if (event.key === "ArrowRight" && galleryIndex >= 0 && galleryIndex < gallery.length - 1) { event.preventDefault(); onNavigate?.(gallery[galleryIndex + 1]); }
           }
-          if (format === "image" && imageSize && !event.altKey && !event.ctrlKey && !event.metaKey) {
+          if (format === "image" && !editorEnabled && imageSize && !event.altKey && !event.ctrlKey && !event.metaKey) {
             if (event.key === "+" || event.key === "=") { event.preventDefault(); changeZoom(1); }
             if (event.key === "-") { event.preventDefault(); changeZoom(-1); }
             if (event.key === "0") { event.preventDefault(); setZoom(null); }
@@ -197,8 +200,9 @@ export function AttachmentPreviewDialog({ attachment, localFile, loadOriginal, g
             <button ref={closeRef} type="button" className="chat-attachment-close" onClick={onClose} aria-label="关闭附件预览"><X size={19} /></button>
           </div>
         </header>}
+        {format === "image" && attachment.origin === "generated" && width && height && width > 0 && height > 0 ? <span className="chat-image-dimensions">{width} × {height}</span> : null}
         {format === "word" ? <p className="chat-attachment-note">当前显示提取的文字内容，完整排版请下载原文件查看。</p> : null}
-        {editorEnabled ? <ImageEditor attachment={attachment} url={url} onEdit={onEditGeneratedImage!} onSubmitted={onClose} onNavigate={item => onNavigate?.(item)} onDownload={download} loadError={error} onReload={() => setAttempt(current => current + 1)} navigation={gallery.length > 1 ? <><button type="button" aria-label="上一张图片" disabled={galleryIndex <= 0} onClick={() => onNavigate?.(gallery[galleryIndex - 1])}><ChevronLeft size={17} /></button><span className="chat-image-counter">{galleryIndex + 1} / {gallery.length}</span><button type="button" aria-label="下一张图片" disabled={galleryIndex < 0 || galleryIndex >= gallery.length - 1} onClick={() => onNavigate?.(gallery[galleryIndex + 1])}><ChevronRight size={17} /></button></> : null} /> : <>
+        {editorEnabled ? <ImageEditor attachment={attachment} url={url} onImageLoad={fitImage} onEdit={onEditGeneratedImage!} onSubmitted={onClose} onNavigate={item => onNavigate?.(item)} onDownload={download} loadError={error} onReload={() => setAttempt(current => current + 1)} navigation={gallery.length > 1 ? <><button type="button" aria-label="上一张图片" disabled={galleryIndex <= 0} onClick={() => onNavigate?.(gallery[galleryIndex - 1])}><ChevronLeft size={17} /></button><span className="chat-image-counter">{galleryIndex + 1} / {gallery.length}</span><button type="button" aria-label="下一张图片" disabled={galleryIndex < 0 || galleryIndex >= gallery.length - 1} onClick={() => onNavigate?.(gallery[galleryIndex + 1])}><ChevronRight size={17} /></button></> : null} /> : <>
         <div className={`chat-attachment-content${format === "image" ? " is-image" : ""}`}>
         <div ref={bodyRef} className={`chat-attachment-body is-${format}${canPan ? " can-pan" : ""}${dragging ? " is-dragging" : ""}`} aria-busy={loading} tabIndex={format === "image" ? 0 : undefined} aria-label={format === "image" ? "图片画布" : undefined}
           onDoubleClick={() => { if (format === "image" && imageSize) setZoom(current => current === 1 ? null : 1); }}

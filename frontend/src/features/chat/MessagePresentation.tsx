@@ -11,7 +11,7 @@ import { webSearchTopicLabels } from "./webSearchOptions";
 import { AttachmentPreviewContext } from "./AttachmentPreviewDialog";
 import { ResultActionsContext, DocumentActionsContext } from "./result-types";
 import { HistoryAttachment } from "./HistoryAttachment";
-import { GeneratedImage } from "./GeneratedImage";
+import { GeneratedImage, GeneratedImageActions } from "./GeneratedImage";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { copyMessageText, MessageCopyInProgressError } from "./messageCopy";
 import { ActionBarPrimitive, ComposerPrimitive, MessagePrimitive, type AppendMessage, type MessageState } from "@assistant-ui/react";
@@ -641,7 +641,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
     const asset = assets.find(item => item.id === id);
     if (!asset || seenAssets.has(id)) return null;
     seenAssets.add(id);
-    return <GeneratedImage key={id} asset={asset} messageId={source.id} prompt={source.payload?.agent?.image_generation_prompt} />;
+    return <GeneratedImage key={id} asset={asset} prompt={agent?.image_generation_prompt} />;
   };
   const webSources = webSourcesFromAgent(source.payload?.agent);
   const localEvidence = source.payload?.agent?.evidence ?? [];
@@ -686,6 +686,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
                   {!uncertainWrite && <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
                     <RefreshCw size={14} aria-hidden="true" />
                   </ActionBarPrimitive.Reload>}
+                  <GeneratedImageActions assets={assets} messageId={source.id} />
                 </ActionBarPrimitive.Root>
               </div>
               {answerModelName ? <span className="message-answer-model" aria-label={`回答模型：${answerModelName}`} title={answerModelName}>{answerModelName}</span> : null}
