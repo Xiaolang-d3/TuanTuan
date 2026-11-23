@@ -35,6 +35,35 @@ async function findAndManageModel(name: string, optionName: string | RegExp) {
 }
 
 describe("UnifiedModelManager", () => {
+  it("keeps service management separate from scenario defaults", () => {
+    render(<UnifiedModelManager {...props()} />);
+    expect(screen.getByRole("button", { name: "模型配置" })).toHaveAttribute("aria-pressed", "true");
+    const defaults = screen.getByRole("region", { name: "当前默认模型" });
+    expect(within(defaults).getByRole("heading", { name: "图像理解" })).toBeVisible();
+    expect(within(defaults).getByRole("heading", { name: "视频生成" })).toBeVisible();
+    expect(within(defaults).queryByRole("button", { name: /视频生成模型/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
+    expect(screen.getByRole("region", { name: "已连接服务" })).toBeVisible();
+    expect(defaults).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "模型列表" })).not.toBeInTheDocument();
+  });
+
+  it("saves an independent image understanding default from eligible models", async () => {
+    const p = props({ catalog: {
+      ...catalog,
+      profiles: [{ ...catalog.profiles[0], supported_purposes: ["chat", "vision"] }, ...catalog.profiles.slice(1)],
+      purpose_defaults: { ...catalog.purpose_defaults!, vision: null }
+    } });
+    render(<UnifiedModelManager {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: "选择图像理解模型" }));
+    const picker = screen.getByRole("region", { name: "选择图像理解模型" });
+    expect(within(picker).getAllByRole("radio")).toHaveLength(2);
+    fireEvent.click(within(picker).getByRole("radio", { name: /gpt-4.1.*服务甲/ }));
+    fireEvent.click(within(picker).getByRole("button", { name: "设为默认" }));
+    await waitFor(() => expect(picker).not.toBeInTheDocument());
+    expect(p.onMutate).toHaveBeenCalledWith("/agent/model-defaults/vision", "POST", { profile_id: "p1", expected_version: 7 });
+  });
+
   it("guides the first connection without exposing empty directory controls", () => {
     render(<UnifiedModelManager {...props({ catalog: { ...catalog, connections: [], profiles: [], purpose_defaults: { chat: null, image: null } } })} />);
     expect(screen.getByRole("heading", { name: "连接模型服务，开始使用" })).toBeVisible();
@@ -55,7 +84,7 @@ describe("UnifiedModelManager", () => {
     fireEvent.click(trigger);
     const search = screen.getByRole("textbox", { name: "搜索可用模型" });
     expect(search).toHaveFocus();
-    expect(screen.getByRole("button", { name: "概览" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "场景默认模型" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("list", { name: "模型目录" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     expect(screen.getByRole("radio", { name: /自动选择.*当前默认/ })).toBeChecked();
@@ -159,20 +188,21 @@ describe("UnifiedModelManager", () => {
     const p = props(); const view = render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
     fireEvent.change(screen.getByRole("combobox", { name: "按服务筛选" }), { target: { value: "two" } });
-    fireEvent.click(screen.getByRole("button", { name: "服务管理" }));
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     fireEvent.click(screen.getByRole("button", { name: "删除服务乙" }));
     expect(p.onMutate).not.toHaveBeenCalled();
     expect(screen.getByRole("region", { name: "删除服务" })).toHaveTextContent("3 个已保存模型");
     fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(p.onMutate).toHaveBeenCalledWith("/agent/model-connections/two?remove=true&expected_revision=3", "DELETE"));
     view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, connections: [catalog.connections[0]], profiles: [catalog.profiles[0]] }} />);
+    fireEvent.click(screen.getByRole("button", { name: "模型配置" }));
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
     expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("");
     expect(within(screen.getByRole("list", { name: "模型目录" })).queryByText("gpt-image-2", { exact: true })).not.toBeInTheDocument();
   });
   it("explains default protection and allows cancelling removal without a request", () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "服务管理" }));
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     fireEvent.click(screen.getByRole("button", { name: "删除服务甲" }));
     expect(screen.getByRole("region", { name: "删除服务" })).toHaveTextContent("先切换");
     expect(screen.getByRole("button", { name: "确认删除" })).toBeDisabled();
@@ -204,7 +234,7 @@ describe("UnifiedModelManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
     expect(screen.queryByRole("button", { name: "编辑服务甲" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "输出类型" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "服务管理" }));
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     expect(screen.queryByRole("list", { name: "模型目录" })).not.toBeInTheDocument();
     const services = screen.getByRole("region", { name: "已连接服务" });
     expect(services).toHaveTextContent("API Key 已配置");
@@ -223,7 +253,7 @@ describe("UnifiedModelManager", () => {
   });
   it("requires a fresh key for changed addresses and clears the key after saving", async () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
-    fireEvent.click(screen.getByRole("button", { name: "服务管理" }));
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑服务甲" }));
     fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://changed.test/v1" } });
     fireEvent.click(screen.getByRole("button", { name: "保存服务" }));
@@ -313,7 +343,7 @@ describe("UnifiedModelManager", () => {
   });
   it("does not replace a dirty service editor with another add action", () => {
     render(<UnifiedModelManager {...props()} />);
-    fireEvent.click(screen.getByRole("button", { name: "服务管理" }));
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑服务甲" }));
     fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "keep-me" } });
     expect(screen.getByRole("button", { name: "添加服务" })).toBeDisabled();

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .model_binding import internal_model_selection
-from .model_router import ModelRouter, bind_image_model, bind_model_stages, bind_text_model, get_routing_policy
+from .model_router import ModelRouter, bind_image_model, bind_model_stages, bind_text_model, bind_vision_model, get_routing_policy
 from ..observability.model_context import public_model_selection
 from ..config import get_settings
 from ..models import ModelProviderRegistry, build_model_provider
@@ -50,7 +50,7 @@ def _runtime_cache_key(connection: dict[str, Any]) -> tuple[Any, ...]:
         connection.get("credential_fingerprint"),
         connection.get("policy_version"), connection.get("strict_capabilities", False),
         tuple((stage, value.get("profile_id"), value.get("profile_revision"),
-               value.get("connection_id"), value.get("connection_revision"), value.get("credential_fingerprint"), value.get("selection_reason"))
+               value.get("connection_id"), value.get("connection_revision"), value.get("credential_fingerprint"), value.get("selection_reason"), value.get("vision_status"))
               for stage, value in sorted(connection.get("stage_connections", {}).items())),
         model_backend(), _routing_revision(), _extension_revision(),
     )
@@ -227,7 +227,8 @@ def _with_fallbacks(model: Any, model_connection: dict[str, Any], timeout_second
     from ..models.factory import model_backend
     from .model_routing import get_fallback_policy, policy_has_fallbacks
 
-    if model_backend() != "litellm" or not model_connection.get("profile_id"):
+    # An image input is bound to its selected vision profile for the whole turn.
+    if model_connection.get("vision_status") == "supported" or model_backend() != "litellm" or not model_connection.get("profile_id"):
         return model
     policy = get_fallback_policy()
     if not policy_has_fallbacks(policy):
@@ -250,12 +251,20 @@ def _cached_components(model_connection: dict[str, Any]) -> tuple[AgentRuntime, 
 
 
 def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
-                      user_content: str | None = None) -> AgentRuntime:
+                      user_content: str | None = None, has_image_input: bool = False) -> AgentRuntime:
     # Resolve exactly once, before caching; restoring never consults a mutable default.
     from .settings import _settings_lock
 
     with _settings_lock(None):
-        connection = get_profile_connection(profile_id, selection=selection)
+        vision_catalog = None
+        initial_profile_id = profile_id
+        if selection is None and has_image_input:
+            from .model_purposes import selection_catalog
+
+            vision_catalog = selection_catalog(include_vision=True)
+            if initial_profile_id is None and not vision_catalog["default_profile_id"]:
+                initial_profile_id = vision_catalog["purpose_defaults"].get("vision")
+        connection = get_profile_connection(initial_profile_id, selection=selection)
         connection = bind_model_stages(
             connection, explicit_profile=profile_id is not None, selection=selection,
             resolve=get_profile_connection, policy=get_routing_policy() if selection is None else None,
@@ -268,10 +277,13 @@ def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any
 
             image_only = resolve_model_protocol(connection["model_name"], connection.get("model_protocol"), connection.get("model_base_url", "")) == "images"
             output_types, _ = model_output_types(connection, {"protocol": connection.get("model_protocol", "auto")})
-            if image_generation_intent(user_content, image_model_selected=image_only):
+            if image_generation_intent(user_content, image_model_selected=image_only and not has_image_input):
                 connection = bind_image_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection, explicit_profile=profile_id is not None)
-            elif image_only or (output_types and "chat" not in output_types) or connection.get("capabilities", {}).get("chat") == "unsupported":
-                connection = bind_text_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection)
+            else:
+                chosen = bind_vision_model(connection, catalog=vision_catalog, resolve=get_profile_connection, profile_id=profile_id) if vision_catalog is not None else connection
+                if chosen is connection and (image_only or (output_types and "chat" not in output_types) or connection.get("capabilities", {}).get("chat") == "unsupported"):
+                    chosen = bind_text_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection)
+                connection = chosen
     runtime, _ = _cached_components(connection)
     return runtime
 

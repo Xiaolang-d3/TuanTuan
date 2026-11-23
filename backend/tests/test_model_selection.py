@@ -222,6 +222,46 @@ def test_known_video_preference_switches_text_to_chat_before_building_runtime(cl
     assert result["selection_reason"] == "text_intent"
 
 
+def test_image_input_binds_vision_default_only_for_new_vision_turns(client, monkeypatch):
+    from app.agent import bootstrap
+    from app.agent.model_binding import internal_model_selection
+    from app.agent.model_catalog import get_model_catalog
+    from app.agent.model_purposes import save_purpose_default
+
+    _, text = add_service(client, "text-service", "gpt-3.5-turbo")
+    _, vision = add_service(client, "vision-service", "gpt-4.1")
+    for purpose, profile in (("chat", text), ("vision", vision)):
+        save_purpose_default(purpose, {"profile_id": profile["id"], "expected_version": get_model_catalog()["purpose_version"]})
+    monkeypatch.setattr(bootstrap, "_cached_components", lambda connection: (connection, {}))
+    assert bootstrap.get_agent_runtime(user_content="你好")["profile_id"] == text["id"]
+    binding = bootstrap.get_agent_runtime(user_content="看看这张图", has_image_input=True)
+    assert binding["profile_id"] == vision["id"]
+    assert binding["selection_reason"] == "vision_default"
+    assert binding["stage_connections"]["classify"]["profile_id"] == text["id"]
+    assert binding["stage_connections"]["execute"]["vision_status"] == "supported"
+
+    save_purpose_default("vision", {"profile_id": None, "expected_version": get_model_catalog()["purpose_version"]})
+    restored = bootstrap.get_agent_runtime(selection=internal_model_selection(binding))
+    assert restored["profile_id"] == vision["id"]
+    assert restored["stage_connections"]["execute"]["vision_status"] == "supported"
+
+
+def test_vision_input_never_silently_switches_an_unavailable_saved_default(client, monkeypatch):
+    from app.agent import bootstrap
+    from app.agent.model_catalog import get_model_catalog
+    from app.agent.model_purposes import save_purpose_default
+    from app.agent.model_routing import set_capability_record
+
+    _, selected = add_service(client, "vision-first", "gpt-4.1")
+    _, alternative = add_service(client, "vision-second", "gpt-4o")
+    save_purpose_default("vision", {"profile_id": selected["id"], "expected_version": get_model_catalog()["purpose_version"]})
+    set_capability_record(selected["id"], "vision", "unsupported")
+    monkeypatch.setattr(bootstrap, "_cached_components", lambda connection: (connection, {}))
+    with pytest.raises(ValueError, match="图像理解默认模型"):
+        bootstrap.get_agent_runtime(user_content="看看这张图", has_image_input=True)
+    assert bootstrap.get_agent_runtime(alternative["id"], user_content="看看这张图", has_image_input=True)["profile_id"] == alternative["id"]
+
+
 def test_catalog_preserves_current_discovery_provenance(client):
     from app import db
     from app.agent.model_catalog import get_model_catalog

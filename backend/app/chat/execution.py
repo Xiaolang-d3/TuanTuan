@@ -155,7 +155,7 @@ def cancel_durable_agent_run(run_id: str) -> dict[str, Any]:
 
 
 def require_configured_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
-                               user_content: str | None = None):
+                               user_content: str | None = None, has_image_input: bool = False):
     """Ensure model is configured before AG-UI streaming starts.
 
     Missing API key must surface as HTTP 400 (not an in-stream 200 failure or 500).
@@ -163,6 +163,8 @@ def require_configured_runtime(profile_id: str | None = None, *, selection: dict
     try:
         if selection is not None:
             return get_agent_runtime(selection=selection)
+        if has_image_input:
+            return get_agent_runtime(profile_id, user_content=user_content, has_image_input=True)
         if user_content is not None:
             return get_agent_runtime(profile_id, user_content=user_content)
         if profile_id is not None:
@@ -322,6 +324,9 @@ async def stream_chat_response(
             raise HTTPException(409, str(exc)) from None
     if resume_snapshot is not None and "skill_id" in payload.model_fields_set and skill_binding != resume_snapshot.skill_binding:
         resume_snapshot = None
+    prepared_attachments = None
+    if cached_execution is None and recovered_user_message is None and payload.vision_attachment_ids:
+        prepared_attachments = _attachment_context(conversation_id, payload.attachment_ids, payload.vision_attachment_ids)
     model_selection: dict[str, Any] = {}
     if recovering_terminal_result:
         model_selection = internal_model_selection(persisted_run.get("model_selection"))
@@ -343,12 +348,16 @@ async def stream_chat_response(
             profile_id = (getattr(payload, "model_profile_id", None)
                           if "model_profile_id" in payload.model_fields_set
                           else conversation.get("model_profile_id"))
-            runtime = require_configured_runtime(profile_id, user_content=effective_content if historical_selection is None else None)
+            runtime = require_configured_runtime(
+                profile_id,
+                user_content=effective_content if historical_selection is None else None,
+                has_image_input=bool(historical_selection is None and conversation_kernel == "tuantuan" and prepared_attachments and prepared_attachments[2]),
+            )
             if historical_selection is not None:
                 model_selection = internal_model_selection(historical_selection)
             else:
                 model_selection = internal_model_selection(getattr(runtime, "model_selection", None))
-                if is_bound_selection(model_selection) and model_selection.get("selection_reason") not in {"image_intent", "text_intent"}:
+                if is_bound_selection(model_selection) and model_selection.get("selection_reason") not in {"image_intent", "text_intent", "vision_default", "vision_input"}:
                     model_selection["selection_reason"] = (
                         "explicit_profile" if "model_profile_id" in payload.model_fields_set and profile_id is not None
                         else "conversation_profile" if profile_id is not None else model_selection.get("selection_reason", "default_profile")
@@ -375,7 +384,7 @@ async def stream_chat_response(
         agent_input = str(persisted_run.get("user_content") or payload.content)
     else:
         task_id = ensure_active_task(conversation_id)
-        attachment_context, attachment_summaries, image_urls = _attachment_context(
+        attachment_context, attachment_summaries, image_urls = prepared_attachments or _attachment_context(
             conversation_id, payload.attachment_ids, payload.vision_attachment_ids
         )
         user_payload: dict[str, Any] = {}

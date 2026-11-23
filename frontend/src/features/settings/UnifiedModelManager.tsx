@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, ChevronDown, Image, MessageCircle, Plus, RefreshCw, Search, Server, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, ChevronDown, Eye, Image, MessageCircle, Plus, RefreshCw, Search, Server, SlidersHorizontal, Video } from "lucide-react";
 import type { createApiClient } from "../../api/client";
 import type { ModelCatalog, ModelCatalogEntry, ModelConnection, ModelProfile } from "../../types";
 import { useComposerModelDiscovery } from "../chat/useComposerModelDiscovery";
@@ -19,11 +19,13 @@ export type UnifiedModelManagerProps = {
   advanced?: ReactNode;
 };
 type Row = { connection: ModelConnection; name: string; profile?: ModelProfile; entry?: ModelCatalogEntry; types: ModelCategory[] };
-type DefaultPurpose = "chat" | "image";
 const defaultPurposes = {
-  chat: { title: "文本对话与工作", actionName: "文本对话模型" },
-  image: { title: "图片生成", actionName: "图片生成模型" }
+  chat: { title: "主模型", actionName: "文本对话模型", description: "用于日常对话和工作任务", icon: MessageCircle, badge: "文本默认", empty: "没有可用的文本模型" },
+  vision: { title: "图像理解", actionName: "图像理解模型", description: "用于聊天中的「模型看图」", icon: Eye, badge: "图像理解默认", empty: "没有可用的图像理解模型" },
+  image: { title: "图片生成", actionName: "图片生成模型", description: "用于生成和编辑图片", icon: Image, badge: "图片默认", empty: "没有可用的图片模型" }
 } as const;
+type DefaultPurpose = keyof typeof defaultPurposes;
+const purposeOrder = ["chat", "vision", "image"] as const;
 const pickerPageSize = 8;
 const narrowModelSettings = "(max-width: 600px)";
 const categories = [{ id: "all", label: "全部" }, { id: "chat", label: "文本" }, { id: "image", label: "图片" }, { id: "video", label: "视频" }, { id: "unknown", label: "待确认" }];
@@ -96,7 +98,7 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
     const saved = new Map<string, ModelProfile>();
     for (const profile of catalog.profiles.filter(item => item.connection_id === connection.id)) {
       const previous = saved.get(profile.model_name);
-      if (!previous || (!previous.enabled && profile.enabled) || profile.id === catalog.purpose_defaults?.chat || profile.id === catalog.purpose_defaults?.image) saved.set(profile.model_name, profile);
+      if (!previous || (!previous.enabled && profile.enabled) || purposeOrder.some(purpose => profile.id === catalog.purpose_defaults?.[purpose])) saved.set(profile.model_name, profile);
     }
     const source = discovery.catalogs.find(item => item.connection_id === connection.id);
     for (const name of new Set([...saved.keys(), ...(source?.models ?? [])])) {
@@ -112,8 +114,8 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
   const showsModelSetup = tab === "overview" || tab === "models";
   const hasFilters = Boolean(query.trim() || category !== "all" || availability !== "all");
   function resetFilters() { setQuery(""); setCategory("all"); setAvailability("all"); }
-  function changeTab(next: typeof tab) {
-    if (next === tab) return;
+  function changeTab(next: typeof tab, after?: () => void) {
+    if (next === tab && !after) return;
     protectInspector(() => {
       setInspector(null);
       setInspectorDirty(false);
@@ -124,7 +126,11 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
       setPickerError("");
       setManagedModelKey(null);
       setTab(next);
+      after?.();
     });
+  }
+  function addService() {
+    changeTab("services", () => setEditor({ owner }));
   }
   const selectedService = catalog.connections.find(item => item.id === serviceId);
   const inspectedProfile = inspector?.owner === owner ? catalog.profiles.find(item => item.id === inspector.id) ?? (inspector.preview ? { id: inspector.id, connection_id: inspector.preview.connection.id, model_name: inspector.preview.name, enabled: false, revision: 0, output_types: inspector.preview.types } : undefined) : undefined;
@@ -142,7 +148,7 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
   const ready = defaults !== undefined && defaultVersion !== undefined;
   const removing = removal?.owner === owner ? removal.connection : undefined;
   const removalProfiles = catalog.profiles.filter(item => item.connection_id === removing?.id);
-  const removalProtected = removalProfiles.some(item => [catalog.default_profile_id, defaults?.chat, defaults?.image].includes(item.id));
+  const removalProtected = removalProfiles.some(item => item.id === catalog.default_profile_id || purposeOrder.some(purpose => item.id === defaults?.[purpose]));
   const removalOutdated = Boolean(removing && catalog.connections.find(item => item.id === removing.id)?.revision !== removing.revision);
 
   async function run(action: () => Promise<void>) {
@@ -232,12 +238,17 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
   return <div className="unified-model-manager model-connections-card">
     <header className="unified-heading">
       <h2>模型管理</h2>
-      {(hasServices || loading || !showsModelSetup) && <button type="button" className="unified-primary" disabled={locked || loading || editor?.owner === owner} onClick={() => { setPickerPurpose(null); setEditor({ owner }); }}><Plus size={16} aria-hidden="true" />添加服务</button>}
+      {(hasServices || loading || !showsModelSetup) && <button type="button" className="unified-primary" disabled={locked || loading || editor?.owner === owner} onClick={addService}><Plus size={16} aria-hidden="true" />添加服务</button>}
     </header>
     <nav className="unified-tabs" aria-label="模型管理内容">
-      <button type="button" aria-pressed={tab === "overview"} onClick={() => changeTab("overview")}>概览</button>
-      <button type="button" aria-pressed={tab === "models"} onClick={() => changeTab("models")}>模型列表</button>
-      <button type="button" aria-pressed={tab === "services"} onClick={() => changeTab("services")}>服务管理</button>
+      <button type="button" aria-pressed={tab === "services"} disabled={Boolean(editor || removing)} onClick={() => changeTab("services")}>基础配置</button>
+      <button type="button" aria-pressed={tab !== "services"} disabled={Boolean(editor || removing)} onClick={() => { if (tab === "services") changeTab("overview"); }}>模型配置</button>
+    </nav>
+    <div className="unified-subnav">
+      {tab !== "services" && <nav aria-label="模型配置内容">
+        <button type="button" aria-pressed={tab === "overview"} onClick={() => changeTab("overview")}>场景默认模型</button>
+        <button type="button" aria-pressed={tab === "models"} onClick={() => changeTab("models")}>模型列表</button>
+      </nav>}
       <button type="button" className="unified-advanced-toggle" aria-expanded={advancedMode} onClick={() => {
         if (!advancedMode) { setAdvancedMode(true); return; }
         protectInspector(() => {
@@ -246,11 +257,11 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
           setAdvancedMode(false);
         });
       }}><SlidersHorizontal size={14} aria-hidden="true" />{advancedMode ? "收起高级" : "高级设置"}</button>
-    </nav>
+    </div>
     {error ? <div role="alert" className="unified-alert">{error}<button type="button" disabled={locked || loading} onClick={() => void onReload()}>重新读取</button></div> : null}
     {notice ? <p className="unified-notice" role="status">{notice}</p> : null}
     {pendingInspectorAction ? <div className="unified-discard" role="alert"><p>参数有未保存的修改。可继续编辑并保存，或放弃后继续。</p><button type="button" onClick={() => { setPendingInspectorAction(null); document.querySelector<HTMLElement>(".unified-inspector")?.focus(); }}>继续编辑</button><button type="button" disabled={locked} onClick={() => { if (locked) return; const action = pendingInspectorAction; setPendingInspectorAction(null); setInspectorDirty(false); action(); }}>放弃参数修改并继续</button></div> : null}
-    {removing ? <section className="unified-removal" aria-label="删除服务"><h3>删除“{removing.name || "模型服务"}”？</h3><p>{removing.model_base_url}</p><p>此服务及 {removalProfiles.length} 个已保存模型将从列表中移除，历史对话记录保留。需要再次使用时可重新添加服务。</p>{removalProtected ? <p role="alert">此服务包含当前默认模型，请先切换文本或图片默认模型，再删除服务。</p> : null}{removalOutdated ? <p role="alert">服务配置已更新，请取消后重新选择要删除的服务。</p> : null}<div className="unified-actions"><button type="button" className="unified-danger" disabled={locked || loading || removalProtected || removalOutdated} onClick={() => protectInspector(() => { setInspector(null); setInspectorDirty(false); void run(async () => {
+    {removing ? <section className="unified-removal" aria-label="删除服务"><h3>删除“{removing.name || "模型服务"}”？</h3><p>{removing.model_base_url}</p><p>此服务及 {removalProfiles.length} 个已保存模型将从列表中移除，历史对话记录保留。需要再次使用时可重新添加服务。</p>{removalProtected ? <p role="alert">此服务包含当前默认模型，请先切换或清除相关场景的默认模型，再删除服务。</p> : null}{removalOutdated ? <p role="alert">服务配置已更新，请取消后重新选择要删除的服务。</p> : null}<div className="unified-actions"><button type="button" className="unified-danger" disabled={locked || loading || removalProtected || removalOutdated} onClick={() => protectInspector(() => { setInspector(null); setInspectorDirty(false); void run(async () => {
       if (await onMutate(`/agent/model-connections/${encodeURIComponent(removing.id)}?remove=true&expected_revision=${removing.revision}`, "DELETE") && active.current === owner) {
         setRemoval(null); setArchiveId(null); setServiceId(value => value === removing.id ? null : value);
         setManual(false); setInspector(null); setNotice("服务已删除，历史对话记录已保留。");
@@ -274,39 +285,43 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
       <Server size={28} aria-hidden="true" />
       <h3 id="unified-start-title">连接模型服务，开始使用</h3>
       <p>准备好服务商提供的 API 地址和密钥，团团会自动获取可选模型。</p>
-      <button type="button" className="unified-primary" disabled={locked} onClick={() => setEditor({ owner })}>连接第一个服务<ArrowRight size={16} aria-hidden="true" /></button>
+      <button type="button" className="unified-primary" disabled={locked} onClick={addService}>连接第一个服务<ArrowRight size={16} aria-hidden="true" /></button>
     </section> : null}
     {tab === "overview" && hasServices ? <section className="unified-defaults" aria-label="当前默认模型">
-      {(["chat", "image"] as const).map(purpose => {
+      {purposeOrder.map(purpose => {
         const defaultId = defaults?.[purpose];
         const profile = catalog.profiles.find(item => item.id === defaultId);
         const connection = catalog.connections.find(item => item.id === profile?.connection_id);
-        const usable = profile?.enabled && connection && connectionAvailable(connection);
+        const usable = profile?.enabled && connection && connectionAvailable(connection) && (profile.supported_purposes?.includes(purpose) ?? true);
         const purposeInfo = defaultPurposes[purpose];
+        const PurposeIcon = purposeInfo.icon;
+        const purposeReady = ready && (purpose !== "vision" || defaults?.vision !== undefined);
         const expanded = pickerPurpose === purpose;
         return <div className="unified-default-item" key={purpose}>
           <div className="unified-default-summary">
-            {purpose === "chat" ? <MessageCircle size={18} aria-hidden="true" /> : <Image size={18} aria-hidden="true" />}
+            <PurposeIcon size={18} aria-hidden="true" />
             <div>
               <h3>{purposeInfo.title}</h3>
-              <strong>{!ready ? "正在读取默认配置…" : profile ? profile.discovery?.display_name || profile.model_name : defaultId ? "原模型已不可用" : "自动选择"}</strong>
-              {ready && <small>{profile ? `${connection?.name || "模型服务"}${usable ? " · 后续新任务使用" : " · 当前不可用，请重新选择"}` : defaultId ? "请选择其他模型或设为自动选择" : "从已启用的可用模型中选择"}</small>}
+              <strong>{!purposeReady ? loading ? "正在读取默认配置…" : "当前服务端暂未提供配置" : profile ? profile.discovery?.display_name || profile.model_name : defaultId ? "原模型已不可用" : "自动选择"}</strong>
+              <small>{purposeInfo.description}</small>
+              {purposeReady && (profile || defaultId) && <small>{profile ? `${connection?.name || "模型服务"}${usable ? " · 后续新任务使用" : " · 当前不可用，请重新选择"}` : "请选择其他模型或设为自动选择"}</small>}
             </div>
-            <button type="button" aria-label={`${defaultId ? "更换" : "选择"}${purposeInfo.actionName}`} aria-expanded={expanded} aria-controls={expanded ? `${pickerId}-${purpose}` : undefined} disabled={locked || loading || !ready || editor?.owner === owner} onClick={event => {
+            {purposeReady && <button type="button" aria-label={`${defaultId ? "更换" : "选择"}${purposeInfo.actionName}`} aria-expanded={expanded} aria-controls={expanded ? `${pickerId}-${purpose}` : undefined} disabled={locked || loading || editor?.owner === owner} onClick={event => {
               if (expanded) { closePicker(); return; }
               pickerTrigger.current = event.currentTarget;
               focusPickerSearch.current = event.detail === 0 || !window.matchMedia?.(narrowModelSettings).matches;
               restorePickerFocus.current = false;
               setPickerError("");
               setPickerPurpose(purpose);
-            }}>{defaultId ? "更换" : "选择"}<ArrowRight size={13} aria-hidden="true" /></button>
+            }}>{defaultId ? "更换" : "选择"}<ArrowRight size={13} aria-hidden="true" /></button>}
           </div>
-          {expanded && <DefaultModelPicker id={`${pickerId}-${purpose}`} purpose={purpose} currentId={defaults?.[purpose]} catalog={catalog} locked={locked || loading || !ready} error={pickerError} focusSearch={focusPickerSearch.current} onCancel={closePicker} onSave={row => useModel(row, purpose, true)} onConnect={() => {
-            setPickerPurpose(null);
-            setEditor({ owner });
-          }} onManage={() => { resetFilters(); setCategory(purpose); setServiceId(null); setAdvancedMode(true); changeTab("models"); }} />}
+          {expanded && <DefaultModelPicker id={`${pickerId}-${purpose}`} purpose={purpose} currentId={defaults?.[purpose]} catalog={catalog} locked={locked || loading || !purposeReady} error={pickerError} focusSearch={focusPickerSearch.current} onCancel={closePicker} onSave={row => useModel(row, purpose, true)} onConnect={addService} onManage={() => { resetFilters(); setCategory(purpose === "vision" ? "chat" : purpose); setServiceId(null); setAdvancedMode(true); changeTab("models"); }} />}
         </div>;
       })}
+      <div className="unified-default-item unified-default-summary">
+        <Video size={18} aria-hidden="true" />
+        <div><h3>视频生成</h3><strong>暂未接入</strong><small>接入视频生成服务后可设置默认模型。</small></div>
+      </div>
     </section> : null}
     {tab === "models" && hasServices && (
       <section className="unified-directory" aria-label="全部模型">
@@ -348,7 +363,7 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
         <div className="unified-service-copy">
           <h3>{connection.name || "模型服务"}</h3>
           <p>{connection.model_base_url}</p>
-          <small>{connection.enabled ? connection.api_key_configured ? "API Key 已配置" : (connection.detected_protocol || connection.model_protocol) === "ollama" ? "本地服务，无需 API Key" : "缺少 API Key" : "已停用"}</small>
+          <small>{connection.enabled ? connection.api_key_configured ? "API Key 已配置" : isOllamaConnection(connection) ? "本地服务，无需 API Key" : "缺少 API Key" : "已停用"}</small>
         </div>
         <div className="unified-actions">
           <button type="button" onClick={() => { resetFilters(); setServiceId(connection.id); changeTab("models"); }}>查看模型</button>
@@ -386,16 +401,22 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
         onToggle={() => toggle(managedModel)} />}
     </section>}
     {inspector?.preview ? <div className="unified-notice"><p>目录预览，不会创建或启用模型。启用后可确认能力和编辑参数。</p><button type="button" disabled={locked || !inspector.preview.connection.enabled || !inspector.preview.connection.api_key_configured && inspector.preview.connection.model_protocol !== "ollama"} onClick={activatePreview}>启用并编辑参数</button></div> : null}
-    {inspectedProfile ? <UnifiedModelInspector key={inspectedProfile.id} profile={inspectedProfile} connection={catalog.connections.find(item => item.id === inspectedProfile.connection_id)} fetchJson={fetchJson} busy={locked} error={error} onMutate={onMutate} openCapabilities={inspector?.capabilities} readOnly={Boolean(inspector?.preview) || !catalog.connections.find(item => item.id === inspectedProfile.connection_id)?.enabled} onDirtyChange={setInspectorDirty} onSavingChange={setInspectorSaving} onClose={closeInspector} /> : null}
-    {advancedMode && advanced ? <div className="unified-advanced-content">{advanced}</div> : null}
+    {inspectedProfile ? <UnifiedModelInspector key={inspectedProfile.id} profile={inspectedProfile} connection={catalog.connections.find(item => item.id === inspectedProfile.connection_id)} fetchJson={fetchJson} busy={locked} error={error} onMutate={onMutate} openCapabilities={inspector?.capabilities} readOnly={Boolean(inspector?.preview) || !catalog.connections.find(item => item.id === inspectedProfile.connection_id)?.enabled} onDirtyChange={setInspectorDirty} onSavingChange={setInspectorSaving} onClose={closeInspector} onVisionChanged={onReload} /> : null}
+    {advancedMode && tab !== "services" && advanced ? <div className="unified-advanced-content">{advanced}</div> : null}
   </div>;
 }
 
+function isOllamaConnection(connection: ModelConnection) {
+  const protocol = connection.detected_protocol || connection.model_protocol;
+  return protocol === "ollama" || (protocol === "auto" && /ollama|:11434/i.test(connection.model_base_url));
+}
+
 function connectionAvailable(connection: ModelConnection) {
-  return connection.enabled && (connection.api_key_configured || (connection.detected_protocol || connection.model_protocol) === "ollama");
+  return connection.enabled && (connection.api_key_configured || isOllamaConnection(connection));
 }
 
 function purposeAvailable(row: Row, purpose: DefaultPurpose) {
+  if (purpose === "vision") return row.profile?.supported_purposes?.includes(purpose) ?? false;
   return row.profile?.supported_purposes?.includes(purpose) ?? discoveredPurposeAvailable(row, purpose);
 }
 
@@ -472,7 +493,8 @@ function DefaultModelPicker({ id, purpose, currentId, catalog, locked, error, fo
     {results.length > limit && <button type="button" disabled={locked} onClick={() => setLimit(value => value + pickerPageSize)}>显示更多（共 {results.length} 个）</button>}
     {changed && selected && !results.slice(0, limit).includes(selected) && <p>已选 {selected.entry?.display_name || selected.name} · {selected.connection.name || selected.connection.model_base_url}</p>}
     {!candidates.length && <>
-      <p>没有可用的{purpose === "chat" ? "文本" : "图片"}模型。</p>
+      <p>{defaultPurposes[purpose].empty}。</p>
+      {purpose === "vision" && <p>请在模型列表中确认图片输入能力，并选择未设置文本上下文限制的档案。</p>}
       <div className="unified-actions"><button type="button" disabled={locked} onClick={onConnect}>连接模型服务</button><button type="button" disabled={locked} onClick={onManage}>前往模型列表</button></div>
     </>}
     {error && <p role="alert">{error}</p>}
@@ -498,7 +520,7 @@ function ManagedModelActions({ row, defaults, locked, ready, onUse, onInspect, o
   const configured = connectionAvailable(row.connection);
   const enabled = Boolean(row.profile?.enabled);
   const isCurrent = (purpose: DefaultPurpose) => Boolean(row.profile && defaults?.[purpose] === row.profile.id);
-  const purposes = (["chat", "image"] as const).filter(purpose => purposeAvailable(row, purpose));
+  const purposes = purposeOrder.filter(purpose => (purpose !== "vision" || defaults?.vision !== undefined) && purposeAvailable(row, purpose));
   const needsCapabilities = !row.types.length;
   const explanation = !row.connection.enabled ? "服务已停用，请编辑服务后启用。" : !configured ? "请先编辑服务，配置可用密钥。" : needsCapabilities ? "输出能力待确认，确认后才能选择默认用途。" : !purposes.length && !row.types.includes("video") ? "已识别输出类型，但当前接口尚未接入此用途；确认能力不会新增接口。" : "";
 
@@ -506,8 +528,7 @@ function ManagedModelActions({ row, defaults, locked, ready, onUse, onInspect, o
     <div className="unified-row-meta">
       {row.types.map(type => <span className="unified-type" key={type}>{({ chat: "文本", image: "图片", video: "视频" })[type]}</span>)}
       <span className="unified-type">{enabled ? "已启用" : "未启用"}</span>
-      {isCurrent("chat") && <span className="unified-type">文本默认</span>}
-      {isCurrent("image") && <span className="unified-type">图片默认</span>}
+      {purposes.filter(isCurrent).map(purpose => <span className="unified-type" key={purpose}>{defaultPurposes[purpose].badge}</span>)}
     </div>
     {explanation ? <small>{explanation}</small> : row.types.includes("video") ? <small>视频暂未接入</small> : null}
     <small>{row.profile?.output_types_source === "configured" ? "手动配置" : row.entry?.output_types_source === "provider" ? "服务声明" : row.types.length ? "自动识别" : "能力待确认"}</small>
@@ -516,7 +537,7 @@ function ManagedModelActions({ row, defaults, locked, ready, onUse, onInspect, o
       {configured && needsCapabilities && <button type="button" disabled={locked} onClick={event => onInspect(true, event.currentTarget)}>确认输出能力</button>}
       <button type="button" disabled={locked} onClick={event => onInspect(false, event.currentTarget)}>参数</button>
       <button type="button" role="switch" aria-checked={enabled} aria-label={`${row.connection.name || row.connection.model_base_url} ${row.name} 启用`} disabled={locked || !configured} onClick={onToggle}>{enabled ? "停用" : "启用"}</button>
-      {purposes.filter(purpose => !isCurrent(purpose)).map(purpose => <button key={purpose} type="button" disabled={locked || !configured || !ready} onClick={() => onUse(purpose)}>{purpose === "chat" ? "设为文本默认" : "设为图片默认"}</button>)}
+      {purposes.filter(purpose => !isCurrent(purpose)).map(purpose => <button key={purpose} type="button" disabled={locked || !configured || !ready} onClick={() => onUse(purpose)}>设为{defaultPurposes[purpose].badge}</button>)}
     </div>
   </div>;
 }

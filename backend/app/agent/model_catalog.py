@@ -171,7 +171,7 @@ def _ensure_catalog(db_path) -> None:
 
 
 def get_model_catalog(db_path: str | Path | None = None) -> dict[str, Any]:
-    from .model_purposes import purpose_defaults, model_output_types, supported_purposes
+    from .model_purposes import catalog_vision_statuses, profile_with_vision_status, purpose_defaults, model_output_types, supported_purposes
     from ..models.catalog_discovery import discovered_entry
     _ensure_catalog(db_path)
     with connect(db_path) as conn:
@@ -181,6 +181,7 @@ def get_model_catalog(db_path: str | Path | None = None) -> dict[str, Any]:
         policy = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
         execution_profile = (json.loads(policy[0]) if policy else {}).get("roles", {}).get("execute") or row["default_model_profile_id"]
         defaults, purpose_version = purpose_defaults(conn)
+        vision_records = catalog_vision_statuses(conn)
         connection_versions = {item["id"]: item["revision"] for item in connections}
         for profile in profiles:
             entry = discovered_entry(conn, profile["connection_id"], connection_versions[profile["connection_id"]], profile["model_name"])
@@ -198,7 +199,8 @@ def get_model_catalog(db_path: str | Path | None = None) -> dict[str, Any]:
     for profile in profiles:
         source = sources[profile["connection_id"]]
         types, origin = model_output_types(profile, source)
-        profile.update(output_types=types, output_types_source=origin, supported_purposes=supported_purposes(profile, source))
+        purpose_profile = profile_with_vision_status(profile, source, vision_records.get(profile["id"], {}))
+        profile.update(output_types=types, output_types_source=origin, supported_purposes=supported_purposes(purpose_profile, source))
     return {"connections": [_public_connection(item, db_path) for item in connections], "profiles": profiles, "default_profile_id": row["default_model_profile_id"], "effective_execution_profile_id": execution_profile, "config_revision": row["config_revision"], "purpose_defaults": defaults, "purpose_version": purpose_version, "service_connection_id": service["id"] if service else None}
 
 
@@ -429,11 +431,13 @@ def _updated_connection(conn, connection_id, values, db_path, candidates, model_
         from .model_purposes import protect_purpose_defaults
         protect_purpose_defaults(conn, connection_id=connection_id)
     if updated["protocol"] != current["protocol"]:
-        from .model_purposes import purpose_defaults, supported_purposes
+        from .model_purposes import catalog_vision_statuses, profile_with_vision_status, purpose_defaults, supported_purposes
         defaults, _ = purpose_defaults(conn)
         for kind, profile_id in defaults.items():
             if profile_id:
                 profile = _profile(conn, profile_id)
+                if kind == "vision":
+                    profile = profile_with_vision_status(profile, updated, catalog_vision_statuses(conn, profile_id).get(profile_id, {}), load_model_metadata=True)
                 if profile["connection_id"] == connection_id and kind not in supported_purposes(profile, updated):
                     raise ValueError("此连接包含默认用途模型，请先更换默认模型再修改协议")
     _write_connection(conn, updated)
@@ -544,12 +548,14 @@ def update_model_profile(profile_id: str, values: dict[str, Any], db_path: str |
         record = {**current, **_validated_profile(changes, current), "revision": current["revision"] + 1}
         if not record["enabled"] and conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0] == profile_id:
             raise ValueError("请先选择其他默认模型，再停用当前默认模型")
-        from .model_purposes import protect_purpose_defaults, purpose_defaults, supported_purposes
+        from .model_purposes import catalog_vision_statuses, profile_with_vision_status, protect_purpose_defaults, purpose_defaults, supported_purposes
         if not record["enabled"]:
             protect_purpose_defaults(conn, profile_id=profile_id)
         defaults, _ = purpose_defaults(conn)
+        source = _connection(conn, record["connection_id"])
+        purpose_record = profile_with_vision_status(record, source, catalog_vision_statuses(conn, profile_id).get(profile_id, {}), load_model_metadata=True) if defaults["vision"] == profile_id else record
         for kind, selected in defaults.items():
-            if selected == profile_id and kind not in supported_purposes(record, _connection(conn, record["connection_id"])):
+            if selected == profile_id and kind not in supported_purposes(purpose_record, source):
                 raise ValueError("此模型正用于默认用途，请先更换默认模型再修改能力")
         _write_profile(conn, record)
         return _profile(conn, profile_id)
@@ -572,7 +578,8 @@ def set_default_model_profile(profile_id: str, values: dict[str, Any] | None = N
         defaults, _ = purpose_defaults(conn)
         kinds = supported_purposes(profile, connection)
         for kind in kinds:
-            defaults[kind] = profile_id
+            if kind != "vision":
+                defaults[kind] = profile_id
         # Keep legacy clients in sync with the same per-purpose rules.
         payload = json.loads(conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()[0])
         payload["purpose_defaults"] = defaults

@@ -8,6 +8,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..domain import ModelRequest
+from ..model_protocol import protocol_requires_api_key
 from ..models import ModelProviderError
 from .model_binding import internal_model_selection, is_bound_selection, selection_identity
 from . import settings
@@ -80,6 +81,10 @@ def bind_model_stages(
             raise ValueError("运行的执行模型与阶段绑定不匹配")
         for stage, value in stages.items():
             value["selection_reason"] = stored[stage].get("selection_reason", "restored_stage")
+            if stored[stage].get("vision_status") == "supported":
+                value["vision_status"] = "supported"
+        if stages["execute"].get("vision_status") == "supported":
+            result["vision_status"] = "supported"
         result.update(policy_version=selection.get("policy_version", 1), strict_capabilities=bool(selection.get("strict_capabilities", False)))
     else:
         policy = policy or {"version": 1, "roles": {}, "strict_capabilities": False}
@@ -174,6 +179,27 @@ def bind_text_model(connection: dict[str, Any], *, catalog: dict[str, Any], reso
     result["stage_selections"] = {stage: internal_model_selection(value) for stage, value in result["stage_connections"].items()}
     return result
 
+
+def bind_vision_model(connection: dict[str, Any], *, catalog: dict[str, Any], resolve: Callable, profile_id: str | None = None) -> dict[str, Any]:
+    from ..models.selection import select_model_for_purpose
+
+    default_id = catalog.get("purpose_defaults", {}).get("vision")
+    selected = select_model_for_purpose(catalog, "vision", profile_id) if profile_id else None
+    if not selected or not selected["eligible"]:
+        selected = select_model_for_purpose(catalog, "vision", default_id, preferred_profile_id=connection.get("profile_id"))
+    if not selected["eligible"]:
+        if default_id:
+            raise ValueError(f"图像理解默认模型当前不可用，请在模型配置中更换或设为自动选择。{selected['error']}")
+        # Preserve existing unverified-model behavior when no default is set.
+        return connection
+    chosen = connection if selected["profile_id"] == connection.get("profile_id") else resolve(selected["profile_id"])
+    protocol = chosen.get("resolved_model_protocol", "openai")
+    if protocol == "images" or (protocol_requires_api_key(protocol) and not chosen.get("api_key")):
+        raise ValueError("图像理解模型配置已变化，请检查服务连接")
+    reason = "vision_default" if selected["profile_id"] == default_id and profile_id != default_id else "vision_input"
+    return _replace_executor(connection, {**chosen, "vision_status": "supported"}, reason)
+
+
 class ModelRouter:
     def __init__(self, connections: dict[str, dict[str, Any]], providers: dict[str, Any], *, strict_capabilities: bool = False) -> None:
         self._connections = deepcopy(connections)
@@ -192,6 +218,8 @@ class ModelRouter:
         if request.image_generation:
             required.append("image_generation")
         capabilities = connection.get("capabilities", {})
+        if connection.get("vision_status"):
+            capabilities = {**capabilities, "vision": connection["vision_status"]}
         if request.image_generation and capabilities.get("image_generation") == "unsupported":
             raise ModelProviderError("image_generation_unsupported", "当前连接暂不支持生成图片。你可以继续聊天，或接入支持生图的模型后再试。")
         unknown = [capability for capability in required if capabilities.get(capability, "unknown") == "unknown"]

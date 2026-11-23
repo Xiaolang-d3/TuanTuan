@@ -463,9 +463,11 @@ class ChatStreamingApiTest(unittest.TestCase):
                 ))
 
         with patch.object(attachments_module, "get_settings", return_value=SimpleNamespace(attachment_vision_enabled=True, attachment_storage="local")):
-            events = self.with_runtime(Runtime(), lambda: self.run_ag_ui(cid, "看看这张图", "local-vision", forwarded={
-                "attachmentIds": [attachment_id], "visionAttachmentIds": [attachment_id], "webSearch": False,
-            }))
+            with patch.object(main_module, "get_agent_runtime", return_value=Runtime()) as get_runtime:
+                events = self.run_ag_ui(cid, "看看这张图", "local-vision", forwarded={
+                    "attachmentIds": [attachment_id], "visionAttachmentIds": [attachment_id], "webSearch": False,
+                })
+                get_runtime.assert_called_once_with(None, user_content="看看这张图", has_image_input=True)
         self.assertIn("RUN_FINISHED", [event["type"] for event in events])
         self.assertEqual(captured, [f"data:image/png;base64,{base64.b64encode(content).decode('ascii')}"])
 
