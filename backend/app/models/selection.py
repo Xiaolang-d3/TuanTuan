@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from ..model_protocol import is_image_generation_model, model_protocol_for_profile, protocol_requires_api_key, resolve_model_protocol
+from ..model_protocol import is_image_generation_model, model_protocol_for_profile, protocol_requires_api_key, resolve_model_protocol, supports_image_edit
 
 
 def model_output_types(profile, connection):
@@ -63,8 +63,8 @@ def purpose_exclusion(profile, connection, purpose, *, strict_capabilities=False
     base = connection.get("effective_base_url", connection.get("model_base_url", ""))
     protocol = model_protocol_for_profile(profile["model_name"], connection.get("protocol", connection.get("model_protocol", "auto")), profile.get("capabilities"), base)
     resolved = resolve_model_protocol(profile["model_name"], protocol, base)
-    if action == "image_edit" and resolved != "images":
-        return "当前模型接口尚未接入图片编辑动作"
+    if action == "image_edit" and not supports_image_edit(profile["model_name"], resolved, base):
+        return "当前模型或接口不支持图片编辑"
     if strict_capabilities and status != "supported":
         return "严格能力模式需要先确认模型用途能力"
     if protocol_requires_api_key(resolved) and not connection.get("api_key_configured"):

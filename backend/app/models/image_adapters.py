@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 from ..domain import ModelResponse
-from ..model_protocol import is_image_generation_model, resolve_model_protocol
+from ..model_protocol import is_image_generation_model, resolve_model_protocol, supports_image_edit
 from .openai_images import OpenAIImagesProvider
 from .openai_responses import OpenAIResponsesProvider
 
@@ -75,7 +75,8 @@ def image_adapter(model: str, protocol: str, base_url: str) -> ImageAdapter | No
             sizes = _GPT_SIZES
         elif name in {"dall-e-2", "dall-e-3"}:
             sizes = _SQUARE_SIZES
-        return ImageAdapter(OpenAIImagesProvider, sizes, sizes)
+        edit_sizes = sizes if supports_image_edit(model, "images", base_url) else ()
+        return ImageAdapter(OpenAIImagesProvider, sizes, edit_sizes)
     if is_image_generation_model(model, protocol, base_url):
         return ImageAdapter(OpenAIResponsesProvider, _AUTO)
     return None

@@ -188,6 +188,41 @@ def test_studio_cross_service_edit_requires_current_confirmation(clients, monkey
     assert task['service_name'] == preview['selection']['service_name'] and task['selection_reason'] == '本次指定'
 
 
+def test_generation_only_model_is_not_eligible_for_studio_edit(clients, monkeypatch):
+    from app.agent.model_catalog import create_model_connection, get_model_catalog
+
+    owner, _ = clients
+    with use_workspace(1):
+        source, _ = _image('generation-only', create_conversation('图片创作')['id'])
+        create_model_connection({'name': '出图服务', 'api_key': 'fixture', 'model_name': 'dall-e-3',
+                                 'model_protocol': 'images', 'model_base_url': 'https://api.openai.com/v1'})
+        profile_id = next(p['id'] for p in get_model_catalog()['profiles'] if p['model_name'] == 'dall-e-3')
+
+    edit = AsyncMock()
+    monkeypatch.setattr('app.models.openai_images.OpenAIImagesProvider.edit_image', edit)
+    options = owner.get('/image-studio/options').json()
+    model = next(m for m in options['models'] if m['id'] == profile_id)
+    assert model['capabilities'] == {'generate': {'sizes': ['auto', '1024x1024']}, 'edit': None}
+    assert options['can_edit'] is False
+
+    preview = '/agent/model-selection/preview'
+    generate = owner.post(preview, json={'operation': 'image.generate', 'profile_id': profile_id}).json()
+    assert generate['eligible'] is True and generate['selection']['profile_id'] == profile_id
+    edit_preview = {'operation': 'image.edit', 'asset_id': source['id']}
+    for query in (edit_preview, {**edit_preview, 'profile_id': profile_id}):
+        result = owner.post(preview, json=query).json()
+        assert result['eligible'] is False and result['selection'] is None
+        candidate = next(c for c in result['candidates'] if c['profile_id'] == profile_id)
+        assert candidate['eligible'] is False and '不支持图片编辑' in candidate['reason_code']
+
+    response = owner.post(f"/chat-assets/{source['id']}/edits", json={
+        'operation_id': str(uuid4()), 'mode': 'edit', 'prompt': '改为暖色', 'profile_id': profile_id,
+    })
+    assert response.status_code == 400, response.text
+    assert '不支持图片编辑' in response.json()['detail']
+    edit.assert_not_awaited()
+
+
 def test_studio_edit_preserves_supported_original_size(clients, monkeypatch):
     owner, _ = clients
     with use_workspace(1):
