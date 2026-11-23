@@ -44,6 +44,13 @@
 .studio-thumb { position:absolute; inset:0; display:grid; place-items:center; }
 .studio-card-cover img { width:100%; height:100%; object-fit:cover; }
 .studio-placeholder { display:flex; flex-direction:column; align-items:center; gap:6px; }
+.studio-grid.studio-history-grid { align-items:start; gap:10px; }
+@media (max-width:700px) { .studio-grid.studio-history-grid { gap:6px; } }
+.studio .studio-history-grid .studio-card-cover { display:block; aspect-ratio:auto; }
+.studio-history-grid .studio-card-cover:focus-visible { outline-offset:-2px; }
+.studio-history-grid .studio-thumb { position:static; display:block; }
+.studio-history-grid .studio-card-cover img { display:block; height:auto; object-fit:contain; }
+.studio-history-grid .studio-placeholder { box-sizing:border-box; min-height:96px; justify-content:center; padding:10px; }
 .studio-state { display:inline-block; padding:3px 8px; border-radius:8px; color:var(--color-text-secondary); background:var(--color-surface-subtle); font-size:11px; font-weight:650; }
 .studio-card-cover .studio-state { position:absolute; top:8px; left:8px; border:1px solid var(--color-border); }
 .studio-state.uncertain,.studio-state.failed,.studio-error,.studio [role=alert],.studio-dialog [role=alert] { color:var(--color-danger); }

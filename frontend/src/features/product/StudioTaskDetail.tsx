@@ -14,11 +14,11 @@ export type StudioEditBinding = {
   confirmed: boolean;
 };
 
-type Props={api:StudioApi;task:StudioTask;editInitially:boolean;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
+type Props={api:StudioApi;task:StudioTask;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
   issue:string;onEdit:(task:StudioTask,asset:ChatAttachment,prompt:string,binding:StudioEditBinding,onConflict:(message:string)=>void)=>Promise<boolean>;onClose:()=>void;
   onArchive:(id:string)=>Promise<void>;onReuse:(t:StudioTask)=>void;onWorks:()=>void;onConversation:(id:number)=>void;onQuery:()=>void};
-export function StudioTaskDetail({api,task,issue,editInitially,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose}:Props){
-  const [index,setIndex]=useState(0),[editing,setEditing]=useState(editInitially),[instruction,setInstruction]=useState("");
+export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose}:Props){
+  const [index,setIndex]=useState(0),[editing,setEditing]=useState(false),[instruction,setInstruction]=useState("");
   const [saving,setSaving]=useState(false),[error,setError]=useState(""),[compare,setCompare]=useState(false);
   const asset=task.assets[index]||task.assets[0];const image=useStudioBlob(asset?.id,api.assetFile);
   const source=useStudioBlob(compare?task.source_asset_id||undefined:undefined,api.assetFile);
@@ -66,8 +66,18 @@ export function StudioTaskDetail({api,task,issue,editInitially,canEdit,busy,arch
        <dt>请求画幅</dt><dd>{task.size?sizeText(task.size):"未记录"}</dd>
       {asset&&<><dt>实际尺寸</dt><dd>{asset.width&&asset.height?`${asset.width} × ${asset.height}`:"未记录"}</dd></>}</dl>
       {task.status==="uncertain"&&<p role="status">暂未确认生成结果，请先查询。不会自动重新提交。</p>}{task.error&&<p role="alert">{task.error}</p>}
-      <div className="studio-actions">{asset&&!compare&&<><button className="studio-primary" disabled={!canEdit} onClick={()=>setEditing(true)}><Pencil size={15}/>编辑图片</button>{!canEdit&&<span className="studio-muted">请在模型设置中配置支持图片编辑的模型。</span>}<button disabled={!image.file} onClick={()=>{if(image.file)downloadBlob(image.file.blob,asset.original_filename);}}><Download size={15}/>下载原图</button>{archived.has(asset.id)?<button onClick={onWorks}>已归档 · 查看作品</button>:<button onClick={()=>void save()} disabled={saving}><Archive size={15}/>{saving?"正在归档…":"归档到我的作品"}</button>}</>}
-      {!compare&&<button onClick={()=>onReuse(task)}><RotateCcw size={15}/>复用设置</button>}{task.conversation_id!=null&&<button onClick={()=>onConversation(task.conversation_id!)}>查看所属对话</button>}
-      {task.status!=="done"&&<button onClick={onQuery}>查询任务状态</button>}</div>{error&&<p role="alert">{error}</p>}</div></div>}
+      <div className="studio-actions">
+        {!compare && <>
+          {asset && <button className="studio-primary" disabled={!canEdit} onClick={() => setEditing(true)}><Pencil size={15} />编辑图片</button>}
+          <button onClick={() => onReuse(task)}><RotateCcw size={15} />复用描述生图</button>
+          {asset && <>
+            {!canEdit && <span className="studio-muted">请在模型设置中配置支持图片编辑的模型。</span>}
+            <button disabled={!image.file} onClick={() => { if (image.file) downloadBlob(image.file.blob, asset.original_filename); }}><Download size={15} />下载原图</button>
+            {archived.has(asset.id) ? <button onClick={onWorks}>已归档 · 查看作品</button> : <button onClick={() => void save()} disabled={saving}><Archive size={15} />{saving ? "正在归档…" : "归档到我的作品"}</button>}
+          </>}
+        </>}
+        {task.conversation_id != null && <button onClick={() => onConversation(task.conversation_id!)}>查看所属对话</button>}
+        {task.status !== "done" && <button onClick={onQuery}>查询任务状态</button>}
+      </div>{error&&<p role="alert">{error}</p>}</div></div>}
     {issue&&<p className="studio-error" role="alert">{issue}</p>}</StudioDialog>;
 }
