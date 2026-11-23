@@ -36,28 +36,41 @@ def supported_purposes(profile, connection):
     result = []
     if "chat" in types and resolve_model_protocol(profile["model_name"], protocol, base) != "images":
         result.append("chat")
+        if (vision_status(profile) == "supported" and profile.get("context_limit") is None
+                and (profile.get("capabilities") or {}).get("streaming") != "unsupported"):
+            result.append("vision")
     if "image" in types and is_image_generation_model(profile["model_name"], protocol, base):
         result.append("image")
     return result
+
+
+def vision_status(profile):
+    return profile.get("vision_status") or (profile.get("capabilities") or {}).get("vision", "unknown")
 
 
 def purpose_exclusion(profile, connection, purpose, *, strict_capabilities=False, action=None):
     """Explain the first unmet requirement without resolving a credential."""
     if purpose == "video":
         return "视频生成接口暂未接入"
-    if purpose not in {"chat", "image"}:
+    if purpose not in {"chat", "image", "vision"}:
         return "暂不支持此模型用途"
     if not profile.get("enabled", True):
         return "模型已停用"
     if not connection or not connection.get("enabled", True):
         return "连接不存在或已停用"
     types, _ = model_output_types(profile, connection)
-    capability = {"chat": "chat", "image": "image_generation"}[purpose]
-    status = (profile.get("capabilities") or {}).get(capability, "unknown")
+    capability = {"chat": "chat", "image": "image_generation", "vision": "vision"}[purpose]
+    status = vision_status(profile) if purpose == "vision" else (profile.get("capabilities") or {}).get(capability, "unknown")
     if status == "unsupported":
         return "模型已明确不支持此用途"
-    if purpose not in types:
+    if ("chat" if purpose == "vision" else purpose) not in types:
         return "模型输出能力未知，请先确认此用途" if not types else "模型输出类型不支持此用途"
+    if purpose == "vision" and status != "supported":
+        return "请先确认模型支持图片输入"
+    if purpose == "vision" and profile.get("context_limit") is not None:
+        return "图像理解需要使用未设置文本上下文限制的模型档案"
+    if purpose == "vision" and (profile.get("capabilities") or {}).get("streaming") == "unsupported":
+        return "图像理解需要使用支持流式输出的模型"
     if purpose not in supported_purposes(profile, connection):
         return "当前连接接口尚未接入此模型的执行动作"
     base = connection.get("effective_base_url", connection.get("model_base_url", ""))
@@ -115,7 +128,11 @@ def select_model_for_purpose(catalog, purpose, profile_id=None, *, strict_capabi
                 ))
             chosen = candidates[0]
         if chosen is None:
-            error = "视频生成接口暂未接入" if purpose == "video" else "没有可用的生图模型，请在设置中确认模型能力、接口和凭证" if purpose == "image" else "没有可用的聊天模型，请在设置中确认模型能力、接口和凭证"
+            error = {
+                "video": "视频生成接口暂未接入",
+                "image": "没有可用的生图模型，请在设置中确认模型能力、接口和凭证",
+                "vision": "没有可用的图像理解模型，请在设置中确认图片输入能力和服务连接",
+            }.get(purpose, "没有可用的聊天模型，请在设置中确认模型能力、接口和凭证")
             result.update(reason=error, error=error)
             return result
     result.update(eligible=True, profile_id=chosen["id"], connection_id=chosen["connection_id"], model_name=chosen["model_name"], reason=reason)

@@ -2,12 +2,56 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 
+from ..model_protocol import model_protocol_for_profile, resolve_model_protocol
 from ..models.selection import model_output_types, supported_purposes, purpose_exclusion, select_model_for_purpose
 from . import settings
+from .model_capabilities import infer_vision
 
 
-def selection_catalog(db_path=None):
+PURPOSE_LABELS = {"chat": "聊天", "image": "图片生成", "vision": "图像理解"}
+
+
+def catalog_vision_statuses(conn, profile_id=None):
+    query = "SELECT profile_id, source, status FROM model_capability_records WHERE capability='vision'"
+    rows = conn.execute(query) if profile_id is None else conn.execute(f"{query} AND profile_id=?", (profile_id,))
+    records = {}
+    for row in rows:
+        records.setdefault(row["profile_id"], {})[row["source"]] = row["status"]
+    return records
+
+
+@lru_cache(maxsize=1024)
+def _litellm_vision_status(protocol, model_name):
+    from ..models.litellm_core import capability_defaults
+
+    try:
+        supported = capability_defaults(protocol, model_name)["capabilities"].get("vision")
+    except Exception:
+        return None
+    return None if supported is None else "supported" if supported else "unsupported"
+
+
+def profile_with_vision_status(profile, source, records, *, load_model_metadata=False):
+    from ..models.factory import model_backend
+    from ..models.litellm_core import litellm_loaded
+
+    configured = (profile.get("capabilities") or {}).get("vision")
+    if configured == "unknown":
+        configured = None
+    status = records.get("user") or configured or records.get("probe")
+    name = profile["model_name"]
+    # Reading the settings catalog must not trigger LiteLLM's cold import.
+    if not status and (load_model_metadata or litellm_loaded()) and model_backend() == "litellm" and "chat" in supported_purposes(profile, source):
+        base_url = source.get("effective_base_url", "")
+        protocol = model_protocol_for_profile(name, source.get("protocol", "auto"), profile.get("capabilities"), base_url)
+        protocol = source.get("detected_protocol") or resolve_model_protocol(name, protocol, base_url)
+        status = _litellm_vision_status(protocol, name)
+    return {**profile, "vision_status": status or infer_vision(name)["status"]}
+
+
+def selection_catalog(db_path=None, *, include_vision=False):
     """Read saved identities and credential references, never plaintext secrets.
 
     Avoid catalog initialization: migrating an old credential or authenticating
@@ -19,6 +63,10 @@ def selection_catalog(db_path=None):
     with settings.connect(db_path) as conn:
         sources = [_decode_connection(row) for row in conn.execute("SELECT * FROM model_connections WHERE deleted_at IS NULL ORDER BY created_at, id")]
         profiles = [_decode_profile(row) for row in conn.execute("SELECT p.* FROM model_profiles p JOIN model_connections c ON c.id=p.connection_id WHERE c.deleted_at IS NULL ORDER BY p.created_at, p.id")]
+        if include_vision:
+            vision_records = catalog_vision_statuses(conn)
+            source_map = {source["id"]: source for source in sources}
+            profiles = [profile_with_vision_status(profile, source_map[profile["connection_id"]], vision_records.get(profile["id"], {}), load_model_metadata=True) for profile in profiles]
         row = conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()
         policy = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
         payload = json.loads(policy[0]) if policy else {}
@@ -40,7 +88,8 @@ def selection_catalog(db_path=None):
     if legacy:
         source = next((item for item in sources if item["id"] == legacy["connection_id"]), {})
         for purpose in supported_purposes(legacy, source):
-            defaults.setdefault(purpose, default)
+            if purpose != "vision":
+                defaults.setdefault(purpose, default)
     return {"connections": sources, "profiles": profiles, "purpose_defaults": defaults, "default_profile_id": default,
             "effective_execution_profile_id": payload.get("roles", {}).get("execute") or default,
             "strict_capabilities": bool(payload.get("strict_capabilities", False))}
@@ -78,14 +127,15 @@ def purpose_defaults(conn):
         from .model_catalog import _profile, _connection
         profile = _profile(conn, legacy)
         for kind in supported_purposes(profile, _connection(conn, profile["connection_id"])):
-            defaults.setdefault(kind, legacy)
-    return {"chat": defaults.get("chat"), "image": defaults.get("image")}, row["version"]
+            if kind != "vision":
+                defaults.setdefault(kind, legacy)
+    return {kind: defaults.get(kind) for kind in PURPOSE_LABELS}, row["version"]
 
 
 def save_purpose_default(kind, values, db_path=None):
     from .model_catalog import _mutate, _profile, _connection
 
-    if kind not in {"chat", "image"}:
+    if kind not in PURPOSE_LABELS:
         raise ValueError("暂不支持此模型用途")
 
     def operation(conn, _candidates):
@@ -98,12 +148,12 @@ def save_purpose_default(kind, values, db_path=None):
             source = _connection(conn, profile["connection_id"])
             if not profile["enabled"] or not source["enabled"]:
                 raise ValueError("模型或连接已停用")
-            if kind not in supported_purposes(profile, source):
-                raise ValueError("模型能力或已接入的接口不支持此用途，请先确认模型能力")
-            if not source["secret_ref"] or source["secret_ref"] == "none":
-                if source["protocol"] != "ollama":
-                    raise ValueError("请先配置此连接的密钥")
-            if kind == "chat" or not conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0]:
+            if kind == "vision":
+                profile = profile_with_vision_status(profile, source, catalog_vision_statuses(conn, profile_id).get(profile_id, {}), load_model_metadata=True)
+            rejection = purpose_exclusion(profile, {**source, "api_key_configured": bool(source["secret_ref"] and source["secret_ref"] != "none")}, kind)
+            if rejection:
+                raise ValueError(rejection)
+            if kind == "chat" or (kind == "image" and not conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0]):
                 conn.execute("UPDATE agent_settings SET default_model_profile_id=? WHERE id=1", (profile_id,))
         defaults[kind] = profile_id
         row = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()
@@ -120,5 +170,4 @@ def protect_purpose_defaults(conn, *, profile_id=None, connection_id=None):
     defaults, _ = purpose_defaults(conn)
     for kind, selected in defaults.items():
         if selected and (selected == profile_id or (connection_id and _profile(conn, selected)["connection_id"] == connection_id)):
-            label = "聊天" if kind == "chat" else "图片"
-            raise ValueError(f"请先更换或清除{label}默认模型，再停用此模型或连接")
+            raise ValueError(f"请先更换或清除{PURPOSE_LABELS[kind]}默认模型，再停用此模型或连接")

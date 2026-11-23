@@ -140,14 +140,14 @@ export type ModelProfile = {
   reasoning_effort?: ReasoningEffort | null;
   output_types?: Array<"chat" | "image" | "video">;
   output_types_source?: "configured" | "inferred" | "unknown";
-  supported_purposes?: Array<"chat" | "image">;
+  supported_purposes?: Array<"chat" | "image" | "vision">;
 };
 export type ModelCatalog = {
   connections: ModelConnection[];
   profiles: ModelProfile[];
   default_profile_id: string | null;
   effective_execution_profile_id?: string | null;
-  purpose_defaults?: { chat: string | null; image: string | null };
+  purpose_defaults?: { chat: string | null; image: string | null; vision?: string | null };
   purpose_version?: number;
   service_connection_id?: string | null;
 };

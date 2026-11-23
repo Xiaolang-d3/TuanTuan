@@ -5,9 +5,12 @@
 .unified-model-manager button { min-height: 36px; padding: 6px 10px; font-size: 12px; }
 .unified-model-manager button.unified-primary { color: var(--color-brand-strong); border-color: color-mix(in srgb, var(--color-brand) 30%, var(--color-border)); background: color-mix(in srgb, var(--color-brand) 8%, var(--color-surface)); white-space: nowrap; }
 .unified-tabs { display: flex; align-items: center; gap: 22px; border-bottom: 1px solid var(--color-border); }
-.unified-tabs > button { padding: 10px 0 13px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; font-size: 13px; }
+.unified-tabs > button { padding: 10px 4px 13px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; font-size: 14px; font-weight: 600; }
 .unified-tabs > button[aria-pressed=true] { color: var(--color-brand-strong); border-bottom-color: var(--color-brand); }
-.unified-tabs > .unified-advanced-toggle { margin-left: auto; font-size: 12px; }
+.unified-subnav,.unified-subnav > nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.unified-subnav { margin-top: -8px; }
+.unified-subnav > .unified-advanced-toggle { margin-left: auto; }
+.unified-subnav button[aria-pressed=true] { background: var(--color-surface-subtle); color: var(--color-brand-strong); }
 .unified-model-manager .unified-danger { color: var(--color-danger); }
 .unified-removal { padding: 18px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); }
 .unified-removal h3 { margin: 0; font-size: 15px; }
@@ -138,9 +141,10 @@
   .unified-model-manager.model-connections-card button { min-height: 44px; font-size: 14px; }
   .unified-model-manager.model-connections-card .unified-key-input button { top: 0; min-width: 44px; }
   .unified-model-manager :is(input:not([type=radio]),select) { min-height: 44px; font-size: 16px; }
-  .unified-tabs { display: grid; grid-template-columns: auto auto auto 1fr; gap: 0 8px; }
-  .unified-model-manager .unified-tabs > button { padding: 6px 3px; font-size: 13px; white-space: nowrap; }
-  .unified-tabs > .unified-advanced-toggle { margin-left: 0; gap: 4px; justify-self: end; }
+  .unified-tabs { gap: 16px; }
+  .unified-model-manager .unified-tabs > button { padding: 6px 4px; white-space: nowrap; }
+  .unified-model-manager .unified-subnav button { padding-inline: 6px; font-size: 12px; }
+  .unified-subnav > .unified-advanced-toggle { gap: 4px; }
   .unified-connection-fields { grid-template-columns: 1fr; }
   .unified-connection-editor,.unified-inspector { padding: 16px; }
   .unified-tools .unified-search { flex-basis: 100%; }

@@ -594,7 +594,7 @@ describe("App model settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
     expect(within(screen.getByRole("combobox", { name: "按服务筛选" })).getByRole("option", { name: "历史图片连接" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "使用规则" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "概览" }));
+    fireEvent.click(screen.getByRole("button", { name: "场景默认模型" }));
     fireEvent.click(screen.getByRole("button", { name: "更换文本对话模型" }));
     const picker = screen.getByRole("region", { name: "选择文本对话模型" });
     expect(within(picker).queryByRole("radio", { name: /legacy-image/ })).not.toBeInTheDocument();

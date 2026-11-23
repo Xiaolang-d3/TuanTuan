@@ -21,7 +21,7 @@ test("manages services and cross-service model defaults through the real setting
   const catalog: ModelCatalog = {
     connections: [{ id: "primary", name: "文本服务", model_base_url: "https://text.example.test/v1", model_protocol: "openai", api_key_configured: true, enabled: true, revision: 1 }],
     profiles: [{ id: "primary-chat", connection_id: "primary", model_name: "gpt-4.1", enabled: true, revision: 1, output_types: ["chat"], supported_purposes: ["chat"], capabilities: { chat: "supported", vision: "supported" }, context_limit: 128000, reasoning_effort: "low" }],
-    default_profile_id: "primary-chat", purpose_defaults: { chat: null, image: null }, purpose_version: 1
+    default_profile_id: "primary-chat", purpose_defaults: { chat: null, image: null, vision: null }, purpose_version: 1
   };
   catalog.profiles.push({ id: "disabled-chat", connection_id: "primary", model_name: "deepseek-chat", enabled: false, revision: 1, output_types: ["chat"], supported_purposes: ["chat"] });
   const entries: ModelCatalogEntry[] = [
@@ -99,14 +99,14 @@ test("manages services and cross-service model defaults through the real setting
       const body = request.postDataJSON(), entry = entries.find(item => item.id === body.model_name)!;
       expect(body.expected_revision).toBe(1);
       if (!catalog.profiles.some(item => item.connection_id === ensure[1] && item.model_name === body.model_name)) {
-        const supported = entry.output_types.filter((type): type is "chat" | "image" => type !== "video");
+        const supported = entry.output_types.flatMap<"chat" | "image" | "vision">(type => type === "chat" ? ["chat", "vision"] : type === "image" ? ["image"] : []);
         catalog.profiles.push({ id: `gateway-${entry.output_types[0]}`, connection_id: ensure[1], model_name: entry.id, discovery: entry, enabled: true, revision: 1, output_types: entry.output_types, output_types_source: "inferred", supported_purposes: supported });
       }
       return send(catalog);
     }
-    const defaults = path.match(/^\/agent\/model-defaults\/(chat|image)$/);
+    const defaults = path.match(/^\/agent\/model-defaults\/(chat|image|vision)$/);
     if (defaults) {
-      const purpose = defaults[1] as "chat" | "image", body = request.postDataJSON();
+      const purpose = defaults[1] as "chat" | "image" | "vision", body = request.postDataJSON();
       expect(body.expected_version).toBe(catalog.purpose_version);
       if (body.profile_id !== null) expect(sourceOf(body.profile_id)?.supported_purposes).toContain(purpose);
       if (rejectNextDefault) {
@@ -153,6 +153,8 @@ test("manages services and cross-service model defaults through the real setting
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.reload();
     await expect(page.getByRole("region", { name: "当前默认模型" })).toContainText("自动选择");
+    await expect(page.getByRole("button", { name: "选择图像理解模型" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "视频生成" })).toBeVisible();
     await expect(modelList).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "搜索模型" })).toHaveCount(0);
     await page.screenshot({ path: resolve(output, "product-desktop-overview.png"), fullPage: true, animations: "disabled" });
@@ -201,7 +203,7 @@ test("manages services and cross-service model defaults through the real setting
     await expect(management.getByRole("group").getByText("文本默认", { exact: true })).toBeVisible();
     await expect(model("Studio Paint")).toBeVisible();
     await expect(model("Video Preview")).toBeVisible();
-    await page.getByRole("button", { name: "概览", exact: true }).click();
+    await page.getByRole("button", { name: "场景默认模型", exact: true }).click();
     const changeText = page.getByRole("button", { name: "更换文本对话模型" });
     await changeText.click();
     const picker = page.getByRole("region", { name: "选择文本对话模型" });
@@ -224,6 +226,17 @@ test("manages services and cross-service model defaults through the real setting
     await expect(picker).toHaveCount(0);
     await expect(changeText).toBeFocused();
     await expect(page.getByRole("region", { name: "当前默认模型" })).toContainText("文本服务 · 后续新任务使用");
+    await page.getByRole("button", { name: "选择图像理解模型" }).click();
+    const visionPicker = page.getByRole("region", { name: "选择图像理解模型" });
+    await visionPicker.getByRole("radio", { name: /GPT 4.1.*gateway.example.test/ }).check();
+    await visionPicker.getByRole("button", { name: "设为默认", exact: true }).click();
+    await expect(visionPicker).toHaveCount(0);
+    expect(catalog.purpose_defaults!.vision).toBe("gateway-chat");
+    expect(catalog.purpose_defaults!.chat).toBe("primary-chat");
+    await page.getByRole("button", { name: "更换图像理解模型" }).click();
+    await visionPicker.getByRole("radio", { name: /自动选择/ }).check();
+    await visionPicker.getByRole("button", { name: "设为自动选择" }).click();
+    await expect(visionPicker).toHaveCount(0);
     await page.getByRole("button", { name: "模型列表", exact: true }).click();
     await manageModel("Studio Paint · gateway.example.test · vendor/studio-paint-v2");
     await management.getByRole("button", { name: "设为图片默认", exact: true }).click();
@@ -236,13 +249,14 @@ test("manages services and cross-service model defaults through the real setting
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: resolve(output, "product-desktop-models.png"), fullPage: true, animations: "disabled" });
     await expect(page.getByRole("button", { name: "删除gateway.example.test", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "服务管理", exact: true }).click();
+    await page.getByRole("button", { name: "基础配置", exact: true }).click();
     await expect(page.getByRole("region", { name: "已连接服务" })).toContainText("API Key 已配置");
     await page.screenshot({ path: resolve(output, "product-desktop-services.png"), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "删除gateway.example.test", exact: true }).click();
     await expect(page.getByRole("region", { name: "删除服务", exact: true }).getByRole("button", { name: "确认删除" })).toBeDisabled();
     await page.screenshot({ path: resolve(output, "product-desktop-removal.png"), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "取消删除", exact: true }).click();
+    await page.getByRole("button", { name: "模型配置", exact: true }).click();
     await page.getByRole("button", { name: "模型列表", exact: true }).click();
     await page.getByRole("button", { name: "高级设置", exact: true }).click();
     await manageModel("gpt-4.1 · 文本服务");
@@ -268,7 +282,7 @@ test("manages services and cross-service model defaults through the real setting
     await page.screenshot({ path: resolve(output, "product-desktop-parameters.png"), fullPage: true, animations: "disabled" });
     await page.getByRole("button", { name: "收起参数" }).click();
     await expect(page.getByRole("button", { name: "使用规则", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "概览", exact: true }).click();
+    await page.getByRole("button", { name: "场景默认模型", exact: true }).click();
     await expect(page.getByRole("heading", { name: "模型额度", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "阶段模型分工", exact: true })).toBeVisible();
     await expect(page.getByLabel("新对话默认内核")).toBeVisible();
@@ -284,13 +298,13 @@ test("manages services and cross-service model defaults through the real setting
     await expect(modelList.getByRole("button")).toHaveCount(0);
     await expect(modelList.getByRole("group")).toHaveCount(0);
     await expect(management).toHaveCount(0);
-    await page.getByRole("button", { name: "服务管理", exact: true }).click();
+    await page.getByRole("button", { name: "基础配置", exact: true }).click();
     await page.getByRole("button", { name: "删除gateway.example.test", exact: true }).click();
     const removalPanel = page.getByRole("region", { name: "删除服务", exact: true });
     await expect(removalPanel.getByRole("button", { name: "确认删除" })).toBeDisabled();
     await expect(removalPanel).toContainText("先切换");
     await removalPanel.getByRole("button", { name: "取消删除" }).click();
-    await page.getByRole("button", { name: "概览", exact: true }).click();
+    await page.getByRole("button", { name: "模型配置", exact: true }).click();
     await page.getByRole("button", { name: "更换图片生成模型" }).click();
     const imagePicker = page.getByRole("region", { name: "选择图片生成模型" });
     await imagePicker.getByRole("radio", { name: /自动选择/ }).check();
@@ -298,7 +312,7 @@ test("manages services and cross-service model defaults through the real setting
     await expect(imagePicker).toHaveCount(0);
     expect(catalog.purpose_defaults!.image).toBeNull();
     await expect(page.getByRole("region", { name: "当前默认模型" })).toContainText("自动选择");
-    await page.getByRole("button", { name: "服务管理", exact: true }).click();
+    await page.getByRole("button", { name: "基础配置", exact: true }).click();
     await page.getByRole("button", { name: "删除gateway.example.test", exact: true }).click();
     await expect(removalPanel.getByRole("button", { name: "确认删除" })).toBeEnabled();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -336,7 +350,7 @@ test("manages services and cross-service model defaults through the real setting
     await matchingModel.tap();
     await expect(modelList.getByRole("group")).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.getByRole("button", { name: "概览", exact: true }).tap();
+    await page.getByRole("button", { name: "场景默认模型", exact: true }).tap();
     await page.getByRole("button", { name: "选择图片生成模型" }).tap();
     await expect(page.getByRole("region", { name: "选择图片生成模型" })).toContainText("没有可用的图片模型");
     await page.getByRole("button", { name: "连接模型服务", exact: true }).click();

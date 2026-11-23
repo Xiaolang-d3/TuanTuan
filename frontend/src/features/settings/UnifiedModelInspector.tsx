@@ -7,10 +7,10 @@ import { ModelProfileCapabilities } from "./ModelProfileCapabilities";
 import { UnifiedModelParameters } from "./UnifiedModelParameters";
 import type { UnifiedModelManagerProps } from "./UnifiedModelManager";
 
-export function UnifiedModelInspector({ profile, connection, fetchJson, busy, error, onMutate, onClose, openCapabilities = false, readOnly = false, onDirtyChange, onSavingChange }: {
+export function UnifiedModelInspector({ profile, connection, fetchJson, busy, error, onMutate, onClose, openCapabilities = false, readOnly = false, onDirtyChange, onSavingChange, onVisionChanged }: {
   profile: ModelProfile; connection?: ModelConnection; fetchJson: ReturnType<typeof createApiClient>; busy: boolean; error: string;
   onMutate: UnifiedModelManagerProps["onMutate"]; onClose: () => void; openCapabilities?: boolean; readOnly?: boolean;
-  onDirtyChange?: (dirty: boolean) => void; onSavingChange?: (saving: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void; onSavingChange?: (saving: boolean) => void; onVisionChanged?: () => Promise<void>;
 }) {
   const [showCapabilities, setShowCapabilities] = useState(openCapabilities);
   const [capabilitiesMounted, setCapabilitiesMounted] = useState(openCapabilities);
@@ -38,7 +38,7 @@ export function UnifiedModelInspector({ profile, connection, fetchJson, busy, er
       onSave: (id, revision, update) => onMutate(`/agent/model-profiles/${encodeURIComponent(id)}`, "PATCH", { ...update, expected_revision: revision }) }} />
     <UnifiedModelParameters profile={profile} busy={locked} readOnly={viewOnly} onDirtyChange={parametersDirty} onSavingChange={parametersSaving} onSave={update => onMutate(`/agent/model-profiles/${encodeURIComponent(profile.id)}`, "PATCH", { ...update, expected_revision: profile.revision })} />
     <details className="unified-capability-details" open={showCapabilities} onToggle={event => { const open = event.currentTarget.open; setShowCapabilities(open); if (open) setCapabilitiesMounted(true); }}><summary>高级能力与上下文</summary>
-      {capabilitiesMounted ? <><ModelOutputSettings profile={profile} busy={locked} readOnly={viewOnly} onDirtyChange={capabilitiesDirty} onSavingChange={capabilitiesSaving} onSave={capabilities => onMutate(`/agent/model-profiles/${encodeURIComponent(profile.id)}`, "PATCH", { capabilities: { ...profile.capabilities, ...capabilities }, expected_revision: profile.revision })} />{!viewOnly ? <ModelProfileCapabilities profileId={profile.id} modelName={profile.model_name} fetchJson={fetchJson} disabled={locked} onSavingChange={probeSaving} /> : null}</> : null}
+      {capabilitiesMounted ? <><ModelOutputSettings profile={profile} busy={locked} readOnly={viewOnly} onDirtyChange={capabilitiesDirty} onSavingChange={capabilitiesSaving} onSave={capabilities => onMutate(`/agent/model-profiles/${encodeURIComponent(profile.id)}`, "PATCH", { capabilities: { ...profile.capabilities, ...capabilities }, expected_revision: profile.revision })} />{!viewOnly ? <ModelProfileCapabilities profileId={profile.id} modelName={profile.model_name} fetchJson={fetchJson} disabled={locked} onSavingChange={probeSaving} onVisionChanged={onVisionChanged} /> : null}</> : null}
     </details>
   </section>;
 }

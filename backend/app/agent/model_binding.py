@@ -11,7 +11,7 @@ _IDENTITY_FIELDS = (
 _SELECTION_FIELDS = frozenset({
     *_IDENTITY_FIELDS, "model_name", "model_base_url", "model_protocol",
     "resolved_model_protocol", "secret_ref", "stage", "policy_version",
-    "selection_reason", "capability_status", "credential_fingerprint", "strict_capabilities",
+    "selection_reason", "capability_status", "credential_fingerprint", "strict_capabilities", "vision_status",
 })
 
 
