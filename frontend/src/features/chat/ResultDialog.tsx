@@ -130,7 +130,7 @@ export function ResultDialog({ messageId, conversationId, selector = "answer", s
           {artifact.content !== undefined ? <><button type="button" onClick={() => downloadText(artifact.content!, artifact.filename, artifact.mime_type)}><Download size={15} />{artifact.kind === "answer" ? "Markdown" : "下载源文件"}</button>{artifact.kind === "answer" ? <button type="button" onClick={() => downloadText(markdownToText(artifact.content!), artifact.filename.replace(/\.md$/, ".txt"))}>TXT</button> : null}</> : null}
           {services.onSaveResult ? <button type="button" aria-expanded={saveOpen} onClick={() => setSaveOpen(value => !value)}><FolderPlus size={15} />保存到文件库</button> : null}
           {artifact.kind === "answer" && services.documentService && conversationId ? <button type="button" disabled={busy} onClick={() => void editDocument()}>编辑文档</button> : null}
-          {artifact.asset && services.onLoadAttachment ? <PngExportButton key={artifact.asset.id} filename={artifact.filename} disabled={busy} load={async signal => (await services.onLoadAttachment!(artifact.asset!, signal)).file} /> : null}
+          {artifact.asset && services.onLoadAttachment && artifact.mime_type !== "image/png" ? <PngExportButton key={artifact.asset.id} filename={artifact.filename} disabled={busy} load={async signal => (await services.onLoadAttachment!(artifact.asset!, signal)).file} /> : null}
           {artifact.asset && services.onLoadAttachment ? <button type="button" disabled={busy} onClick={() => void downloadImage()}><Download size={15} />下载原图</button> : null}
         </div>
         {artifact.assets?.length ? <p className="chat-result-notice">Markdown 下载保留图片引用；图片可分别下载。保存到文件库会同时保存文字与图片副本。</p> : null}

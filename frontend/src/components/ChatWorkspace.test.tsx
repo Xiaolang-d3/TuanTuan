@@ -96,6 +96,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
   voiceInput?: ChatWorkspaceProps["voiceInput"];
   onLoadResults?: ChatWorkspaceProps["onLoadResults"];
   onSaveResult?: ChatWorkspaceProps["onSaveResult"];
+  onLoadAttachment?: ChatWorkspaceProps["onLoadAttachment"];
   density?: "page" | "dock";
   chatBusy?: boolean;
   latestAgent?: AgentRunResult;
@@ -126,6 +127,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
     voiceInput: extras.voiceInput,
     onLoadResults: extras.onLoadResults,
     onSaveResult: extras.onSaveResult,
+    onLoadAttachment: extras.onLoadAttachment,
     libraryAttachments: extras.libraryAttachments,
     onLibraryAttachmentsConsumed: extras.onLibraryAttachmentsConsumed,
     composerDraft: extras.composerDraft,
@@ -307,13 +309,34 @@ describe("ChatWorkspace", () => {
     expect(p.onSend).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps generated image saving on the image without a message result button", () => {
-    const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "生成图片.png", parse_status: "parsed" };
+  it("puts image save and download icons in the reply actions and keeps dimensions out of the thread", () => {
+    const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "生成图片.png", parse_status: "parsed", width: 1024, height: 1536 };
     const pure: ChatMessage = { ...assistantMessage(""), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [asset], output_blocks: [{ type: "image", asset_id: asset.id }] } } };
-    renderChat([message, pure], { onLoadResults: vi.fn() });
+    renderChat([message, pure], { onLoadResults: vi.fn(), onLoadAttachment: vi.fn() });
     expect(screen.getAllByRole("button", { name: "预览 生成图片.png" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "保存 生成图片.png 到文件库" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "查看与保存成果" })).not.toBeInTheDocument();
+    expect(screen.queryByText("1024 × 1536")).not.toBeInTheDocument();
+    const actions = within(screen.getByRole("button", { name: "复制回答" }).parentElement!);
+    expect(actions.getByRole("button", { name: "保存 生成图片.png 到文件库" })).toHaveTextContent(/^$/);
+    expect(actions.getByRole("button", { name: "下载原图" })).toHaveTextContent(/^$/);
+    expect(screen.queryByRole("button", { name: "导出 PNG" })).not.toBeInTheDocument();
+  });
+
+  it("can select the second image to save from a reply with multiple images", async () => {
+    const first: ChatAttachment = { id: "first", origin: "generated", kind: "image", original_filename: "第一张.png", parse_status: "parsed" };
+    const second = { ...first, id: "second", original_filename: "第二张.webp" };
+    const reply: ChatMessage = { ...assistantMessage(""), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [first, second] } } };
+    const load = vi.fn().mockResolvedValue({ message_id: 12, snapshot: "a".repeat(64), incomplete: false, artifacts: [
+      { selector: "asset:first", kind: "image", filename: first.original_filename, mime_type: "image/png", asset: first, can_index: false },
+      { selector: "asset:second", kind: "image", filename: second.original_filename, mime_type: "image/webp", asset: second, can_index: false },
+    ] });
+    renderChat([message, reply], { onLoadResults: load, onSaveResult: vi.fn() });
+    const trigger = screen.getByLabelText("图片操作");
+    expect(trigger.parentElement).not.toHaveAttribute("open");
+    fireEvent.click(trigger);
+    expect(trigger.parentElement).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "保存 第二张.webp 到文件库" }));
+    const dialog = await screen.findByRole("dialog", { name: "聊天成果" });
+    expect(await within(dialog).findByRole("textbox", { name: "文件名" })).toHaveValue(second.original_filename);
   });
 
   it("shows the saved generation prompt for the matching image instead of reconstructing it from a repeat", () => {

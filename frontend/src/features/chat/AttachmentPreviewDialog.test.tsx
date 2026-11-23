@@ -208,9 +208,19 @@ it("switches between images in one preview without losing the original focus tar
 it("opens generated images directly with tools and no file heading or edit-entry step", async () => {
   render(<AttachmentPreviewDialog attachment={attachment("generated.png", { kind: "image", origin: "generated", width: 1024, height: 768 })} loadOriginal={async () => ({ file: file("image", "image/png") })} onEditGeneratedImage={vi.fn()} onNavigate={vi.fn()} onClose={vi.fn()} />);
   await screen.findByRole("img", { name: "正在编辑的图片" });
+  expect(screen.getByText("1024 × 768")).toBeVisible();
   expect(screen.getByRole("toolbar", { name: "图片设计工具" })).toBeInTheDocument();
   expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "继续编辑" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("修改要求")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "关闭附件预览" })).toBeInTheDocument();
+});
+
+it("shows decoded dimensions for a generated image without saved dimensions", async () => {
+  render(<AttachmentPreviewDialog attachment={attachment("legacy.png", { kind: "image", origin: "generated" })} loadOriginal={async () => ({ file: file("image", "image/png") })} onEditGeneratedImage={vi.fn()} onClose={vi.fn()} />);
+  const image = await screen.findByRole("img", { name: "正在编辑的图片" });
+  expect(screen.queryByText("1200 × 960")).not.toBeInTheDocument();
+  Object.defineProperties(image, { naturalWidth: { value: 1200 }, naturalHeight: { value: 960 } });
+  fireEvent.load(image);
+  expect(screen.getByText("1200 × 960")).toBeVisible();
 });
