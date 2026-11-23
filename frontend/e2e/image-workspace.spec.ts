@@ -59,7 +59,9 @@ test("image workspace makes three drafts, restores settings, edits and archives 
       expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024", comparison_key: "a".repeat(64) });
       expect(requests.some(prior => prior.request_id === body.request_id)).toBe(false);
       requests.push(body);
-      history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [image(`result-${requests.length}`, `海报-${requests.length}.png`)] });
+      const asset = image(`result-${requests.length}`, `海报-${requests.length}.png`);
+      if (requests.length === 2) Object.assign(asset, { width: 480, height: 740 });
+      history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [asset] });
       return route.fulfill({ status: 202, json: { id: body.request_id } });
     }
     if (path.startsWith("/image-studio/tasks/")) {
@@ -81,9 +83,10 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     if (/^\/chat-assets\/(?:result-\d+|edited)\/(?:file|thumbnail)$/.test(path) || /^\/image-studio\/works\/final-work\/(?:file|thumbnail)$/.test(path)) {
       expect(request.headers().authorization).toBe("Bearer image-workspace-fixture");
       const resultIndex = Number(/result-(\d+)/.exec(path)?.[1]) - 1;
+      reads.push(path);
+      if (resultIndex === 1) return route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="740"><rect width="480" height="740" fill="#5543a9"/><circle cx="240" cy="302" r="155" fill="#d8a2d1"/></svg>' });
       const name = art[resultIndex] || art[3];
       const body = await readFile(resolve("e2e/fixtures", `${name}.webp`));
-      reads.push(path);
       return route.fulfill({ contentType: "image/webp", body });
     }
     return route.fulfill({ status: 404, json: { detail: `Unhandled fixture route: ${path}` } });
@@ -113,6 +116,22 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await page.reload();
   const first = workspace.getByRole("button", { name: `查看 ${prompts[0]}`, exact: true });
   await expect(first).toBeVisible();
+  async function expectOriginalRatios() {
+    for (const [text, ratio] of [[prompts[0], 740 / 480], [prompts[1], 480 / 740]] as const) {
+      const thumbnail = workspace.getByRole("button", { name: `查看 ${text}`, exact: true }).locator("img");
+      await expect(thumbnail).toBeVisible();
+      await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => {
+        const { width, height } = img.getBoundingClientRect();
+        return img.naturalWidth && height ? width / height : 0;
+      })).toBeCloseTo(ratio, 2);
+      expect(await thumbnail.evaluate((img: HTMLImageElement) => {
+        const image = img.getBoundingClientRect();
+        const frame = img.closest("button")!.getBoundingClientRect();
+        return image.top >= frame.top - 1 && image.bottom <= frame.bottom + 1;
+      })).toBe(true);
+    }
+  }
+  await expectOriginalRatios();
   await first.click();
   await page.getByRole("button", { name: "复用设置", exact: true }).click();
   await expect(prompt).toHaveValue(prompts[0]);
@@ -150,6 +169,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await expect(first).toBeVisible();
   await page.screenshot({ path: resolve(output, "desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
+  await expectOriginalRatios();
   await expect(prompt).toBeInViewport();
   await expect(workspace.getByRole("button", { name: "生成图片", exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

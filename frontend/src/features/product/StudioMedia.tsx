@@ -18,12 +18,18 @@ export function useStudioBlob(id: string | undefined, load: BlobLoader) {
   },[id,load,attempt]);
   return { file:file?.id===id?file:null, error, retry:()=>setAttempt(v=>v+1), invalid:()=>setError("图片无法显示") };
 }
-export function StudioThumb({ id, load }: {id:string; load:BlobLoader}) {
+export function StudioThumb({ id, load, width, height }: {id:string; load:BlobLoader; width?:number; height?:number}) {
   const ref=useRef<HTMLSpanElement>(null);
   const [visible,setVisible]=useState(()=>typeof IntersectionObserver==="undefined");
   useEffect(()=>{if(visible||!ref.current)return;const io=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setVisible(true);io.disconnect();}},{rootMargin:"160px"});io.observe(ref.current);return()=>io.disconnect();},[visible]);
   const image=useStudioBlob(visible?id:undefined,load);
-  return <span className="studio-thumb" ref={ref}>{image.file && !image.error ? <img src={image.file.url} alt="" onError={image.invalid}/> : <span className="studio-placeholder"><ImageIcon aria-hidden="true"/>{image.error?"预览不可用":"加载预览…"}</span>}</span>;
+  const hasDimensions = width && height && width > 0 && height > 0;
+  return <span className="studio-thumb" ref={ref}>
+    {image.file && !image.error ? <img src={image.file.url} alt="" width={hasDimensions ? width : undefined} height={hasDimensions ? height : undefined} onError={image.invalid} /> :
+      <span className="studio-placeholder" style={hasDimensions ? { aspectRatio: `${width} / ${height}` } : undefined}>
+        <ImageIcon aria-hidden="true" />{image.error ? "预览不可用" : "加载预览…"}
+      </span>}
+  </span>;
 }
 export function StudioOriginal({image,name}:{image:ReturnType<typeof useStudioBlob>;name:string}) {
   return <div className="studio-original">{image.error?<div><p role="alert">{image.error}</p><button onClick={image.retry}>重新加载图片</button></div>:image.file?<img src={image.file.url} alt={name} onError={image.invalid}/>:<p role="status">正在读取原图…</p>}</div>;

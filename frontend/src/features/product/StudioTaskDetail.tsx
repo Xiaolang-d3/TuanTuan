@@ -14,11 +14,11 @@ export type StudioEditBinding = {
   confirmed: boolean;
 };
 
-type Props={api:StudioApi;task:StudioTask;editInitially:boolean;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
+type Props={api:StudioApi;task:StudioTask;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
   issue:string;onEdit:(task:StudioTask,asset:ChatAttachment,prompt:string,binding:StudioEditBinding,onConflict:(message:string)=>void)=>Promise<boolean>;onClose:()=>void;
   onArchive:(id:string)=>Promise<void>;onReuse:(t:StudioTask)=>void;onWorks:()=>void;onConversation:(id:number)=>void;onQuery:()=>void};
-export function StudioTaskDetail({api,task,issue,editInitially,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose}:Props){
-  const [index,setIndex]=useState(0),[editing,setEditing]=useState(editInitially),[instruction,setInstruction]=useState("");
+export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose}:Props){
+  const [index,setIndex]=useState(0),[editing,setEditing]=useState(false),[instruction,setInstruction]=useState("");
   const [saving,setSaving]=useState(false),[error,setError]=useState(""),[compare,setCompare]=useState(false);
   const asset=task.assets[index]||task.assets[0];const image=useStudioBlob(asset?.id,api.assetFile);
   const source=useStudioBlob(compare?task.source_asset_id||undefined:undefined,api.assetFile);
