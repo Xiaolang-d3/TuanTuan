@@ -43,6 +43,7 @@
 .home-segment button { color: var(--home-text-2); background: transparent; }
 .home-segment button:hover { color: var(--home-text); background: var(--home-hover-2); }
 .home-segment button.on { color: var(--home-text); background: var(--home-panel); box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 0 0 1px var(--home-line); }
+.home-mode-switch button[aria-pressed="true"] { color: var(--home-on-accent); background: var(--home-accent-button); }
 .home-icon-btn { color: var(--home-text-3) !important; background: transparent !important; }
 .home-icon-btn:hover { background: var(--home-hover-2) !important; color: var(--home-text) !important; }
 .home-link-btn, .home-more-link { color: var(--home-text-2) !important; background: transparent !important; }
@@ -159,7 +160,9 @@
 .home-workspace-badge { color: var(--home-on-accent); background: var(--home-accent); }
 .home-workspace-error { background: var(--home-warn-bg); border-color: var(--home-warn-line); color: var(--home-warn-text); }
 .home-workspace-error button { color: var(--home-warn-text); }
-.home-changelog-item, .home-skill-card { background: var(--home-panel-2); border-color: var(--home-line-2); }
+.home-page .home-updates-toggle { color: var(--home-text-2); border-color: var(--home-line); }
+.home-page .home-updates-toggle:hover { color: var(--home-text); background: var(--home-hover); }
+.home-skill-card { background: var(--home-panel-2); border-color: var(--home-line-2); }
 .home-changelog-category { color: var(--home-text-2); }
 .home-changelog-version { color: var(--home-accent-text); background: var(--home-accent-soft); }
 .home-changelog-text, .home-skill-summary { color: var(--home-text-2); }
