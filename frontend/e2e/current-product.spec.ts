@@ -13,7 +13,10 @@ const conversation = {
   last_message_at: "2026-09-22T08:00:00Z"
 };
 
+const anotherConversation = { ...conversation, id: 2, title: "新对话" };
+
 async function mockCurrentProduct(page: Page) {
+  const conversations = [conversation];
   await page.addInitScript(() => {
     window.sessionStorage.setItem("tuantuan-auth-token", "e2e-token");
     window.localStorage.setItem("tuantuan-first-run:e2e@local.test", "done");
@@ -43,7 +46,13 @@ async function mockCurrentProduct(page: Page) {
     if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
     if (path === "/image-studio/history") return route.fulfill({ json: { items: [], has_more: false } });
     if (path === "/image-studio/works") return route.fulfill({ json: { items: [] } });
-    if (path === "/conversations") return route.fulfill({ json: [conversation] });
+    if (path === "/conversations") {
+      if (route.request().method() === "POST") {
+        conversations.push(anotherConversation);
+        return route.fulfill({ json: anotherConversation });
+      }
+      return route.fulfill({ json: conversations });
+    }
     if (path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/presentations") return route.fulfill({ json: { jobs: [], next_cursor: null } });
     if (path === "/document-reviews") return route.fulfill({ json: { jobs: [] } });
@@ -297,12 +306,57 @@ test("long conversations keep one scroll viewport without blank space above the 
   }
 });
 
+test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
+  const requests: Array<{ threadId: string; webSearch: boolean }> = [];
+  await page.route("**/ag-ui", async route => {
+    const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
+    requests.push({ threadId, webSearch: forwardedProps.webSearch });
+    const created_at = "2026-09-22T08:00:00Z";
+    const userMessage = { id: requests.length * 2, role: "user", content: messages.at(-1).content, created_at };
+    const assistantMessage = { id: userMessage.id + 1, role: "assistant", content: "这是模拟回复。", created_at };
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.goto("/#/chat/1");
+  const toggle = page.getByRole("button", { name: "联网搜索", exact: true });
+  async function send(content: string, threadId: string, webSearch: boolean) {
+    await page.getByRole("textbox", { name: "输入消息" }).fill(content);
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect.poll(() => requests.at(-1)).toEqual({ threadId, webSearch });
+    await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  }
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-off.png") });
+  await send("请查看最新资讯", "1", false);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-on.png") });
+  await send("查找公开研究资料", "1", true);
+  await send("再核实另一条信息", "1", true);
+  await page.getByRole("button", { name: "新建对话", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await send("请总结背景", "2", false);
+  await page.goto("/#/chat/1");
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await send("继续整理已有资料", "1", false);
+  expect(requests).toHaveLength(5);
+});
+
 test("AI workspace keeps one reading axis and switches history rail by breakpoint", async ({ page }) => {
   const evidenceDir = process.env.CI ? resolve("..", "..", "output", "playwright") : resolve("..", "tmp", "playwright");
   await mkdir(evidenceDir, { recursive: true });
   await page.goto("/#/chat/1");
   await expect(page.getByRole("heading", { name: "今天，想完成什么？" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "联网搜索" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "联网搜索" })).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByRole("button", { name: "搜索类别" })).toHaveCount(0);
   await page.getByRole("button", { name: "对话记录" }).click();
 

@@ -12,7 +12,7 @@ class ChatMessageIn(BaseModel):
     model_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
     attachment_ids: list[str] = Field(default_factory=list, max_length=8)
     vision_attachment_ids: list[str] = Field(default_factory=list, max_length=4)
-    web_search: StrictBool = Field(default=False, description="省略时按搜索服务配置自动允许按需搜索；显式 false 禁止本轮新增搜索。")
+    web_search: StrictBool = Field(default=False, description="仅显式 true 允许新请求按需联网搜索；同一运行的重连保留原有权限。")
     web_search_mode: Literal["auto", "technical", "general"] = "auto"
     web_search_topic: WebSearchTopic = "auto"
     web_search_source_preference: WebSearchSourcePreference = "none"
