@@ -23,6 +23,12 @@ async function mockWorkspace(page: Page, theme: "light" | "dark", signedIn = tru
       news: [], repositories: { day: [], week: [] }, updates: [], practices: [], sources: [],
       preferences: { topics: ["AI"], repositories: [] }, item_states: {}, bookmarks: [], refreshing: false, last_synced_at: null
     } });
+    if (path === "/home/workspace") return route.fulfill({ json: {
+      generated_at: "2026-10-08T02:00:00Z",
+      conversations: { items: [], error: null }, jobs: { running: [], pending_confirmations: [] },
+      weixin: { connected: false, unread_count: 0 }, changelog: { items: [], error: null },
+      skills: { items: [], error: null }, library_recent: { items: [], error: null }
+    } });
     if (path === "/conversations") return route.fulfill({ json: [{ id: 1, title: "主题预览", status: "active", message_count: 0, updated_at: "2026-11-10T00:00:00Z" }] });
     if (path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/library") return route.fulfill({ json: { profile: { name: "主题预览", privacy_mode: "redacted" }, facts: [], sources: [] } });
@@ -41,6 +47,7 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByRole("button", { name: "没有账号？创建账号", exact: true }).click();
     const email = page.getByLabel("邮箱", { exact: true });
     await email.fill("not-an-email");
+    await expect(page.getByRole("listbox", { name: "常见邮箱建议" })).toBeVisible();
     await page.getByRole("button", { name: "创建账号", exact: true }).click();
     await expect(email).toHaveAttribute("aria-invalid", "true");
     const contrast = await email.evaluate(element => {
@@ -61,9 +68,9 @@ for (const theme of ["light", "dark"] as const) {
     await page.setViewportSize({ width: 320, height: 568 });
     await page.goto("/");
     await expect(page.getByLabel("邮箱", { exact: true })).toBeVisible();
-    const next = theme === "dark" ? "light" : "dark";
-    const toggleLabel = next === "dark" ? "切换到深色主题" : "切换到浅色主题";
-    const toggle = page.getByRole("button", { name: toggleLabel });
+    const next = theme === "dark" ? "blue" : "dark";
+    const nextLabel = next === "dark" ? /深色/ : /主题色蓝/;
+    const toggle = page.getByRole("button", { name: /点击切换到/ });
     await expect(toggle).toBeInViewport();
     const brand = (await page.locator(".auth-wordmark").boundingBox())!;
     const navigation = (await page.getByRole("navigation", { name: "公共导航" }).boundingBox())!;
@@ -75,18 +82,21 @@ for (const theme of ["light", "dark"] as const) {
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", next);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(page.locator(".auth-artwork")).toBeVisible();
+    await expect(page.getByRole("form", { name: "欢迎登录" })).toBeInViewport({ ratio: 1 });
     await page.screenshot({ path: resolve(evidenceDir, `${next}-login-toggle.png`) });
     await page.getByLabel("邮箱", { exact: true }).fill("theme@local.test");
     await page.getByLabel("密码", { exact: true }).fill("test-login-value");
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await expect(page.locator(".app-shell")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", next);
-    await page.locator(".sidebar-theme-toggle").click();
+    const sidebarToggle = page.locator(".sidebar-theme-toggle");
+    await sidebarToggle.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme === "dark" ? "light" : "blue");
+    await sidebarToggle.click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await page.goto("/#/settings/appearance");
     await expect(page.getByRole("radio", { name: theme === "dark" ? /深色/ : /浅色/ })).toBeChecked();
-    await page.getByRole("radio", { name: next === "dark" ? /深色/ : /浅色/ }).check();
+    await page.getByRole("radio", { name: nextLabel }).check();
     await page.getByRole("button", { name: "账号菜单", exact: true }).click();
     await page.getByRole("menuitem", { name: "退出登录" }).click();
     await expect(page.getByLabel("邮箱", { exact: true })).toBeVisible();
@@ -147,25 +157,4 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.locator("html")).toHaveAttribute("data-theme", changed);
   });
 
-  test(`${theme} sign-in shares the neutral theme and keeps the colored cutout`, async ({ page }) => {
-    await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.route("**/auth/config", route => route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } }));
-    await page.goto("/");
-    await expect(page.locator(".auth-gate")).toHaveCSS("background-color", theme === "dark" ? "rgb(17, 17, 17)" : "rgb(250, 250, 250)");
-    const image = page.locator(".auth-mascot-scene img");
-    await expect(image).toHaveJSProperty("naturalWidth", 1448);
-    const pixels = await image.evaluate((element: HTMLImageElement) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = element.naturalWidth; canvas.height = element.naturalHeight;
-      const context = canvas.getContext("2d")!;
-      context.drawImage(element, 0, 0);
-      return { alpha: context.getImageData(0, 0, 1, 1).data[3], accent: Array.from(context.getImageData(800, 200, 1, 1).data) };
-    });
-    expect(pixels.alpha).toBe(0);
-    expect(pixels.accent[2] - pixels.accent[0]).toBeGreaterThan(60);
-    await page.screenshot({ path: resolve(evidenceDir, `${theme}-login.png`) });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: resolve(evidenceDir, `${theme}-login-mobile.png`) });
-  });
 }

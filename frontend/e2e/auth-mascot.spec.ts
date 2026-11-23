@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
-test("the mascot moves while the desk and shared neutral background stay still", async ({ page }) => {
+test("the mascot moves while the desk stays still over the login background", async ({ page }) => {
   await page.goto("/");
   const scene = page.locator(".auth-mascot-scene");
   await expect(scene).toHaveAttribute("data-animated", "true");
@@ -17,9 +17,7 @@ test("the mascot moves while the desk and shared neutral background stay still",
     return (canvas.getContext("webgl2") ?? canvas.getContext("webgl"))?.getContextAttributes()?.alpha;
   })).toBe(true);
   await expect(scene.getByRole("button")).toHaveCount(0);
-  const background = await page.locator(".auth-gate").evaluate(el => getComputedStyle(el).backgroundColor);
-  expect(background).toBe("rgb(250, 250, 250)");
-  expect(await page.locator(".auth-artwork").evaluate(el => getComputedStyle(el).backgroundColor)).toBe(background);
+  await expect(page.locator(".auth-artwork")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const bounds = (await scene.boundingBox())!;
   const desk = { x: bounds.x + bounds.width * .15, y: bounds.y + bounds.height * .74, width: bounds.width * .65, height: bounds.height * .2 };
   // Let the first GPU texture presentation settle before comparing pixels.
@@ -74,32 +72,6 @@ test("reduced motion keeps the original illustration and can change live", async
   await expect(scene).toHaveAttribute("data-animated", "true");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(scene).toHaveAttribute("data-animated", "false");
-});
-
-test("the narrow mascot greets once, replays without shifting the form, and respects reduced motion", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 700 });
-  await page.goto("/");
-  const mascot = page.locator(".auth-mascot-compact");
-  const image = mascot.locator(".auth-mascot-compact-image");
-  const replay = mascot.getByRole("button", { name: "让团团打个招呼" });
-  await expect(replay).toBeVisible();
-  await expect(page.locator(".auth-artwork")).toBeHidden();
-  await expect(image).toHaveCSS("animation-iteration-count", "1");
-  await expect(image).toHaveCSS("animation-name", "auth-mascot-greeting");
-  await image.evaluate(element => element.getAnimations().forEach(animation => animation.finish()));
-
-  const heading = page.getByRole("heading", { name: "登录本地账户" });
-  const before = await heading.boundingBox();
-  await replay.focus();
-  await replay.press("Enter");
-  await expect.poll(() => image.evaluate(element => element.getAnimations().length)).toBe(1);
-  await expect(replay).toBeFocused();
-  expect(await heading.boundingBox()).toEqual(before);
-
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(mascot).toBeVisible();
-  await expect(replay).toBeHidden();
-  await expect(image).toHaveCSS("animation-name", "none");
 });
 
 test("unsupported graphics retains the static mascot", async ({ page }) => {

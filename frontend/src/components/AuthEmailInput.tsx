@@ -1,4 +1,4 @@
-import { RefObject, useEffect, useState } from "react";
+import { RefObject, useEffect, useRef, useState } from "react";
 
 const commonEmailDomains = [
   "qq.com", "163.com", "126.com", "gmail.com", "outlook.com", "icloud.com",
@@ -28,6 +28,7 @@ type Props = {
 export function AuthEmailInput({ value, registering, disabled, error, inputRef, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const activeOption = useRef<HTMLButtonElement>(null);
   const suggestions = suggestEmails(value);
   const expanded = open && !disabled && suggestions.length > 0;
 
@@ -35,6 +36,10 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
     setOpen(false);
     setActiveIndex(-1);
   }, [registering, disabled]);
+
+  useEffect(() => {
+    activeOption.current?.scrollIntoView?.({ block: "nearest" });
+  }, [expanded, activeIndex]);
 
   function selectEmail(email: string) {
     onChange(email);
@@ -49,6 +54,7 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
         ref={inputRef}
         type={registering ? "email" : "text"}
         role="combobox"
+        aria-label="邮箱"
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={expanded ? "auth-email-suggestions" : undefined}
@@ -59,8 +65,7 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
         inputMode="email"
         name="username"
         autoComplete="username"
-        autoFocus
-        placeholder="name@example.com"
+        placeholder="请输入邮箱"
         value={value}
         disabled={disabled}
         aria-invalid={Boolean(error)}
@@ -99,6 +104,7 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
           {suggestions.map((email, index) => (
             <button
               key={email}
+              ref={activeIndex === index ? activeOption : undefined}
               id={`auth-email-option-${index}`}
               type="button"
               role="option"
