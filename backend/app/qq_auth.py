@@ -4,6 +4,7 @@ import json
 import re
 import secrets
 import time
+from typing import Literal
 from urllib.parse import parse_qs, urlencode
 
 import httpx
@@ -111,25 +112,38 @@ def new_result(settings: Settings, browser: str, session_hash: str | None, subje
     return ticket
 
 
-def finish_flow(settings: Settings, browser: str, ticket: str, authorization: str | None) -> dict:
+def finish_flow(
+    settings: Settings, browser: str, ticket: str, authorization: str | None,
+    *, action: Literal["create", "bind"] | None = None, confirmation: str = "",
+) -> dict:
     if not _OPAQUE.fullmatch(ticket) or not _OPAQUE.fullmatch(browser):
         raise HTTPException(status_code=400, detail="QQ 授权已失效，请重新开始")
+    ticket_hash = _token_hash(ticket)
+    if action is not None and confirmation != ticket_hash:
+        raise HTTPException(status_code=400, detail="QQ 授权已失效，请重新开始")
+    if action == "bind" and authorization is None:
+        raise HTTPException(status_code=401, detail="请先登录团团账号，再绑定 QQ")
+    if action == "create" and authorization is not None:
+        raise HTTPException(status_code=400, detail="请退出当前账号，再创建新账号")
     user_id = current_user(authorization)["id"] if authorization is not None else None
     session_hash = _token_hash(authorization.partition(" ")[2].strip()) if authorization is not None else None
     with _connect_auth() as conn:
-        record = conn.execute(
-            """DELETE FROM auth_qq_flows WHERE key_hash = ? AND browser_hash = ? AND app_id = ? AND session_hash IS ?
-                AND expires_at > ? AND subject_hash IS NOT NULL RETURNING subject_hash""",
-            (_token_hash(ticket), _token_hash(browser), settings.qq_app_id, session_hash, _now()),
-        ).fetchone()
-    if record is None:
-        raise HTTPException(status_code=400, detail="QQ 授权已失效，请重新开始")
-    with _connect_auth() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        record = conn.execute(
+            """SELECT subject_hash FROM auth_qq_flows WHERE key_hash = ? AND browser_hash = ? AND app_id = ?
+                AND session_hash IS ? AND expires_at > ? AND subject_hash IS NOT NULL""",
+            (ticket_hash, _token_hash(browser), settings.qq_app_id, None if action else session_hash, _now()),
+        ).fetchone()
+        if record is None:
+            raise HTTPException(status_code=400, detail="QQ 授权已失效，请重新开始")
         linked = conn.execute(
             "SELECT user_id FROM auth_qq_identities WHERE app_id = ? AND subject_hash = ?",
             (settings.qq_app_id, record["subject_hash"]),
         ).fetchone()
+        if user_id is None and linked is None and action is None:
+            # Keep the result for the user's decision. The digest ties it to this browser's ticket.
+            return {"confirmation": ticket_hash}
+        conn.execute("DELETE FROM auth_qq_flows WHERE key_hash = ?", (ticket_hash,))
         if user_id is not None:
             if not _active_session(conn, session_hash, user_id):
                 raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录后绑定 QQ")

@@ -19,6 +19,14 @@ export async function beginQq(apiBase: string, accessToken?: string) {
   window.location.assign(url.href);
 }
 
+export function finishQq(apiBase: string, accessToken?: string, decision?: { action: "create" | "bind"; confirmation: string }, signal?: AbortSignal) {
+  return createApiClient(apiBase, accessToken)("/auth/qq/finish", {
+    method: "POST",
+    signal,
+    ...(decision && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(decision) })
+  });
+}
+
 export function readQqReturn() {
   return new URLSearchParams(window.location.search).get("qq_auth");
 }

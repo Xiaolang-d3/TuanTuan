@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
 from .. import qq_auth
 from ..config import get_settings
@@ -11,6 +14,11 @@ router = APIRouter()
 _BROWSER_COOKIE = "__Host-tuantu-qq-browser"
 _RESULT_COOKIE = "__Host-tuantu-qq-result"
 _COOKIE_OPTIONS = {"httponly": True, "secure": True, "samesite": "lax", "path": "/"}
+
+
+class QqDecision(BaseModel):
+    action: Literal["create", "bind"]
+    confirmation: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def _origin(request: Request, *, require_origin: bool) -> str:
@@ -77,12 +85,14 @@ def callback(request: Request) -> RedirectResponse:
 
 
 @router.post("/auth/qq/finish")
-def finish(request: Request, response: Response) -> dict:
+def finish(request: Request, response: Response, decision: QqDecision | None = None) -> dict:
     _origin(request, require_origin=True)
     result = qq_auth.finish_flow(
         get_settings(), request.cookies.get(_BROWSER_COOKIE, ""), request.cookies.get(_RESULT_COOKIE, ""),
         request.headers.get("Authorization"),
+        action=decision.action if decision else None, confirmation=decision.confirmation if decision else "",
     )
-    response.delete_cookie(_BROWSER_COOKIE, **_COOKIE_OPTIONS)
-    response.delete_cookie(_RESULT_COOKIE, **_COOKIE_OPTIONS)
+    if "confirmation" not in result:
+        response.delete_cookie(_BROWSER_COOKIE, **_COOKIE_OPTIONS)
+        response.delete_cookie(_RESULT_COOKIE, **_COOKIE_OPTIONS)
     return result
