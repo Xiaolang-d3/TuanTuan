@@ -55,31 +55,6 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
     }
   }
 
-  async function forkConversation(sourceConversationId: number, kernel: "tuantuan" | "dsh") {
-    if (conversationBusy) return;
-    const originalSelection = selectedConversation.current;
-    const canActivate = () => clientRef.current === fetchJson && selectedConversation.current === originalSelection;
-    setConversationBusy(true);
-    try {
-      const created = await fetchJson<Conversation>("/conversations/" + sourceConversationId + "/fork", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kernel })
-      });
-      if (!canActivate()) return;
-      await refreshConversations();
-      if (!canActivate()) return;
-      setCurrentConversationId(created.id);
-      setActiveView("chat");
-      setNoticeMessage("已新建继承上下文的对话");
-      return created;
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "新建内核分支失败");
-    } finally {
-      setConversationBusy(false);
-    }
-  }
-
   async function archiveConversation(conversation: Conversation) {
     setConversationBusy(true);
     try {
@@ -134,5 +109,5 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
       setConversationBusy(false);
     }
   }
-  return { invalidateConversationReads, conversations, setConversations, currentConversationId, setCurrentConversationId, conversationBusy, setConversationBusy, conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, forkConversation, archiveConversation, renameConversation, removeConversation };
+  return { invalidateConversationReads, conversations, setConversations, currentConversationId, setCurrentConversationId, conversationBusy, setConversationBusy, conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, archiveConversation, renameConversation, removeConversation };
 }
