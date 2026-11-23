@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultAgentSettings } from "../constants";
 import { ThemeProvider } from "../features/appearance/ThemeProvider";
@@ -165,8 +165,13 @@ describe("App model settings", () => {
     });
     renderApp();
     await screen.findByRole("heading", { name: "模型管理" });
+    fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
     const search = screen.getByLabelText("搜索模型");
     fireEvent.change(search, { target: { value: "gpt-4.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "高级设置" }));
+    const modelSelect = await screen.findByRole("combobox", { name: "管理单个模型" });
+    const option = within(modelSelect).getByRole<HTMLOptionElement>("option", { name: "gpt-4.1 · Service" });
+    fireEvent.change(modelSelect, { target: { value: option.value } });
     fireEvent.click(screen.getByRole("button", { name: "设为文本默认" }));
     await waitFor(() => expect(api.fetchJson.mock.calls.filter(([path]) => path === "/agent/settings").length).toBeGreaterThan(1));
     expect(screen.getByRole("heading", { name: "模型管理" })).toBeInTheDocument();
@@ -586,20 +591,17 @@ describe("App model settings", () => {
     renderApp();
     await screen.findByRole("heading", { name: "模型管理" });
     expect(screen.getByRole("button", { name: "添加服务" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /历史图片连接/ }).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "使用规则" }));
-    await screen.findByRole("heading", { name: "使用规则" });
-    expect(screen.queryByRole("button", { name: "添加连接" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "更换聊天与工作模型" }));
-    expect(screen.queryByRole("option", { name: /legacy-image/ })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "聊天与工作默认模型" }), { target: { value: "p2" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存聊天与工作规则" }));
-    await waitFor(() => expect(
-      screen.queryByRole("combobox", { name: "聊天与工作默认模型" }),
-    ).not.toBeInTheDocument());
-    expect(screen.getByText("second-model", { selector: ".model-usage-value" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
+    expect(within(screen.getByRole("combobox", { name: "按服务筛选" })).getByRole("option", { name: "历史图片连接" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "使用规则" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "概览" }));
+    fireEvent.click(screen.getByRole("button", { name: "更换文本对话模型" }));
+    const picker = screen.getByRole("region", { name: "选择文本对话模型" });
+    expect(within(picker).queryByRole("radio", { name: /legacy-image/ })).not.toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole("radio", { name: /second-model/ }));
+    fireEvent.click(within(picker).getByRole("button", { name: "设为默认" }));
+    await waitFor(() => expect(picker).not.toBeInTheDocument());
+    expect(within(screen.getByRole("region", { name: "当前默认模型" })).getByText("second-model")).toBeInTheDocument();
     expect(api.fetchJson.mock.calls.some(([path, options]) => path === "/agent/settings" && options?.method === "PUT")).toBe(false);
     expect(api.fetchJson.mock.calls.some(([path]) => path.includes("c2/discover"))).toBe(false);
   });
