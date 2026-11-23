@@ -300,6 +300,20 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 }
 .auth-submit:hover:not(:disabled) { filter: brightness(.93); }
 .auth-submit:disabled { filter: saturate(.5); cursor: wait; }
+.auth-secondary-button {
+  margin-top: 0;
+  border: 1px solid var(--auth-rule);
+  background: var(--auth-field-background);
+  color: var(--auth-field-text);
+}
+#auth-qq-choice-title:focus { outline: none; }
+.auth-qq-description {
+  margin: -12px 0 0;
+  color: var(--auth-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: center;
+}
 .auth-qq-options {
   display: grid;
   justify-items: center;
@@ -321,13 +335,6 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
   flex: 1;
   border-top: 1px solid var(--auth-rule);
   content: "";
-}
-.auth-qq-hint {
-  margin: 0;
-  color: var(--auth-muted);
-  font-size: 12px;
-  line-height: 1.6;
-  text-wrap: pretty;
 }
 .auth-qq-button {
   display: grid;

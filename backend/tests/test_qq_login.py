@@ -76,8 +76,9 @@ def authorise(client, state):
     return client.get(CALLBACK, params={"state": state, "code": "provider-code"})
 
 
-def finish(client, headers=None):
-    return client.post("/auth/qq/finish", headers={"Origin": ORIGIN, **(headers or {})})
+def finish(client, headers=None, *, action=None, confirmation=None):
+    payload = {"action": action, "confirmation": confirmation} if action else None
+    return client.post("/auth/qq/finish", headers={"Origin": ORIGIN, **(headers or {})}, json=payload)
 
 
 def register(client, email=EMAIL):
@@ -96,14 +97,20 @@ def test_register_and_return_to_the_same_qq_account(client, qq):
     assert redirect.headers["location"] == f"{ORIGIN}/?qq_auth=login"
     assert redirect.headers["cache-control"] == "no-store"
     assert "provider-code" not in redirect.headers["location"]
-    first = finish(client).json()
+    assert [cookie.split("Max-Age=")[1].split(";")[0] for cookie in redirect.headers.get_list("set-cookie")] == ["600", "600"]
+    choice = finish(client).json()
+    assert set(choice) == {"confirmation"}
+    assert client.get("/auth/config").json()["setup_required"] is True
+    assert finish(client).json() == choice
+    first = finish(client, action="create", **choice).json()
     assert first["user"]["qq_only"] is True
     assert first["user"]["qq_bound"] is True
     assert client.get("/auth/me", headers=bearer(first)).json()["user"] == first["user"]
     assert finish(client).status_code == 400
     assert client.post("/auth/logout", headers=bearer(first)).status_code == 204
 
-    authorise(client, begin(client))
+    returning = authorise(client, begin(client))
+    assert [cookie.split("Max-Age=")[1].split(";")[0] for cookie in returning.headers.get_list("set-cookie")] == ["120", "120"]
     second = finish(client).json()
     assert first["user"]["id"] == second["user"]["id"]
     assert first["access_token"] != second["access_token"]
@@ -123,6 +130,38 @@ def test_binding_preserves_account_and_both_login_methods(client, qq):
     authorise(client, begin(client))
     assert finish(client).json()["user"] == bound["user"]
     assert client.post("/auth/login", json={"email": EMAIL, "password": LOCAL_CREDENTIAL}).json()["user"] == bound["user"]
+
+
+def test_first_qq_authorization_can_bind_after_email_login(client, qq, monkeypatch):
+    from app import qq_auth
+
+    account = register(client)["user"]
+    authorise(client, begin(client))
+    choice = finish(client).json()
+    assert finish(client, action="bind", **choice).status_code == 401
+    after_two_minutes = qq_auth._now() + 121
+    monkeypatch.setattr(qq_auth, "_now", lambda: after_two_minutes)
+    login = client.post("/auth/login", json={"email": EMAIL, "password": LOCAL_CREDENTIAL}).json()
+    bound = finish(client, bearer(login), action="bind", **choice).json()["user"]
+    assert bound["id"] == account["id"]
+    assert bound["email"] == EMAIL
+    assert bound["qq_bound"] is True
+    assert not bound.get("qq_only")
+    assert finish(client, bearer(login), action="bind", **choice).status_code == 400
+
+    authorise(client, begin(client))
+    assert finish(client).json()["user"] == bound
+
+
+def test_replacing_a_qq_authorization_invalidates_the_old_confirmation(client, qq):
+    authorise(client, begin(client))
+    old_choice = finish(client).json()
+    authorise(client, begin(client))
+    new_choice = finish(client).json()
+
+    assert finish(client, action="create", **old_choice).status_code == 400
+    assert client.get("/auth/config").json()["setup_required"] is True
+    assert finish(client, action="create", **new_choice).json()["user"]["qq_bound"] is True
 
 
 def test_browser_origin_state_and_callback_lifetime_are_checked(client, qq):
@@ -151,7 +190,8 @@ def test_binding_requires_the_original_authenticated_session(client, qq):
 
 def test_existing_qq_identity_is_not_moved_to_another_account(client, qq):
     authorise(client, begin(client))
-    original = finish(client).json()["user"]
+    choice = finish(client).json()
+    original = finish(client, action="create", **choice).json()["user"]
     other = bearer(register(client))
     authorise(client, begin(client, other))
     assert finish(client, other).status_code == 409
@@ -187,7 +227,7 @@ def test_concurrent_first_logins_initialize_the_shared_workspace_serially(client
 
     settings = get_settings()
     browsers = ["a" * 43, "b" * 43]
-    tickets = [qq_auth.new_result(settings, browser, None, "same-subject") for browser in browsers]
+    tickets = [qq_auth.new_result(settings, browser, None, "same-subject")[0] for browser in browsers]
     start = Barrier(2)
     initializer_lock = Lock()
     overlap = Event()
@@ -205,7 +245,10 @@ def test_concurrent_first_logins_initialize_the_shared_workspace_serially(client
 
     def login(index):
         start.wait(timeout=5)
-        return qq_auth.finish_flow(settings, browsers[index], tickets[index], None)
+        return qq_auth.finish_flow(
+            settings, browsers[index], tickets[index], None,
+            action="create", confirmation=qq_auth._token_hash(tickets[index]),
+        )
 
     monkeypatch.setattr(qq_auth, "ensure_workspace", isolated_initializer)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -241,9 +284,13 @@ def test_expired_result_cannot_create_an_account(client, qq, monkeypatch):
     from app import qq_auth
 
     authorise(client, begin(client))
-    after_expiry = qq_auth._now() + 121
+    choice = finish(client).json()
+    issued_at = qq_auth._now()
+    monkeypatch.setattr(qq_auth, "_now", lambda: issued_at + 300)
+    assert finish(client).json() == choice
+    after_expiry = issued_at + 601
     monkeypatch.setattr(qq_auth, "_now", lambda: after_expiry)
-    assert finish(client).status_code == 400
+    assert finish(client, action="create", **choice).status_code == 400
     assert client.get("/auth/config").json()["setup_required"] is True
 
 

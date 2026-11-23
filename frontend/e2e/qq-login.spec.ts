@@ -172,6 +172,7 @@ test("email and QQ entry points remain reachable on desktop and mobile", async (
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("button", { name: "登录", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "使用 QQ 登录" })).toBeVisible();
+    await expect(page.getByText("首次用 QQ 会创建账号。", { exact: false })).toHaveCount(0);
     await expect(page.getByLabel("邮箱", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: resolve(output, `login-${width}.png`), fullPage: true });
@@ -185,21 +186,41 @@ test("email and QQ entry points remain reachable on desktop and mobile", async (
   await expect(page).toHaveURL(authorizationUrl);
 });
 
-test("a QQ registration callback opens its account without exposing the internal identifier", async ({ page }) => {
+test("a first QQ authorization opens an account after the user confirms creation", async ({ page }) => {
   await mockWorkspace(page, qqAccount);
   const token = "qq-session-fixture";
-  let exchanges = 0;
+  let creations = 0;
   await page.route("**/auth/qq/finish", route => {
-    exchanges += 1;
+    if (!route.request().postData()) return route.fulfill({ json: { confirmation: "first-qq" } });
+    expect(route.request().postDataJSON()).toEqual({ action: "create", confirmation: "first-qq" });
+    creations += 1;
     return route.fulfill({ json: { access_token: token, user: qqAccount } });
   });
   await page.goto("/?qq_auth=login#/settings/account");
+  const create = page.getByRole("button", { name: "创建新账号" });
+  const bind = page.getByRole("button", { name: "登录已有账号并绑定" });
+  await page.getByRole("button", { name: /点击切换到深色/ }).click();
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(create).toBeVisible();
+    await expect(bind).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: resolve(output, `qq-choice-${width}.png`), fullPage: true });
+  }
+  await bind.click();
+  await expect(page.getByLabel("邮箱", { exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "登录并绑定 QQ" })).toBeVisible();
+  await page.getByRole("button", { name: "返回上一步" }).click();
+  await expect(page.getByRole("heading", { name: "继续使用 QQ" })).toBeFocused();
+  expect(await page.evaluate(key => sessionStorage.getItem(key), tokenStorageKey)).toBeNull();
+  expect(creations).toBe(0);
+  await create.click();
   await expect(page.getByText("已绑定 QQ", { exact: true })).toBeVisible();
   await expect(page.getByText(qqAccount.email, { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "修改密码" })).toHaveCount(0);
   await expect(page).not.toHaveURL(/qq_auth=/);
   expect(await page.evaluate(key => sessionStorage.getItem(key), tokenStorageKey)).toBe(token);
-  expect(exchanges).toBe(1);
+  expect(creations).toBe(1);
   await page.screenshot({ path: resolve(output, "qq-account.png"), fullPage: true });
 });
 
