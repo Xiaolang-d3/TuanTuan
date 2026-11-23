@@ -43,32 +43,36 @@ export function useStudioModelPreview(api: ImageStudioApi, enabled: boolean, { o
 export function StudioModelPicker({ label, profileId, onChange, preview, busy }: {
   label: string;
   profileId: string | null | undefined;
-  onChange: (id: string | null) => void;
+  onChange: (id: string) => void;
   preview: ReturnType<typeof useStudioModelPreview>;
   busy: boolean;
 }) {
   const { data, error, loading, notice, refresh } = preview;
-  const selection = data?.selection;
-  const [lastCandidates, setLastCandidates] = useState<StudioPreview["candidates"]>([]);
-  useEffect(() => { if (data) setLastCandidates(data.candidates); }, [data]);
-  const candidates = data?.candidates ?? lastCandidates;
+  const [lastData, setLastData] = useState<StudioPreview>();
+  useEffect(() => { if (data) setLastData(data); }, [data]);
+  const displayData = data ?? (loading ? lastData : undefined);
+  const selectedId = profileId === null ? displayData?.selection?.profile_id : profileId;
+  const models = new Map<string, StudioPreview["candidates"][number]>();
+  for (const candidate of displayData?.candidates ?? []) {
+    if (!candidate.eligible) continue;
+    // Keep the resolved default or explicitly selected profile when services share a model name.
+    if (!models.has(candidate.model_name) || candidate.profile_id === selectedId) {
+      models.set(candidate.model_name, candidate);
+    }
+  }
+  const options = [...models.values()];
+  const hasSelection = options.some(model => model.profile_id === selectedId);
+  const unavailableModel = profileId && displayData?.candidates.find(candidate => candidate.profile_id === profileId);
+  const placeholder = profileId
+    ? `${unavailableModel ? unavailableModel.model_name : "已选模型"}（${loading ? "待确认" : "不可用"}）`
+    : options.length ? "请选择模型" : loading ? "正在读取模型…" : "没有可用的模型";
   return <div className="studio-model-picker">
-    <label>模型 <select aria-label={label} value={profileId ?? (profileId === null ? "" : "unselected")}
-      disabled={busy} onChange={event => onChange(event.target.value || null)}>
-      {profileId === undefined && <option value="unselected" disabled>请选择模型</option>}
-      <option value="">自动选择</option>
-      {profileId && !candidates.some(candidate => candidate.profile_id === profileId) &&
-        <option value={profileId} disabled>已选模型（待确认）</option>}
-      {candidates.map(candidate => <option key={candidate.profile_id} value={candidate.profile_id} disabled={!candidate.eligible}>
-        {candidate.model_name} · {candidate.service_name}{!candidate.eligible && `（${reasons[candidate.reason_code ?? ""] ?? "不可用"}）`}
-      </option>)}
+    <label>模型 <select aria-label={label} aria-busy={loading} value={hasSelection ? selectedId : ""}
+      disabled={busy || !options.length} onChange={event => onChange(event.target.value)}>
+      {!hasSelection && <option value="" disabled>{placeholder}</option>}
+      {options.map(model => <option key={model.profile_id} value={model.profile_id}>{model.model_name}</option>)}
     </select></label>
-    {loading && <span role="status" className="studio-muted">正在确认模型服务…</span>}
-    {!loading && selection && <div role="status" className="studio-muted">
-      <span>本次使用：{selection.model_name} · {selection.service_name}</span>
-      {selection.reason && <small> · {selection.reason}</small>}
-    </div>}
-    {!loading && (error || (data && (!data.eligible || !data.comparison_key || !selection))) &&
+    {!loading && (error || (data && (!data.eligible || !data.comparison_key || !data.selection))) &&
       <span role="alert" className="studio-error">{error || reasons[data?.reason ?? ""] || data?.reason || "没有可用的模型服务"} <button type="button" disabled={busy} onClick={() => refresh()}>重新确认模型</button></span>}
     {notice && <span role="alert" className="studio-error">{notice}</span>}
   </div>;

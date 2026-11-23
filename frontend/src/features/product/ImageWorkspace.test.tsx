@@ -9,12 +9,15 @@ vi.mock("../chat/result-files",()=>({downloadBlob:vi.fn()}));
 const model:StudioModel={id:"p1",name:"海报模型",sizes:["auto","1536x1024"]};
 const task:StudioTask={id:"job-1",prompt:"海边画面",size:"1536x1024",profile_id:model.id,model_name:model.name,status:"done",created_at:"2026-11-19T11:00:00Z",conversation_id:42,assets:[{id:"image-1",origin:"generated",kind:"image",original_filename:"海报.png",parse_status:"parsed",width:1536,height:1024}]};
 const blob=new Blob(["pic"],{type:"image/png"});
-function setup(items:StudioTask[]=[], models=[model], more=false, canEdit=true){
+function setup(items:StudioTask[]=[], models=[model], more=false, canEdit=true, unavailable: string[] = [], defaultProfileId = models[0]?.id){
   const preview = vi.fn(async ({ profile_id, operation }: StudioPreviewRequest) => {
     const candidates = models.map((item, index) => ({
-      profile_id: item.id, model_name: item.name, service_name: `服务 ${index + 1}`, eligible: true,
+      profile_id: item.id, model_name: item.name, service_name: `服务 ${index + 1}`, eligible: !unavailable.includes(item.id),
     }));
-    const resolved = profile_id == null ? models[0] : models.find(item => item.id === profile_id);
+    const eligible = models.filter(item => !unavailable.includes(item.id));
+    const resolved = profile_id == null
+      ? eligible.find(item => item.id === defaultProfileId) ?? eligible[0]
+      : eligible.find(item => item.id === profile_id);
     const candidate = candidates.find(item => item.profile_id === resolved?.id);
     return {
       eligible: !!resolved,
@@ -39,17 +42,23 @@ describe("图片工作台",()=>{
     fireEvent.click(await screen.findByRole("button",{name:"商品封面"}));expect(api.generate).not.toHaveBeenCalled();
     expect(screen.queryByRole("combobox",{name:"生成画幅"})).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("图片模型"), { target: { value: "p1" } });
-    await screen.findByText("本次使用：海报模型 · 服务 2");
-    fireEvent.change(screen.getByLabelText("生成画幅"), { target: { value: "1536x1024" } });
+    const size = await screen.findByLabelText("生成画幅");
+    expect(screen.getByLabelText("图片模型")).toHaveDisplayValue("海报模型");
+    fireEvent.change(size, { target: { value: "1536x1024" } });
     fireEvent.change(screen.getByLabelText("画面描述"),{target:{value:"  夏日海报  "}});fireEvent.click(screen.getByRole("button",{name:"生成图片"}));
     await waitFor(()=>expect(api.generate).toHaveBeenCalledWith({prompt:"夏日海报",size:"1536x1024",profile_id:"p1",comparison_key:"image.generate:p1",request_id:expect.stringMatching(/^[0-9a-f-]{36}$/i)}));
   });
+  it("下拉框显示当前模型，只列出可用且不重复的模型名称", async () => {
+    setup([], [{ ...model, id: "duplicate" }, model, { ...model, id: "p2", name: "插画模型" }, { ...model, id: "disabled", name: "停用模型" }], false, true, ["disabled"], model.id);
+    const picker = screen.getByRole("combobox", { name: "图片模型" });
+    await waitFor(() => expect(picker).toHaveDisplayValue("海报模型"));
+    expect(within(picker).getAllByRole("option").map(option => option.textContent)).toEqual(["海报模型", "插画模型"]);
+    expect(picker).toHaveValue("p1");
+    expect(screen.queryByText(/本次使用|服务 1/)).not.toBeInTheDocument();
+  });
   it("出图配置变化时保留草稿，等待新预览并再次提交", async () => {
-    const { api } = setup([], [model, { ...model, id: "p2" }]);
-    await screen.findByText("本次使用：海报模型 · 服务 1");
-    const picker = screen.getByLabelText("图片模型");
-    expect(within(picker).getByRole("option", { name: "海报模型 · 服务 1" })).toHaveValue("p1");
-    expect(within(picker).getByRole("option", { name: "海报模型 · 服务 2" })).toHaveValue("p2");
+    const { api } = setup();
+    await waitFor(() => expect(screen.getByLabelText("图片模型")).toHaveDisplayValue("海报模型"));
     await screen.findByRole("button", { name: "商品封面" });
     const originalPreview = await api.preview({ operation: "image.generate", profile_id: null });
     let resolvePreview!: (value: typeof originalPreview) => void;
@@ -99,7 +108,7 @@ describe("图片工作台",()=>{
     fireEvent.click(screen.getByRole("button",{name:"归档到我的作品"}));fireEvent.click(await screen.findByText("已归档 · 查看作品"));expect(api.archive).toHaveBeenCalledWith("image-2");expect(props.onOpenWorks).toHaveBeenCalledOnce();view.unmount();expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
   it("跨服务改图确认只适用于当前预览，409 后保留修改要求", async () => {
-    const { api } = setup([task], [model, { ...model, id: "p2" }]);
+    const { api } = setup([task], [model, { ...model, id: "p2", name: "插画模型" }]);
     const original = api.preview.getMockImplementation()!;
     let keyVersion = 1;
     api.preview.mockImplementation(async request => {
@@ -112,17 +121,19 @@ describe("图片工作台",()=>{
       keyVersion++;
       throw new ApiError("发送原图前，请确认目标模型服务", 409, 0, { code: "image_data_boundary_confirmation_required" });
     });
-    await screen.findByText("本次使用：海报模型 · 服务 1");
     fireEvent.click(await screen.findByRole("button", { name: "编辑图片 海边画面" }));
     const dialog = screen.getByRole("dialog");
     const draft = within(dialog).getByLabelText("修改要求");
     fireEvent.change(draft, { target: { value: "改成暖色系" } });
     const submit = within(dialog).getByRole("button", { name: "生成新版本" });
     const first = await within(dialog).findByRole("checkbox", { name: /服务 1/ });
+    const picker = within(dialog).getByLabelText("编辑模型");
+    expect(picker).toHaveDisplayValue("海报模型");
     expect(submit).toBeDisabled();
     fireEvent.click(first);
-    fireEvent.change(within(dialog).getByLabelText("编辑模型"), { target: { value: "p2" } });
+    fireEvent.change(picker, { target: { value: "p2" } });
     const second = await within(dialog).findByRole("checkbox", { name: /服务 2/ });
+    expect(picker).toHaveDisplayValue("插画模型");
     expect(second).not.toBeChecked();
     expect(submit).toBeDisabled();
     fireEvent.click(second);
