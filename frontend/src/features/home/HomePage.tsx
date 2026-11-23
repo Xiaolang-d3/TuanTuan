@@ -1,6 +1,6 @@
 import { readStorageItem } from "../../storage";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Bookmark, ChevronRight, Github, Layers, LayoutList, List, RefreshCw, SlidersHorizontal, Sparkles, Star, TriangleAlert, Wrench, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronRight, Github, Layers, LayoutGrid, LayoutList, List, Package, RefreshCw, SlidersHorizontal, Sparkles, Star, TriangleAlert, Wrench, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { FetchJson, HomeArticle, HomeReadableItem } from "./types";
 import { useHomeFeed } from "./useHomeFeed";
@@ -49,6 +49,7 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   const { workspace, loading: workspaceLoading, error: workspaceError, refresh: refreshWorkspace } = useHomeWorkspace(fetchJson);
   const [now, setNow] = useState(() => new Date());
   const [mode, setMode] = useState<"info" | "compact">(() => readDisplayPreference(`tuantuan-home-mode:${accountKey}`, "info") === "compact" ? "compact" : "info");
+  const [productUpdatesOpen, setProductUpdatesOpen] = useState(false);
   const [newsFilter, setNewsFilter] = useState("all");
   const [newsPublisher, setNewsPublisher] = useState("all");
   const [repoFilter, setRepoFilter] = useState("all");
@@ -65,6 +66,12 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   const [busyItems, setBusyItems] = useState<Set<string>>(() => new Set());
   const [undoItem, setUndoItem] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const compact = mode === "compact";
+
+  function changeMode(nextMode: typeof mode) {
+    setMode(nextMode);
+    saveDisplayPreference(`tuantuan-home-mode:${accountKey}`, nextMode);
+  }
 
   useEffect(() => {
     const updateTime = () => setNow(new Date());
@@ -89,7 +96,7 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   const updates = (feed?.updates || []).filter((item) => !feed?.item_states[item.id]?.hidden && (releaseFilter === "all" || item.compatibility === releaseFilter));
   const newCount = modelNews.filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden && item.published_at && now.getTime() - new Date(item.published_at).getTime() >= 0 && now.getTime() - new Date(item.published_at).getTime() < 86_400_000).length;
   const failedSources = (feed?.sources || []).filter((source) => source.status === "error");
-  const newsLimit = mode === "compact" ? 12 : 8;
+  const newsLimit = compact ? 12 : 8;
   const previewNews = news;
   const visibleNews = expandedNews ? news : previewNews.slice(0, newsLimit);
   const visiblePractices = expandedPractices ? practices : practices.slice(0, 6);
@@ -136,11 +143,42 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   };
 
   return <section className="home-page" aria-label="开发者首页" data-mode={mode}>
-    <header className="home-head"><div className="home-hello"><div className="home-eyebrow"><span>{now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</span><span>·</span><time className="home-time" aria-label="当前时间" dateTime={now.toISOString()}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time></div><h1 className="home-welcome">{greetingPrefix(now)}，{accountName.trim() || "欢迎回来"}</h1><p className="home-digest">{loading && !feed ? "正在获取模型评测与动态…" : "关注能力评测、新模型和使用成本。"}</p></div><div className="home-head-tools"><div className="home-segment" role="group" aria-label="显示模式"><button className={mode === "compact" ? "on" : ""} type="button" aria-pressed={mode === "compact"} onClick={() => { setMode("compact"); saveDisplayPreference(`tuantuan-home-mode:${accountKey}`, "compact"); }}><List size={14} />简洁</button><button className={mode === "info" ? "on" : ""} type="button" aria-pressed={mode === "info"} onClick={() => { setMode("info"); saveDisplayPreference(`tuantuan-home-mode:${accountKey}`, "info"); }}><LayoutList size={14} />信息</button></div><span className="home-vsep" /><span className="home-sync"><span className={`home-sync-dot${failedSources.length || !feed?.last_synced_at ? " stale" : ""}`} />最近同步 <b>{syncTime}</b></span><button className={`home-icon-btn${refreshing ? " home-spin" : ""}`} type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label="刷新资讯" title="刷新资讯"><RefreshCw size={16} /></button><button className="home-icon-btn" type="button" aria-label="查看收藏" title="查看收藏" onClick={() => setBookmarksOpen(true)}><Bookmark size={16} /></button><button className="home-link-btn" type="button" onClick={() => setInterestOpen(true)}><SlidersHorizontal size={14} />兴趣设置</button></div></header>
+    <header className="home-head">
+      <div className="home-hello">
+        <div className="home-eyebrow"><span>{now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</span><span>·</span><time className="home-time" aria-label="当前时间" dateTime={now.toISOString()}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time></div>
+        <h1 className="home-welcome">{greetingPrefix(now)}，{accountName.trim() || "欢迎回来"}</h1>
+      </div>
+      <div className="home-head-tools">
+        <div className="home-segment home-mode-switch" role="group" aria-label="显示模式">
+          <button type="button" aria-pressed={compact} onClick={() => changeMode("compact")}><List size={14} />简洁</button>
+          <button type="button" aria-pressed={!compact} onClick={() => changeMode("info")}><LayoutGrid size={14} />信息</button>
+        </div>
+        <span className="home-vsep" />
+        <span className="home-sync"><span className={`home-sync-dot${failedSources.length || !feed?.last_synced_at ? " stale" : ""}`} />最近同步 <b>{syncTime}</b></span>
+        <button className={`home-icon-btn${refreshing ? " home-spin" : ""}`} type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label="刷新资讯" title="刷新资讯"><RefreshCw size={16} /></button>
+        <button className="home-icon-btn" type="button" aria-label="查看收藏" title="查看收藏" onClick={() => setBookmarksOpen(true)}><Bookmark size={16} /></button>
+        <button className="home-link-btn" type="button" onClick={() => setInterestOpen(true)}><SlidersHorizontal size={14} />兴趣设置</button>
+      </div>
+    </header>
     {(error || failedSources.length > 0) && <div className="home-banner" role="alert"><TriangleAlert size={16} /><span>{error || `${failedSources.map((source) => source.label).join("、")}暂时更新失败`}{feed && " · 已保留现有内容"}</span><button type="button" onClick={() => { void refresh(); }} disabled={refreshing}>重试</button></div>}
     {refreshing && <p className="home-refresh-status" role="status">正在同步公开资讯，已有内容可继续阅读。</p>}
-    <HomeWorkspaceBar workspace={workspace} loading={workspaceLoading} error={workspaceError} now={now} onRefresh={() => { void refreshWorkspace(); }} weixinLive={weixinLive} />
-    <HomeProductUpdates workspace={workspace} loading={workspaceLoading} />
+    <div className="home-overview">
+      <HomeWorkspaceBar workspace={workspace} loading={workspaceLoading} error={workspaceError} now={now} onRefresh={() => { void refreshWorkspace(); }} weixinLive={weixinLive} />
+      {compact && (workspace || workspaceLoading) && <button
+        className="home-updates-toggle"
+        type="button"
+        aria-controls="home-product-updates"
+        aria-expanded={productUpdatesOpen}
+        onClick={() => setProductUpdatesOpen((open) => !open)}
+      >
+        <Package size={16} />
+        团团动态
+        <ChevronDown size={16} className={productUpdatesOpen ? "home-chevron-open" : undefined} />
+      </button>}
+      <div id="home-product-updates" hidden={compact && !productUpdatesOpen}>
+        <HomeProductUpdates workspace={workspace} loading={workspaceLoading} />
+      </div>
+    </div>
     <HomeInfoTabs accountKey={accountKey} tabs={infoTabs} panels={infoPanels} />
     <footer className="home-footnote"><span><Github size={14} />公开信息源 · 标题、摘要与原文链接均可核对</span><span>{feed?.last_synced_at ? `同步于 ${formatPublished(feed.last_synced_at, now)}` : "同步完成后显示更新时间"}</span></footer>
     {menu && <HomeMoreMenu target={menu} bookmarked={Boolean(feed?.item_states[menu.item.id]?.bookmarked)} onClose={closeMenu} onBookmark={() => { void changeState(menu.item.id, { bookmarked: !feed?.item_states[menu.item.id]?.bookmarked }); }} onSave={() => { setBookmarksOpen(false); setLibraryItem(menu.item); }} onAnalyze={() => { void onAnalyze(menu.item).catch((cause) => setNotice(cause instanceof Error ? cause.message : "生成分析草稿失败，请重试")); }} onHide={() => { void changeState(menu.item.id, { hidden: true }); }} onCopy={() => { if (!navigator.clipboard?.writeText) { setNotice("当前环境无法复制，请直接打开原文链接"); return; } void navigator.clipboard.writeText(menu.item.url).then(() => setNotice("已复制原文链接")).catch(() => setNotice("复制失败，请直接打开原文链接")); }} />}

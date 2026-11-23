@@ -1878,7 +1878,8 @@ class AgentRuntime:
                         await self._publish(event_callback, AgentStreamEvent(type="agent_event", event=event))
                         continue
                     return AgentRunResult(
-                        content=f"{result.message}。本次执行已终止，请处理后重新提问。",
+                        content=(result.message if round_error and round_error.code == "tool_execution_uncertain"
+                                 else f"{result.message}。本次执行已终止，请处理后重新提问。"),
                         provider=self._model_provider,
                         model_selection=self._current_model_selection(),
                         platform=selected_platform,
@@ -2231,6 +2232,7 @@ class AgentRuntime:
         if resume is not None:
             effective_selection = internal_model_selection(resume.model_selection)
         cached_result: AgentRunResult | None = None
+        interrupted_write: ToolResult | None = None
         if self._run_store is not None:
             existing = self._run_store.get_run(execution_id)
             if existing is not None and existing.get("model_selection_invalid"):
@@ -2250,6 +2252,7 @@ class AgentRuntime:
                     existing is not None
                     and existing["status"] == "interrupted"
                 ):
+                    interrupted_write = self._run_store.interrupted_write_result(execution_id)
                     effective_content = str(existing.get("user_content") or user_content)
                     if existing.get("checkpoint") is not None:
                         effective_resume = existing["checkpoint"].model_copy(
@@ -2278,6 +2281,20 @@ class AgentRuntime:
                         await queue.put(
                             AgentStreamEvent(type="text_delta", delta=result.content)
                         )
+                elif interrupted_write is not None:
+                    result = AgentRunResult(
+                        content=interrupted_write.message,
+                        provider=self._model_provider,
+                        model_selection=effective_selection,
+                        platform=platform_name or self._platform_name,
+                        rounds=0,
+                        status="failed",
+                        error=interrupted_write.error,
+                        stop_reason="tool_execution_uncertain",
+                    )
+                    if self._run_store is not None:
+                        self._run_store.finish(execution_id, result)
+                    await queue.put(AgentStreamEvent(type="text_delta", delta=result.content))
                 else:
                     result = await self.run(
                         effective_content,

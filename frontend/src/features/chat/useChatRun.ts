@@ -10,7 +10,7 @@ import type { RefObject } from "react";
 
 type Options = { apiBase: string; accessToken: string; fetchJson: ReturnType<typeof createApiClient>; currentConversationId: number | null; currentConversationIdRef: RefObject<number | null>; modelProfileId?: string | null; preserveSendErrorOnConversationChange?: boolean; setErrorMessage: (message: string) => void; setNoticeMessage: (message: string) => void; refreshConversations: () => Promise<unknown>; onLibraryChanged: () => Promise<void> };
 
-export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, selectedSkillId, preserveSendErrorOnConversationChange = false, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options & { selectedSkillId?: string | null }) {
+export function useChatRun({ apiBase, accessToken, fetchJson, currentConversationId, currentConversationIdRef, modelProfileId, selectedSkillId, webSearchEnabled = false, preserveSendErrorOnConversationChange = false, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged }: Options & { selectedSkillId?: string | null; webSearchEnabled?: boolean }) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const [chatBusy, setChatBusy] = useState(false);
@@ -129,14 +129,15 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     const targetConversationId = conversationIdOverride ?? currentConversationId;
     const selectedModelProfileId = modelProfileIdOverride === undefined ? modelProfileId ?? null : modelProfileIdOverride;
     if (!content || chatBusy || !targetConversationId) return;
-    // Omitted fields let the server resolve automatic search and pending-task
-    // inheritance. Explicit fields are kept for retries and legacy callers.
-    let webSearch = webSearchOverride;
+    // Consent is explicit on new turns. On a confirmed reconnect the caller
+    // supplies the original run's consent and the server enforces its binding.
+    let webSearch = webSearchOverride ?? webSearchEnabled;
     let webSearchTopic = webSearchTopicOverride;
     let webSearchSourcePreference = webSearchSourcePreferenceOverride;
     setModelUnavailable(null);
     setSendError(null);
     let boundSearchProvider = expectedWebSearchProvider;
+    let runAcknowledged = false;
     if (webSearch && expectedWebSearchProvider && !runIdOverride) {
       try {
         const capabilities = await fetchJson<AgentCapabilities>("/agent/capabilities");
@@ -300,6 +301,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
         if (!acceptsStreamEvents()) return;
         if (event.name === "tuantuan.user_message") {
           const userMessage = event.value as ChatMessage;
+          runAcknowledged = true;
           if (userMessage.payload?.web_search_options) {
             const resolved = webSearchOptionsFromMessage(userMessage);
             webSearch = resolved.enabled;
@@ -419,7 +421,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
           context: [],
           forwardedProps: { conversationId, modelProfileId: selectedModelProfileId, client: "tuantuan-web", attachmentIds, visionAttachmentIds,
             ...(selectedSkillId === undefined ? {} : { skillId: selectedSkillId }),
-            ...(webSearch === undefined ? {} : { webSearch }),
+            webSearch,
             ...(webSearchTopic === undefined ? {} : { webSearchTopic }),
             ...(webSearchSourcePreference === undefined ? {} : { webSearchSourcePreference }),
             ...(expectedWebSearchProvider ? { webSearchProvider: expectedWebSearchProvider } : {}) }
@@ -449,6 +451,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
         webSearchSourcePreference,
         ...(boundSearchProvider ? { webSearchProvider: boundSearchProvider } : {}),
         runId: executionRunId,
+        ...(runAcknowledged ? { runAcknowledged: true } : {}),
         reason: "send_failed"
       });
     } finally {
@@ -457,6 +460,21 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
         setChatBusy(false);
       }
     }
+  }
+
+  function retryChatMessage(draft: ChatRetryDraft) {
+    const reconnecting = Boolean(draft.runId && (draft.runAcknowledged || draft.reason === "interrupted"));
+    // Before an acknowledgement the server may still need to create the run.
+    // In that case only the current session setting can authorize search.
+    const searchEnabled = reconnecting ? draft.webSearch === true : webSearchEnabled;
+    const preserveSearchOptions = reconnecting || (searchEnabled && draft.webSearch === true);
+    return sendChatMessage(
+      draft.content, draft.attachmentIds, draft.visionAttachmentIds, searchEnabled,
+      preserveSearchOptions ? draft.webSearchTopic : undefined,
+      preserveSearchOptions ? draft.webSearchSourcePreference : undefined,
+      undefined, draft.runId, draft.rewindMessageId, draft.modelProfileId,
+      preserveSearchOptions ? draft.webSearchProvider : undefined,
+    );
   }
 
   async function stopChatGeneration() {
@@ -537,20 +555,21 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     }
   }
 
-  async function editChatMessage(userMessageId: number, content: string) {
+  async function replaceChatMessage(userMessageId: number, content?: string) {
     const sourceMessage = chatMessages.find((message) => message.id === userMessageId && message.role === "user");
-    if (!sourceMessage) throw new Error("找不到要编辑的用户消息");
-    const search = webSearchOptionsFromMessage(sourceMessage);
-    await sendChatMessage(content, [], [], search.enabled, search.topic, search.source_preference, undefined, undefined, userMessageId, undefined, search.provider);
+    if (!sourceMessage) throw new Error(content === undefined ? "找不到要重新生成的用户消息" : "找不到要编辑的用户消息");
+    const historicalSearch = webSearchOptionsFromMessage(sourceMessage);
+    const search = webSearchEnabled && historicalSearch.enabled ? historicalSearch : undefined;
+    await sendChatMessage(content ?? sourceMessage.content, [], [], webSearchEnabled,
+      search?.topic, search?.source_preference, undefined, undefined, userMessageId, undefined, search?.provider);
   }
 
-  async function regenerateChatMessage(userMessageId: number) {
-    const sourceMessage = chatMessages.find(
-      (message) => message.id === userMessageId && message.role === "user"
-    );
-    if (!sourceMessage) throw new Error("找不到要重新生成的用户消息");
-    const search = webSearchOptionsFromMessage(sourceMessage);
-    await sendChatMessage(sourceMessage.content, [], [], search.enabled, search.topic, search.source_preference, undefined, undefined, userMessageId, undefined, search.provider);
+  function editChatMessage(userMessageId: number, content: string) {
+    return replaceChatMessage(userMessageId, content);
+  }
+
+  function regenerateChatMessage(userMessageId: number) {
+    return replaceChatMessage(userMessageId);
   }
 
   async function cancelCurrentTask() {
@@ -567,5 +586,5 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
     }
   }
   useEffect(() => () => chatAgentRef.current?.abortRun(), []);
-  return { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, setSendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask };
+  return { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, setSendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, retryChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask };
 }

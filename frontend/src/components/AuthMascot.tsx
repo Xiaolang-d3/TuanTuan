@@ -76,7 +76,7 @@ export function AuthMascot() {
 
   return (
     <div className="auth-mascot-scene" data-animated={animated}>
-      <img ref={imageRef} src="/auth-companion-cutout.webp" alt="团团在桌前举着对话气泡，陪你开始工作" width={1448} height={1086} fetchPriority="high" draggable={false} />
+      <img ref={imageRef} src="/auth-companion-cutout.webp" alt="团团在桌前举着对话气泡，陪你开始工作" width={1448} height={1086} loading="lazy" draggable={false} />
       <canvas ref={canvasRef} aria-hidden="true" />
     </div>
   );

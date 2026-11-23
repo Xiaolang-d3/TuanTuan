@@ -29,6 +29,8 @@ export function toolCallDetails(event: RunEvent, running: boolean): Detail[] {
     details.push({ label: "检索", text: query });
   }
   if (event.status === "failed" || event.status === "blocked") {
+    // The answer owns the recovery instructions; keep any other tool details inspectable.
+    if (data.uncertain_previous_execution === true) return details;
     if (event.tool_name === "citation_validator" && text(data.validation_reason)) {
       const reason = text(data.validation_reason).replace("回答没有使用 Markdown 链接引用本轮搜索来源", "回答未附本轮来源链接");
       details.push({ label: "检查", text: reason });

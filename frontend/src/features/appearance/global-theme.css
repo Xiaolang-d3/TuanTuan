@@ -98,7 +98,7 @@
   --fl-danger: var(--color-danger);
   --fl-danger-bg: var(--color-danger-soft);
 }
-:root[data-theme="dark"] :is(.action-dialog, .auth-status-card, .auth-email-suggestions) { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
+:root[data-theme="dark"] :is(.action-dialog, .auth-email-suggestions) { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
 :root[data-theme="dark"] :is(.action-dialog input, .auth-email-suggestions button) { color: var(--color-text-secondary); }
 :root[data-theme="dark"] .action-dialog input { background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
 :root[data-theme="dark"] .app-identity-menu button:hover,

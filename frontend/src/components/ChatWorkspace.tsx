@@ -33,9 +33,13 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
+
+function currentWebSearch(props: ChatWorkspaceProps): boolean {
+  return props.webSearchAvailable !== false && props.webSearchEnabled === true;
+}
 
 function asClarificationOption(value: unknown, index: number): ChatClarificationOption | null {
   if (!value || typeof value !== "object") return null;
@@ -543,7 +547,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <ComposerClarification
               clarification={clarification}
               busy={props.taskCancelBusy}
-              onChoose={(text) => { void props.onSend(text, [], []); }}
+              onChoose={(text) => { void props.onSend(text, [], [], currentWebSearch(props)); }}
               onCancel={props.onCancelTask}
             />
           ) : props.waitingForUser ? (
@@ -591,7 +595,9 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                   void props.onRetry(draft);
                   return;
                 }
-                void props.onSend(draft.content, draft.attachmentIds, draft.visionAttachmentIds, draft.webSearch, draft.webSearchTopic, draft.webSearchSourcePreference);
+                const searchEnabled = currentWebSearch(props);
+                void props.onSend(draft.content, draft.attachmentIds, draft.visionAttachmentIds, searchEnabled,
+                  searchEnabled ? draft.webSearchTopic : undefined, searchEnabled ? draft.webSearchSourcePreference : undefined);
               }}><RefreshCw size={12} />{props.retryDraft.reason === "interrupted" ? "继续执行" : "重试"}</button> : null}
               {props.retryDraft ? <details><summary>查看保留的内容</summary><p style={{ whiteSpace: "pre-wrap" }}>{props.retryDraft.content}</p></details> : null}
             </section>
@@ -693,6 +699,17 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                     </span>
                     <span>语音</span>
                   </button>
+                  {!quickMode && props.onWebSearchChange ? <button
+                    className={`composer-tool composer-web-search-tool${currentWebSearch(props) ? " active" : ""}`}
+                    type="button"
+                    aria-pressed={currentWebSearch(props)}
+                    disabled={!props.currentConversationId || props.webSearchAvailable === false}
+                    title={props.webSearchAvailable === false ? "联网搜索服务未启用" : "允许当前对话接下来的回复按需联网搜索"}
+                    onClick={() => props.onWebSearchChange?.(!currentWebSearch(props))}
+                  >
+                    <Globe size={16} aria-hidden="true" />
+                    <span>联网搜索</span>
+                  </button> : null}
                   <ChatContextChips context={props.sessionContext} />
                 </div>
                 <div className="composer-primary-actions">
@@ -908,6 +925,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
           content,
           pendingAttachments.map((attachment) => attachment.id),
           visionAttachmentIds,
+          currentWebSearch(props),
         );
         if (sent === false) return;
         // Failed sends keep content and attachment IDs in retryDraft; do not

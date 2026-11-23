@@ -1,8 +1,10 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Lock } from "lucide-react";
+import qqConnectLogo from "./qq-connect-logo.png";
 import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
+import { beginQq, canUseQq, clearQqReturn, finishQq, readQqReturn } from "../features/auth/qq";
 import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthMascot } from "./AuthMascot";
@@ -13,11 +15,12 @@ import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/pass
 export type { AuthUser } from "../features/auth/session";
 import "./auth-gate.css";
 
-type AuthConfig = { enabled: boolean; setup_required: boolean; registration_open?: boolean };
+type AuthConfig = { enabled: boolean; setup_required: boolean; registration_open?: boolean; qq_enabled?: boolean };
 type FieldErrors = { email?: string; password?: string; passwordConfirmation?: string };
 type LoginIssue = { kind: "credentials" | "unregistered" | "network" | "throttled" | "exists" | "generic"; message: string; field?: keyof FieldErrors; retryAfterSeconds?: number };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const qqBoundMessage = "QQ 已绑定，下次可用 QQ 登录此账户。";
 
 function validateEmail(email: string, registering: boolean): string | undefined {
   const normalized = email.trim();
@@ -74,7 +77,16 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   const showingPublicPage = Boolean(publicPage);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const session = useAuthSession(apiBase);
-  const { token, authenticated, restoreError, notice, logoutBusy, logoutError, retryRestore, logout, updateSession } = session;
+  const { token, authenticated, restoreError, notice, logoutBusy, logoutError, retryRestore, logout, updateSession, acceptSession } = session;
+  const [qqReturn, setQqReturn] = useState(readQqReturn);
+  const completingQq = (qqReturn === "login" || qqReturn === "bind") && canUseQq(apiBase);
+  const [qqConfirmation, setQqConfirmation] = useState<string | null>(null);
+  const [bindingQq, setBindingQq] = useState(false);
+  const [qqBusy, setQqBusy] = useState(false);
+  const [qqNotice, setQqNotice] = useState<{ message: string; error: boolean } | null>(null);
+  const acceptSessionRef = useRef(acceptSession);
+  acceptSessionRef.current = acceptSession;
+  const qqExchange = useRef<{ apiBase: string; token: string | null; result: Promise<unknown> } | null>(null);
   const [registering, setRegistering] = useState(false);
   const [pendingCreation, setPendingCreation] = useState(false);
   const creating = registering || pendingCreation;
@@ -96,6 +108,66 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const passwordConfirmationRef = useRef<HTMLInputElement>(null);
+  const qqChoiceHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  function dismissQqReturn() {
+    clearQqReturn();
+    setQqReturn(null);
+    setQqConfirmation(null);
+    setBindingQq(false);
+  }
+
+  useEffect(() => {
+    if (!qqReturn || !canUseQq(apiBase)) return;
+    const binding = qqReturn.startsWith("bind");
+    const complete = (message = "", error = true) => {
+      dismissQqReturn();
+      if (message) setQqNotice({ message, error });
+    };
+    if (qqReturn.endsWith("cancelled")) {
+      complete("已取消 QQ 授权。", false);
+      return;
+    }
+    if (qqReturn !== "login" && qqReturn !== "bind") {
+      complete("未能完成 QQ 授权，请重试。");
+      return;
+    }
+    if (binding && !token) {
+      complete("请先登录原来的团团账号，再重新绑定 QQ。");
+      return;
+    }
+    if (!binding && token) {
+      complete("请先退出当前账户，再使用 QQ 登录。");
+      return;
+    }
+    if (!qqExchange.current) {
+      qqExchange.current = { apiBase, token, result: finishQq(apiBase, token ?? undefined) };
+    }
+    if (qqExchange.current.apiBase !== apiBase || qqExchange.current.token !== token) {
+      complete("登录状态已改变，请重新授权 QQ。");
+      return;
+    }
+    let cancelled = false;
+    void qqExchange.current.result.then((payload) => {
+      if (cancelled) return;
+      if (!binding && payload && typeof payload === "object" && "confirmation" in payload && typeof payload.confirmation === "string") {
+        setQqConfirmation(payload.confirmation);
+        return;
+      }
+      const next = binding ? { ...(payload as { user: AuthUser }), access_token: token } : payload;
+      acceptSessionRef.current(validateSession(next));
+      complete(binding ? qqBoundMessage : "", false);
+    }).catch((reason: unknown) => {
+      if (!cancelled) complete(reason instanceof Error ? reason.message : "未能完成 QQ 授权，请重试。");
+    });
+    return () => { cancelled = true; };
+  }, [apiBase, qqReturn, token]);
+
+  useEffect(() => {
+    if (!qqConfirmation || showingPublicPage) return;
+    if (bindingQq) emailInputRef.current?.focus();
+    else qqChoiceHeadingRef.current?.focus();
+  }, [bindingQq, qqConfirmation, showingPublicPage]);
 
   useEffect(() => {
     if (busy || !focusAfterSubmit.current) return;
@@ -106,7 +178,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   }, [busy]);
 
   useEffect(() => {
-    if (token || showingPublicPage) return;
+    if (token || showingPublicPage || completingQq) return;
     const controller = new AbortController();
     let cancelled = false;
     void createApiClient(apiBase)<AuthConfig>("/auth/config", { signal: controller.signal })
@@ -124,7 +196,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           : raw);
       });
     return () => { cancelled = true; controller.abort(); };
-  }, [apiBase, token, bootNonce, showingPublicPage]);
+  }, [apiBase, token, bootNonce, completingQq, showingPublicPage]);
 
   useEffect(() => {
     if (!showingPublicPage) return;
@@ -168,6 +240,40 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
     setFieldErrors(next && email ? { email: validateEmail(email, true) } : {});
     setError("");
     setErrorKind("");
+    setQqNotice(null);
+  }
+
+  async function startQq() {
+    if (busy || qqBusy) return;
+    setQqBusy(true);
+    setQqNotice(null);
+    try {
+      await beginQq(apiBase);
+    } catch (reason) {
+      setQqNotice({ message: reason instanceof Error ? reason.message : "无法连接 QQ，请重试。", error: true });
+      setQqBusy(false);
+    }
+  }
+
+  async function createQqAccount() {
+    if (!qqConfirmation || submitController.current) return;
+    const controller = new AbortController();
+    submitController.current = controller;
+    setBusy(true);
+    try {
+      const payload = await finishQq(apiBase, undefined, { action: "create", confirmation: qqConfirmation }, controller.signal);
+      if (!controller.signal.aborted) acceptSessionRef.current(validateSession(payload));
+    } catch (reason) {
+      if (!controller.signal.aborted) {
+        setQqNotice({ message: reason instanceof Error ? reason.message : "无法创建账号，请重新授权 QQ。", error: true });
+      }
+    } finally {
+      if (submitController.current === controller) submitController.current = null;
+      if (!controller.signal.aborted) {
+        dismissQqReturn();
+        setBusy(false);
+      }
+    }
   }
 
   function focusFirstInvalid(next: FieldErrors) {
@@ -178,7 +284,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || submitController.current || cooldown) return;
+    if (busy || qqBusy || submitController.current || cooldown) return;
     const nextFields = validateLoginFields({
       email,
       password,
@@ -205,7 +311,20 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
         body: JSON.stringify({ email: email.trim().toLowerCase(), password })
       });
       if (controller.signal.aborted) return;
-      const next = validateSession(payload);
+      let next = validateSession(payload);
+      if (bindingQq && qqConfirmation) {
+        try {
+          const bound = await finishQq(apiBase, next.access_token, { action: "bind", confirmation: qqConfirmation }, controller.signal);
+          if (controller.signal.aborted) return;
+          next = validateSession({ ...(bound as { user: AuthUser }), access_token: next.access_token });
+          setQqNotice({ message: qqBoundMessage, error: false });
+        } catch (reason) {
+          if (controller.signal.aborted) return;
+          const detail = reason instanceof Error ? `（${reason.message}）` : "";
+          setQqNotice({ message: `已登录，QQ 绑定未完成${detail}。可在「设置 → 账号」重新绑定。`, error: true });
+        }
+        dismissQqReturn();
+      }
       setPassword("");
       setPasswordConfirmation("");
       setPasswordVisible(false);
@@ -216,7 +335,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
     } catch (reason) {
       if (controller.signal.aborted) return;
       const issue = classifyLoginError(reason, creating);
-      if (issue.kind === "unregistered" && config?.registration_open !== false) {
+      if (issue.kind === "unregistered" && !bindingQq && config?.registration_open !== false) {
         setPendingCreation(true);
         setFieldErrors({ email: validateEmail(email, true) });
         focusAfterSubmit.current = "password";
@@ -235,6 +354,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   }
 
   if (publicPage) return publicPage(Boolean(token && authenticated));
+  if (!qqConfirmation && completingQq) return <AuthStatus message="正在完成 QQ 授权…" />;
   if (logoutBusy) return <AuthStatus message="正在退出登录…" />;
   if (token && !authenticated) {
     return (
@@ -247,29 +367,51 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   }
   if (token && authenticated) {
     return <>
+      {qqNotice ? <div className={`auth-session-error${qqNotice.error ? "" : " auth-session-notice"}`} role={qqNotice.error ? "alert" : "status"}>
+        {qqNotice.message}<button type="button" onClick={() => setQqNotice(null)}>关闭</button>
+      </div> : null}
       {logoutError ? <div className="auth-session-error" role="alert">{logoutError}<button type="button" onClick={() => void logout()}>重试退出</button></div> : null}
-      {children(token, () => void logout(), authenticated.user, updateSession)}
+      {children(token, () => { setQqNotice(null); void logout(); }, authenticated.user, updateSession)}
     </>;
   }
-  if (error && !config) {
+  const choosingQq = Boolean(qqConfirmation && !bindingQq);
+  if (!qqConfirmation && error && !config) {
     return <AuthStatus message={error} alert onRetry={() => { setError(""); setBootNonce((value) => value + 1); }} />;
   }
-  if (!config) return <AuthStatus message="正在连接登录服务…" />;
+  if (!qqConfirmation && !config) return <AuthStatus message="正在连接登录服务…" />;
+  const showQq = typeof config?.qq_enabled === "boolean" && canUseQq(apiBase);
+  const qqEnabled = showQq && config?.qq_enabled === true;
   const confirmMismatch = Boolean(registering && passwordConfirmation && password.normalize("NFC") !== passwordConfirmation.normalize("NFC"));
   const livePasswordError = creating && password ? newPasswordError(password, email) : undefined;
+  const title = bindingQq ? "登录已有账号" : creating ? (qqEnabled ? "创建团团账户" : "创建本地账户") : "欢迎登录";
+  const submitLabel = bindingQq ? "登录并绑定 QQ" : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录";
+  const submittingLabel = bindingQq ? "正在登录并绑定…" : creating ? "正在创建…" : "正在登录…";
   return (
     <AuthGateShell>
       <div className="auth-shell">
-        <form className="auth-card" onSubmit={submit} noValidate aria-busy={busy}>
+        {choosingQq ? <section className="auth-card" aria-labelledby="auth-qq-choice-title" aria-busy={busy}>
           <div className="auth-heading">
-            <h2 className="auth-form-title">{creating ? "创建本地账户" : "登录本地账户"}</h2>
-            <p className="auth-subtitle">{creating ? "几秒钟即可开始，数据只留在这台设备" : "欢迎回来，继续你的工作空间"}</p>
+            <img className="auth-heading-logo" src="/tuantuan-favicon.png" width="44" height="44" alt="" draggable={false} />
+            <h2 id="auth-qq-choice-title" className="auth-form-title" ref={qqChoiceHeadingRef} tabIndex={-1}>继续使用 QQ</h2>
           </div>
+          <p className="auth-qq-description">这个 QQ 还未绑定团团账号。</p>
+          <button className="auth-submit" type="button" disabled={busy} onClick={() => { switchMode(false); setBindingQq(true); }}>
+            登录已有账号并绑定
+          </button>
+          <button className="auth-submit auth-secondary-button" type="button" disabled={busy} onClick={() => void createQqAccount()}>
+            {busy ? "正在创建…" : "创建新账号"}
+          </button>
+          <p className="auth-mode-switch"><button type="button" disabled={busy} onClick={dismissQqReturn}>返回登录</button></p>
+        </section> : <form className="auth-card" onSubmit={submit} noValidate aria-busy={busy} aria-labelledby="auth-form-title">
+          <div className="auth-heading">
+            <img className="auth-heading-logo" src="/tuantuan-favicon.png" width="44" height="44" alt="" draggable={false} />
+            <h2 className="auth-form-title" id="auth-form-title">{title}</h2>
+          </div>
+          {bindingQq ? <p className="auth-qq-description">登录后，这个 QQ 将绑定到该账号。</p> : null}
           {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
-          {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建本地账户，并自动登录。</p> : null}
+          {pendingCreation ? <p className="auth-create-notice" role="status">该邮箱尚未注册。确认邮箱无误后，点击「创建并登录」将使用当前邮箱和密码创建{qqEnabled ? "团团" : "本地"}账户，并自动登录。</p> : null}
           <div className="auth-fields">
             <div className="auth-field">
-              <label htmlFor="auth-email">邮箱</label>
               <AuthEmailInput
                 inputRef={emailInputRef}
                 registering={creating}
@@ -291,15 +433,15 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               {fieldErrors.email ? <small id="auth-email-error" className="auth-field-error">{fieldErrors.email}</small> : null}
             </div>
             <div className="auth-field">
-              <label htmlFor="auth-password">密码</label>
               <span className="auth-password-field">
                 <input
                   id="auth-password"
                   ref={passwordInputRef}
                   type={passwordVisible ? "text" : "password"}
                   name="password"
+                  aria-label="密码"
                   autoComplete={creating ? "new-password" : "current-password"}
-                  placeholder={creating ? "设置登录密码" : "输入登录密码"}
+                  placeholder={creating ? "设置登录密码" : "请输入密码"}
                   value={password}
                   disabled={busy}
                   aria-invalid={Boolean(fieldErrors.password || livePasswordError)}
@@ -326,12 +468,12 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
             </div>
             {registering ? (
               <div className="auth-field">
-                <label htmlFor="auth-password-confirm">确认密码</label>
                 <span className="auth-password-field">
                   <input
                     id="auth-password-confirm"
                     ref={passwordConfirmationRef}
                     type={passwordVisible ? "text" : "password"}
+                    aria-label="确认密码"
                     autoComplete="new-password"
                     placeholder="再次输入密码"
                     value={passwordConfirmation}
@@ -355,27 +497,44 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               {errorKind === "network" ? <button type="button" className="auth-error-action" onClick={() => { setError(""); setErrorKind(""); setBootNonce((value) => value + 1); }}>重新连接</button> : null}
             </p>
           ) : null}
-          <button className="auth-submit" type="submit" disabled={busy || cooldown > 0} aria-busy={busy}>
-            <span>{cooldown ? `${cooldown} 秒后重试` : busy ? (creating ? "正在创建…" : "正在登录…") : pendingCreation ? "创建并登录" : registering ? "创建账号" : "登录"}</span>
+          {qqNotice ? <p className={qqNotice.error ? "auth-error" : "auth-notice"} role={qqNotice.error ? "alert" : "status"}>{qqNotice.message}</p> : null}
+          <button className="auth-submit" type="submit" disabled={busy || qqBusy || cooldown > 0} aria-busy={busy}>
+            {cooldown ? `${cooldown} 秒后重试` : busy ? submittingLabel : submitLabel}
           </button>
-          <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p>
-          <p className="auth-mode-switch">
-            {pendingCreation ? (
-              <button type="button" onClick={() => switchMode(false)} disabled={busy}>返回登录</button>
-            ) : registering ? (
-              <button type="button" onClick={() => switchMode(false)} disabled={busy}>已有账号？去登录</button>
-            ) : config.registration_open !== false ? (
-              <button type="button" onClick={() => switchMode(true)} disabled={busy}>没有账号？创建账号</button>
-            ) : null}
-          </p>
-        </form>
-        <section className="auth-artwork" aria-label="团团，你的智能工作伙伴">
+          {bindingQq || creating || config?.registration_open !== false ? (
+            <p className="auth-mode-switch">
+              {bindingQq ? (
+                <button type="button" onClick={() => { switchMode(false); setBindingQq(false); }} disabled={busy}>返回上一步</button>
+              ) : pendingCreation ? (
+                <button type="button" onClick={() => switchMode(false)} disabled={busy}>返回登录</button>
+              ) : registering ? (
+                <button type="button" onClick={() => switchMode(false)} disabled={busy}>已有账号？去登录</button>
+              ) : (
+                <button type="button" onClick={() => switchMode(true)} disabled={busy}>没有账号？创建账号</button>
+              )}
+            </p>
+          ) : null}
+          {showQq && !bindingQq ? (
+            <div className="auth-qq-options" role="group" aria-labelledby="auth-qq-label">
+              <div className="auth-qq-divider" id="auth-qq-label">{creating ? "其他注册方式" : "其他登录方式"}</div>
+              <button
+                className="auth-qq-button"
+                type="button"
+                disabled={!qqEnabled || busy || qqBusy}
+                aria-label={creating ? "使用 QQ 注册" : "使用 QQ 登录"}
+                aria-busy={qqBusy}
+                onClick={() => void startQq()}
+              >
+                <img src={qqConnectLogo} width="24" height="24" alt="" />
+              </button>
+              {qqBusy ? <p className="auth-notice" role="status">正在前往 QQ…</p> : null}
+            </div>
+          ) : null}
+          {!showQq && !bindingQq ? <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p> : null}
+        </form>}
+        <div className="auth-artwork">
           <AuthMascot />
-          <div className="auth-artwork-caption">
-            <h2>从对话开始，让工作更从容。</h2>
-            <p>团团，你的智能工作伙伴。</p>
-          </div>
-        </section>
+        </div>
       </div>
     </AuthGateShell>
   );
@@ -393,11 +552,13 @@ function suppressBackgroundDoubleClick(event: { target: EventTarget | null; prev
 function AuthGateShell({ status = false, children }: { status?: boolean; children: ReactNode }) {
   return (
     <main className={status ? "auth-gate auth-gate-status" : "auth-gate"} onDoubleClick={suppressBackgroundDoubleClick}>
-      <h1 className="auth-wordmark">团团</h1>
-      <nav className="auth-public-nav" aria-label="公共导航">
-        <a href={productIntroHash}>关于 团团</a>
-        <ThemeToggleButton className="auth-theme-toggle" />
-      </nav>
+      <header className="auth-header">
+        <h1 className="auth-wordmark">团团</h1>
+        <nav className="auth-public-nav" aria-label="公共导航">
+          <a href={productIntroHash}>关于 团团</a>
+          <ThemeToggleButton className="auth-theme-toggle" />
+        </nav>
+      </header>
       {children}
       <PublicSiteFooter links={[
         { href: productPrivacyHash, label: "隐私说明" },

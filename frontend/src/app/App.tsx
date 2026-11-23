@@ -20,6 +20,7 @@ import { readConversationFolders, readIdList, readStringMap, writeConversationFo
 import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
 import { useConversations } from "../features/chat/useConversations";
+import { useConversationWebSearch } from "../features/chat/useConversationWebSearch";
 import { useKernels } from "../features/chat/useKernels";
 import { VideoPage, WorksPage } from "../features/product/ProductPages";
 import { ImageWorkspacePage } from "../features/product/ImageWorkspacePage";
@@ -264,8 +265,11 @@ export function App({
   const skillSelectionScope = JSON.stringify([apiBase, user.id ?? user.email, appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId]);
   const [chatSkillSelection, setChatSkillSelection] = useState<{ scope: string; id: string | null | undefined }>({ scope: "", id: undefined });
   const selectedSkillId = chatSkillSelection.scope === skillSelectionScope ? chatSkillSelection.id : undefined;
-  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
+  const conversationWebSearch = useConversationWebSearch(apiBase, user, currentConversationId);
+  const webSearchAvailable = capabilities?.web_research?.enabled === true;
+  const webSearchEnabled = webSearchAvailable && conversationWebSearch.enabled;
+  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, retryChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, webSearchEnabled, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
   const kernels = useKernels(fetchJson);
   const [attachmentConfig, setAttachmentConfig] = useState<AttachmentConfig | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -1074,8 +1078,8 @@ export function App({
 
   const identityMenu = (
     <AppIdentityMenu
-      userEmail={userEmail}
-      accountName={user.display_name}
+      userEmail={user.qq_only ? "QQ 登录" : userEmail}
+      accountName={user.display_name || (user.qq_only ? "QQ 用户" : undefined)}
       avatarUrl={avatarUrl}
       activeView={activeView}
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
@@ -1265,7 +1269,7 @@ export function App({
             <HomePage
               key={userEmail}
               fetchJson={fetchJson}
-              accountName={user.display_name?.trim() || userEmail.split("@")[0]}
+              accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
@@ -1334,7 +1338,7 @@ export function App({
                   libraryReady={libraryReady}
                   sourceTitle={librarySources.find(source => !source.trashed_at)?.title}
                   fileCount={sourceCount}
-                  accountEmail={user.email}
+                  accountEmail={user.qq_only ? "QQ 登录" : user.email}
                   accountName={user.display_name}
                   modelName={savedAgentSettings.model_name}
                   apiKeyConfigured={savedAgentSettings.api_key_configured}
@@ -1500,6 +1504,9 @@ export function App({
             sendError={sendError}
             onOpenModelSettings={() => navigateRoute({ section: "settings", page: "model" })}
             currentConversationId={currentConversationId}
+            webSearchEnabled={webSearchEnabled}
+            webSearchAvailable={webSearchAvailable}
+            onWebSearchChange={conversationWebSearch.setEnabled}
             libraryAttachments={libraryAttachments}
             onLibraryAttachmentsConsumed={() => setLibraryAttachments(null)}
             composerDraft={homeComposerDraft}
@@ -1556,19 +1563,7 @@ export function App({
             onSuggestedAction={handleSuggestedAction}
             onCancelTask={() => void cancelCurrentTask()}
             onSend={sendChatMessage}
-            onRetry={(draft) => sendChatMessage(
-              draft.content,
-              draft.attachmentIds,
-              draft.visionAttachmentIds,
-              draft.webSearch,
-              draft.webSearchTopic,
-              draft.webSearchSourcePreference,
-              undefined,
-              draft.runId,
-              draft.rewindMessageId,
-              draft.modelProfileId,
-              draft.webSearchProvider
-            )}
+            onRetry={retryChatMessage}
             onStop={stopChatGeneration}
             onEdit={editChatMessage}
             onRegenerate={regenerateChatMessage}

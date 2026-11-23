@@ -16,12 +16,142 @@ function authConfig(setupRequired = false) {
 describe("AuthGate", () => {
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", "/");
     window.sessionStorage.clear();
     window.localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     delete document.documentElement.dataset.theme;
     document.documentElement.style.colorScheme = "";
+  });
+
+  it("keeps the QQ entry hidden when the server has no QQ configuration field", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => authConfig()));
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    await screen.findByLabelText("邮箱");
+    expect(screen.queryByRole("button", { name: "使用 QQ 登录" })).not.toBeInTheDocument();
+  });
+
+  it("shows QQ login without starting authorization when QQ is disabled", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ qq_enabled: false, setup_required: false })));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    const button = await screen.findByRole("button", { name: "使用 QQ 登录" });
+    expect(button).toBeVisible();
+    expect(button).toBeDisabled();
+    expect(button).not.toHaveAccessibleDescription();
+    expect(screen.queryByText(/QQ 登录暂未开通/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/只保存在这台设备/)).not.toBeInTheDocument();
+    fireEvent.click(button);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+  });
+
+  it("enables QQ registration and login when authorized by the service", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ qq_enabled: true, setup_required: false }))));
+    render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    const qqButton = await screen.findByRole("button", { name: "使用 QQ 登录" });
+    expect(qqButton).toBeEnabled();
+    expect(qqButton).not.toHaveAccessibleDescription();
+    expect(screen.getByRole("form", { name: "欢迎登录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "没有账号？创建账号" }));
+    expect(screen.getByRole("button", { name: "使用 QQ 注册" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "创建团团账户" })).toBeInTheDocument();
+  });
+
+  it("exchanges the QQ return once and removes the return flag", async () => {
+    window.history.replaceState(null, "", "/?qq_auth=login");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/auth/qq/finish")) {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ access_token: "qq-session", user: { id: 2, email: "internal@qq.tuantuan.invalid", qq_only: true } }));
+      }
+      return authConfig();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuthGate apiBase={window.location.origin}>{(token) => <div>{token}</div>}</AuthGate>);
+    await screen.findByText("qq-session");
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBe("qq-session");
+    expect(window.location.search).toBe("");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/auth/qq/finish"))).toHaveLength(1);
+  });
+
+  it("creates a QQ account only after the user chooses to create one", async () => {
+    window.history.replaceState(null, "", "/?qq_auth=login");
+    const decisions: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).endsWith("/auth/qq/finish")) return authConfig();
+      if (!init?.body) return Response.json({ confirmation: "first-qq" });
+      const { action, confirmation } = JSON.parse(String(init.body));
+      expect(confirmation).toBe("first-qq");
+      decisions.push(action);
+      return Response.json({ access_token: "new-qq-session", user: { id: 2, email: "internal@qq.tuantuan.invalid", qq_only: true } });
+    }));
+
+    render(<AuthGate apiBase={window.location.origin}>{(token) => <div>{token}</div>}</AuthGate>);
+    const create = await screen.findByRole("button", { name: "创建新账号" });
+    expect(decisions).toEqual([]);
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    fireEvent.click(create);
+    await screen.findByText("new-qq-session");
+    expect(decisions).toEqual(["create"]);
+    expect(window.location.search).toBe("");
+  });
+
+  it("does not apply a late QQ registration response after leaving the sign-in page", async () => {
+    window.history.replaceState(null, "", "/?qq_auth=login");
+    let finishRegistration: (response: Response) => void = () => {};
+    const pending = new Promise<Response>(resolve => { finishRegistration = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      init?.body ? pending : Response.json({ confirmation: "first-qq" })
+    ));
+
+    const { unmount } = render(<AuthGate apiBase={window.location.origin}>{() => null}</AuthGate>);
+    fireEvent.click(await screen.findByRole("button", { name: "创建新账号" }));
+    unmount();
+    await act(async () => finishRegistration(Response.json({
+      access_token: "late-qq-session", user: { id: 2, email: "internal@qq.tuantuan.invalid", qq_only: true }
+    })));
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    expect(window.location.search).toBe("?qq_auth=login");
+  });
+
+  it("binds the authorized QQ only after signing in to an existing email account", async () => {
+    window.history.replaceState(null, "", "/?qq_auth=login");
+    const existing = { id: 1, email: "owner@example.com", qq_bound: false };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/auth/config") return authConfig();
+      if (path === "/auth/login") {
+        if (JSON.parse(String(init?.body)).email === "unknown@example.com") {
+          return Response.json({ detail: "该邮箱尚未注册" }, { status: 404 });
+        }
+        return Response.json({ access_token: "existing-session", user: existing });
+      }
+      if (path === "/auth/qq/finish" && !init?.body) return Response.json({ confirmation: "first-qq" });
+      if (path === "/auth/qq/finish") {
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer existing-session");
+        expect(JSON.parse(String(init?.body))).toEqual({ action: "bind", confirmation: "first-qq" });
+        return Response.json({ user: { ...existing, qq_bound: true } });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AuthGate apiBase={window.location.origin}>{(token, _, user) => <div>{token} {user.qq_bound ? "已绑定" : "未绑定"}</div>}</AuthGate>);
+    fireEvent.click(await screen.findByRole("button", { name: "登录已有账号并绑定" }));
+    fireEvent.change(await screen.findByLabelText("邮箱"), { target: { value: "unknown@example.com" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "example-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录并绑定 QQ" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("该邮箱尚未注册");
+    expect(screen.queryByRole("button", { name: "创建并登录" })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBeNull();
+    fireEvent.change(screen.getByLabelText("邮箱"), { target: { value: existing.email } });
+    fireEvent.click(screen.getByRole("button", { name: "登录并绑定 QQ" }));
+    await screen.findByText("existing-session 已绑定");
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBe("existing-session");
+    expect(window.location.search).toBe("");
   });
 
   it.each(["light", "dark", "blue"] as const)("switches the saved %s theme from the public navigation and preserves it on remount", async initial => {
@@ -596,7 +726,7 @@ describe("account session lifecycle", () => {
     expect(screen.getByLabelText("邮箱")).toHaveValue("owner@example.com");
     expect(screen.getByLabelText("密码")).toHaveValue("");
     expect(screen.queryByLabelText("确认密码")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "登录本地账户" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "欢迎登录" })).toBeInTheDocument();
   });
 
   it("does not expose registration when the server closes it", async () => {

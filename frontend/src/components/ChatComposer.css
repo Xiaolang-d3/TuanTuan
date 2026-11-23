@@ -39,6 +39,8 @@
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; padding: 0 8px; border-radius: 8px; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool:hover,
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool.active { color: var(--color-brand-strong); background: var(--color-brand-soft); }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool { white-space: nowrap; }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool:disabled { opacity: .5; cursor: not-allowed; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .composer-voice-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: none; color: inherit; }
 .chat-workspace .composer-voice-tool.is-recording .composer-voice-icon { color: var(--color-danger); }
 .chat-workspace .composer-voice-wave { position: absolute; inset: 0; pointer-events: none; }

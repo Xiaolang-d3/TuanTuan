@@ -144,6 +144,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
     hiddenMessageCount: 0,
     chatBusy: extras.chatBusy ?? false,
     currentConversationId: conversation.id,
+    onWebSearchChange: vi.fn(),
     conversations: [conversation],
     conversationBusy: false,
     waitingForUser: false,
@@ -250,7 +251,7 @@ describe("ChatWorkspace", () => {
     expect(send).toHaveAttribute("title", "发送消息");
     expect(send.parentElement).toHaveAttribute("title", "发送消息");
     fireEvent.click(send);
-    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("你好", [], []));
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("你好", [], [], false));
     expect(props.onSend).toHaveBeenCalledTimes(1);
   });
 
@@ -302,7 +303,7 @@ describe("ChatWorkspace", () => {
     fireEvent.change(input, { target: { value: prompt } });
     expect(p.onSend).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /^发送$/ }));
-    await waitFor(() => expect(p.onSend).toHaveBeenCalledWith(prompt, [], []));
+    await waitFor(() => expect(p.onSend).toHaveBeenCalledWith(prompt, [], [], false));
     expect(p.onSend).toHaveBeenCalledTimes(1);
   });
 
@@ -403,6 +404,34 @@ describe("ChatWorkspace", () => {
     expect(screen.getByRole("button", { name: "重试回答" })).toBeInTheDocument();
     expect(screen.queryByText("服务不可用")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("消息发送失败")).not.toBeInTheDocument();
+  });
+
+  it("shows the backend's uncertain-write guidance once during streaming and after the terminal snapshot", async () => {
+    const guidance = "上次写入是否完成尚不确定。请先在文件库核对目标记录，确认缺失后再单独提交。";
+    const event = { round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-1", status: "blocked", message: guidance, data: { uncertain_previous_execution: true } };
+    const agent: AgentRunResult = { provider: "test", platform: "local", rounds: 1, status: "done", events: [event] };
+    const props = renderChat([message, { ...assistantMessage(guidance, -12), payload: { agent } }], { chatBusy: true });
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    const persisted = { ...assistantMessage(guidance), payload: { agent: { ...agent, status: "failed" as const, error: { code: "tool_execution_uncertain", message: guidance, retryable: false } } } };
+    props.view.rerender(<ChatWorkspace {...props} messages={[message, persisted]} chatBusy={false} />);
+    expect(await screen.findByText("写入结果待核对")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "展开思考与执行过程" }));
+    expect(screen.getByText("已阻止重复写入")).toBeVisible();
+    expect(screen.getAllByText(guidance)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /重试|重新生成|继续执行/ })).not.toBeInTheDocument();
+  });
+
+  it("replaces the generic retry instruction in a legacy uncertain-write answer", () => {
+    const oldError = "上次本地写工具执行被中断，结果状态不确定，系统不会自动重放";
+    renderChat([message, { ...assistantMessage(`${oldError}。本次执行已终止，请处理后重新提问。`), payload: { agent: {
+      provider: "test", platform: "local", rounds: 1, status: "failed", error: { code: "tool_execution_uncertain", message: oldError, retryable: false },
+      events: [{ round: 1, tool_name: "propose_library_knowledge", tool_call_id: "write-old", status: "blocked", message: oldError, data: { uncertain_previous_execution: true } }]
+    } } }]);
+    const output = screen.getByRole("region", { name: "输出结果" });
+    expect(output).toHaveTextContent("待确认和已确认知识");
+    expect(output).toHaveTextContent("只有确认缺失时");
+    expect(screen.queryByText(/处理后重新提问/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /重试|重新生成/ })).not.toBeInTheDocument();
   });
 
   it("retains unpersisted send failures without marking the chat model unavailable", () => {
@@ -595,14 +624,27 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByRole("dialog", { name: "历史.txt 预览" })).not.toBeInTheDocument();
   });
 
-  it("omits per-turn search controls and lets the server resolve automatic search despite legacy drafts", async () => {
-    const historical: ChatMessage = { ...message, payload: { web_search_options: { version: 1, enabled: false, topic: "finance", source_preference: "technical" } } };
-    const props = renderChat([historical]);
-    expect(screen.queryByRole("button", { name: "联网搜索" })).not.toBeInTheDocument();
+  it("shows the session search toggle off and sends its explicit value on each new turn", async () => {
+    const props = renderChat([message]);
+    const toggle = screen.getByRole("button", { name: "联网搜索" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByRole("button", { name: "搜索类别" })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "查一下最新资讯" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("查一下最新资讯", [], []));
+    async function send(content: string, enabled: boolean) {
+      fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: content } });
+      fireEvent.click(screen.getByRole("button", { name: "发送" }));
+      await waitFor(() => expect(props.onSend).toHaveBeenLastCalledWith(content, [], [], enabled));
+    }
+    await send("默认关闭", false);
+    fireEvent.click(toggle);
+    expect(props.onWebSearchChange).toHaveBeenLastCalledWith(true);
+    props.view.rerender(<ChatWorkspace {...props} webSearchEnabled />);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await send("查一下最新资讯", true);
+    await send("再查另一条", true);
+    fireEvent.click(toggle);
+    expect(props.onWebSearchChange).toHaveBeenLastCalledWith(false);
+    props.view.rerender(<ChatWorkspace {...props} webSearchEnabled={false} />);
+    await send("只用现有资料", false);
   });
 
   it("leaves waiting-task search inheritance to the server", async () => {
@@ -612,7 +654,7 @@ describe("ChatWorkspace", () => {
     expect(screen.queryByLabelText("搜索类别")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "继续" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("继续", [], []));
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("继续", [], [], false));
   });
 
   it("does not add answer details or a model name from search metadata alone", () => {
@@ -1276,7 +1318,7 @@ describe("ChatWorkspace", () => {
     const props = renderChat([]);
     const tools = screen.getByRole("group", { name: "输入选项" });
     expect(within(tools).getByRole("button", { name: "添加附件" })).toHaveTextContent("添加资料");
-    expect(within(tools).queryByRole("button", { name: "联网搜索" })).not.toBeInTheDocument();
+    expect(within(tools).getByRole("button", { name: "联网搜索" })).toHaveAttribute("aria-pressed", "false");
     expect(within(tools).queryByRole("button", { name: /切换模型/ })).not.toBeInTheDocument();
     const actions = props.view.container.querySelector(".composer-primary-actions") as HTMLElement;
     expect(within(actions).getByRole("button", { name: /切换模型/ })).toBeInTheDocument();
@@ -1293,11 +1335,13 @@ describe("ChatWorkspace", () => {
 
   it("keeps normal messages sendable when the search service is unavailable", async () => {
     const props = renderChat([]);
-    expect(screen.queryByRole("button", { name: "联网搜索" })).not.toBeInTheDocument();
+    props.view.rerender(<ChatWorkspace {...props} webSearchEnabled webSearchAvailable={false} />);
+    expect(screen.getByRole("button", { name: "联网搜索" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "联网搜索" })).toHaveAttribute("aria-pressed", "false");
     fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "帮我润色这句话" } });
     expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("帮我润色这句话", [], []));
+    await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("帮我润色这句话", [], [], false));
   });
 
   it("keeps saved-material access out of the composer while retaining analysis context", () => {
@@ -1456,7 +1500,7 @@ describe("ChatWorkspace", () => {
     expect(screen.getByLabelText("输出结果")).toHaveTextContent("你指的是哪家公司？");
 
     fireEvent.click(screen.getByRole("button", { name: "字节跳动" }));
-    expect(onSend).toHaveBeenCalledWith("按字节跳动继续", [], []);
+    expect(onSend).toHaveBeenCalledWith("按字节跳动继续", [], [], false);
     expect(onSuggestedAction).not.toHaveBeenCalled();
   });
 

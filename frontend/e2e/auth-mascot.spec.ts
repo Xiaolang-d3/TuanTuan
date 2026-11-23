@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
-test("the mascot moves while the desk and shared neutral background stay still", async ({ page }) => {
+test("the mascot moves while the desk stays still over the login background", async ({ page }) => {
   await page.goto("/");
   const scene = page.locator(".auth-mascot-scene");
   await expect(scene).toHaveAttribute("data-animated", "true");
@@ -17,9 +17,7 @@ test("the mascot moves while the desk and shared neutral background stay still",
     return (canvas.getContext("webgl2") ?? canvas.getContext("webgl"))?.getContextAttributes()?.alpha;
   })).toBe(true);
   await expect(scene.getByRole("button")).toHaveCount(0);
-  const background = await page.locator(".auth-gate").evaluate(el => getComputedStyle(el).backgroundColor);
-  expect(background).toBe("rgb(250, 250, 250)");
-  expect(await page.locator(".auth-artwork").evaluate(el => getComputedStyle(el).backgroundColor)).toBe(background);
+  await expect(page.locator(".auth-artwork")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   const bounds = (await scene.boundingBox())!;
   const desk = { x: bounds.x + bounds.width * .15, y: bounds.y + bounds.height * .74, width: bounds.width * .65, height: bounds.height * .2 };
   // Let the first GPU texture presentation settle before comparing pixels.

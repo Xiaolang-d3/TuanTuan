@@ -136,6 +136,37 @@ describe("developer HomePage", () => {
     expect(screen.getByLabelText("开发者首页")).not.toHaveAttribute("data-theme");
   });
 
+  it("collapses product updates in compact mode while keeping the selected feed and workspace links available", async () => {
+    const page = setup();
+    const view = page.render();
+    await screen.findByRole("heading", { name: "更新日志精选" });
+    const trending = screen.getByRole("tab", { name: "技术热榜" });
+    fireEvent.click(trending);
+    fireEvent.click(screen.getByRole("button", { name: "简洁" }));
+
+    const updates = screen.getByRole("button", { name: "团团动态" });
+    expect(updates).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "更新日志精选" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "打开任务中心" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "打开资料库" })).toBeVisible();
+    expect(trending).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(updates);
+    expect(updates).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("heading", { name: "更新日志精选" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "新技能推荐" })).toBeVisible();
+    fireEvent.click(updates);
+    fireEvent.click(screen.getByRole("button", { name: "信息" }));
+    expect(screen.getByRole("heading", { name: "更新日志精选" })).toBeVisible();
+    expect(trending).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "简洁" }));
+    view.unmount();
+    page.render();
+    expect(await screen.findByRole("button", { name: "团团动态" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "简洁" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("filters news, resets an empty selection, and expands then collapses the real list", async () => {
     setup().render(); await load();
     expect(screen.queryByRole("link", { name: "测试 Agent 更新 9" })).not.toBeInTheDocument();

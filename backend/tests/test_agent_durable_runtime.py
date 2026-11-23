@@ -281,6 +281,9 @@ class AgentDurableRuntimeTest(unittest.IsolatedAsyncioTestCase):
         result = events[-1].result
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.error.code, "tool_execution_uncertain")
+        self.assertFalse(result.error.retryable)
+        self.assertIn("文件库 → 知识", result.content)
+        self.assertEqual(model.calls, 0)
         self.assertEqual(tool.calls, 0)
 
     async def test_tool_confirmation_holds_before_ledger_until_approved(self) -> None:

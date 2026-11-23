@@ -55,6 +55,53 @@ class ChatStreamingApiTest(unittest.TestCase):
         finally:
             main_module.get_agent_runtime = original
 
+    def test_resume_interrupted_write_streams_and_saves_verification_guidance(self) -> None:
+        from app.agent.runtime import AgentRuntime, _tool_call_fingerprint
+        from app.domain import ToolCall
+        from app.models import ModelProviderRegistry
+        from app.tooling import ToolSpec
+        from app.tools import ToolRegistry
+
+        cid = self.client.post("/conversations", json={"title": "写入中断"}).json()["id"]
+        task = ensure_active_task(cid)
+        run_id = "interrupted-write-ag-ui"
+        content = "记住我熟悉 Python"
+        user = save_chat_message("user", content, conversation_id=cid, task_id=task)
+        store = AgentRunStore()
+        store.start_run(run_id, conversation_id=cid, task_id=task, user_content=content)
+        store.bind_messages(run_id, user_message_id=user["id"])
+        store.checkpoint(run_id, AgentRunSnapshot(
+            resume_mode="checkpoint", route_kind="library_update", needs_plan=True,
+            messages=[AgentMessage(role="user", content=content)],
+        ))
+        tool = ToolCall(id="pending-write", name="propose_library_knowledge", arguments={"statements": ["熟悉 Python"]})
+        fingerprint = _tool_call_fingerprint(tool.name, tool.arguments)
+        store.prepare_tool_call(run_id, fingerprint, tool, ToolSpec(
+            name=tool.name, title="记录知识", risk="local_pending_write", capabilities=frozenset({"library.write"}),
+        ))
+        store.interrupt_active_runs()
+
+        runtime = AgentRuntime(
+            models=ModelProviderRegistry(), tools=ToolRegistry(), model_provider="test",
+            platform_name="local", max_tool_rounds=3, run_store=store,
+        )
+        with patch.object(runtime, "run", wraps=runtime.run) as execute:
+            events = self.with_runtime(runtime, lambda: self.run_ag_ui(cid, content, run_id))
+            replay = self.with_runtime(runtime, lambda: self.run_ag_ui(cid, content, run_id))
+        execute.assert_not_called()
+        self.assertEqual(events[-1]["code"], "tool_execution_uncertain")
+        self.assertEqual(replay[-1]["code"], "tool_execution_uncertain")
+        history = self.client.get("/chat/messages", params={"conversation_id": cid}).json()
+        self.assertEqual([msg["role"] for msg in history], ["user", "assistant"])
+        guidance = history[-1]["content"]
+        self.assertIn("文件库 → 知识", guidance)
+        self.assertIn("确认缺失后", guidance)
+        self.assertEqual(events[-1]["message"], guidance)
+        self.assertFalse(history[-1]["payload"]["agent"]["error"]["retryable"])
+        with db.connect() as conn:
+            entry = conn.execute("SELECT status, attempt_count FROM agent_tool_executions WHERE run_id = ?", (run_id,)).fetchone()
+        self.assertEqual(tuple(entry), ("interrupted", 1))
+
     def test_clarification_restores_a_legacy_attachment_preview_before_runtime(self) -> None:
         cid = self.client.post("/conversations", json={"title": "附件续接"}).json()["id"]
         text = "前页内容。" * 300 + "\n第二页项目：负责工具编排与中断恢复。"
@@ -89,7 +136,7 @@ class ChatStreamingApiTest(unittest.TestCase):
                 })
                 self.assertEqual(response.status_code, 422)
 
-    def test_new_turns_resolve_automatic_search_without_transport_flags(self) -> None:
+    def test_new_turns_use_web_search_only_with_opt_in(self) -> None:
         captured = []
         class Runtime:
             async def run_stream(self, *args, **kwargs):
@@ -97,18 +144,25 @@ class ChatStreamingApiTest(unittest.TestCase):
                 yield AgentStreamEvent(type="completed", result=AgentRunResult(
                     content="普通回答", provider="test", platform="manual", rounds=1,
                 ))
-        for enabled, forwarded, expected in [(True, {}, True), (False, {}, False), (True, {"webSearch": False}, False)]:
+        for enabled, forwarded, expected in [
+            (True, {}, False),
+            (False, {}, False),
+            (True, {"webSearch": False}, False),
+            (True, {"webSearch": True}, True),
+        ]:
             with self.subTest(enabled=enabled, forwarded=forwarded):
-                conversation = self.client.post("/conversations", json={"title": "自动搜索"}).json()
+                conversation = self.client.post("/conversations", json={"title": "搜索开关"}).json()
                 settings = SimpleNamespace(web_research_enabled=enabled, resolved_web_search_provider="tavily")
                 with patch.object(main_module, "get_settings", return_value=settings):
-                    self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "你好", f"auto-{conversation['id']}", forwarded=forwarded))
+                    self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                        conversation["id"], "请联网搜索最新新闻", f"search-{conversation['id']}", forwarded=forwarded,
+                    ))
                 self.assertEqual(captured[-1].enabled, expected)
                 self.assertEqual((captured[-1].topic, captured[-1].source_preference), ("auto", "none"))
                 messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
                 self.assertEqual(messages[-2]["payload"]["web_search_options"]["enabled"], expected)
 
-    def test_confirmation_inherits_search_options_and_explicit_false_is_preserved(self) -> None:
+    def test_confirmation_requires_consent_and_inherits_search_preferences(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "搜索配置继承"}).json()
         original = WebSearchOptions(enabled=True, topic="finance", source_preference="technical", provider="tavily")
         captured = []
@@ -126,6 +180,11 @@ class ChatStreamingApiTest(unittest.TestCase):
         with patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="tavily")):
             pause()
             self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "继续", "inherited-search"))
+            self.assertEqual(captured[-1], original.model_copy(update={"enabled": False}))
+            pause()
+            self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                conversation["id"], "继续", "opt-in-search", forwarded={"webSearch": True},
+            ))
             self.assertEqual(captured[-1], original)
             pause()
             self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "继续", "disabled-search",
@@ -134,6 +193,15 @@ class ChatStreamingApiTest(unittest.TestCase):
         self.assertEqual((captured[-1].topic, captured[-1].source_preference), ("auto", "none"))
         messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
         self.assertEqual(messages[-2]["payload"]["web_search_options"], captured[-1].model_dump())
+        with patch.object(main_module, "get_settings", return_value=SimpleNamespace(
+            web_research_enabled=True, resolved_web_search_provider="tavily",
+        )):
+            pause()
+            self.with_runtime(Runtime(), lambda: self.run_ag_ui(
+                conversation["id"], "换个话题，写一封邮件", "abandoned-search",
+            ))
+        self.assertFalse(captured[-1].enabled)
+        self.assertEqual(captured[-1].topic, "auto")
 
     def test_provider_change_and_unsupported_capability_fail_before_new_messages(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "服务能力校验"}).json()
@@ -145,7 +213,7 @@ class ChatStreamingApiTest(unittest.TestCase):
             response = self.client.post("/ag-ui", json={
                 "threadId": str(conversation["id"]), "runId": "changed-provider", "state": {},
                 "messages": [{"id": "user", "role": "user", "content": "继续"}],
-                "tools": [], "context": [], "forwardedProps": {},
+                "tools": [], "context": [], "forwardedProps": {"webSearch": True},
             })
             self.assertEqual(response.status_code, 409)
             self.assertIn("搜索服务", response.json()["detail"])

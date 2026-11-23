@@ -32,6 +32,22 @@ describe("AccountSettingsPage", () => {
     raster.presetAvatarFile.mockReset();
   });
 
+  it("offers QQ binding for an eligible local account", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"detail":"暂时不能连接 QQ"}', { status: 503 })));
+    render(<AccountSettingsPage {...props({ apiBase: window.location.origin, account: { ...account, qq_enabled: true, qq_bound: false } })} />);
+    fireEvent.click(screen.getByRole("button", { name: "绑定 QQ" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("暂时不能连接 QQ");
+    expect(fetch).toHaveBeenCalledWith(`${window.location.origin}/auth/qq/bind/start`, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("shows QQ-only accounts without a fictitious email or a change-password form", () => {
+    render(<AccountSettingsPage {...props({ apiBase: window.location.origin, account: { ...account, email: "internal@qq.tuantuan.invalid", qq_only: true, qq_enabled: true, qq_bound: true } })} />);
+    expect(screen.getByText("已绑定 QQ")).toBeInTheDocument();
+    expect(screen.queryByText("internal@qq.tuantuan.invalid")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "修改密码" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "绑定 QQ" })).not.toBeInTheDocument();
+  });
+
   it("keeps account identity separate from the career profile", () => {
     render(<AccountSettingsPage {...props()} />);
 

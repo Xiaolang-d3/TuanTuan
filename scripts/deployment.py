@@ -189,6 +189,7 @@ def runtime_environment(root: Path, config: dict, revision: str, *, smoke_data: 
             env["TUANTUAN_SECRET_MASTER_KEY"] = key
         env["TUANTUAN_MAINTENANCE_FILE"] = str(root / "maintenance")
         env["TUANTUAN_BENCHMARK_ENV_FILE"] = str(root / "service.env")
+        env["TUANTUAN_QQ_ENV_FILE"] = str(root / "service.env")
     return env
 
 

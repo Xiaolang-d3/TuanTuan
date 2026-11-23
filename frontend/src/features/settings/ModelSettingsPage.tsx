@@ -477,7 +477,8 @@ export function ModelSettingsPage({
         </div>
     </>
   );
-  return <section className="model-settings-page">{kernelSettings}{manager ? manager(advancedContent) : <>
+  return <section className="model-settings-page">{manager ? manager(<>{kernelSettings}{advancedContent}</>) : <>
+    {kernelSettings}
     {mainContent}
     <details className="model-advanced-settings">
       <summary><strong>{purposeManager ? "高级规则" : "高级设置"}</strong><span>备用模型、自动分工与诊断</span><ChevronDown size={16} /></summary>

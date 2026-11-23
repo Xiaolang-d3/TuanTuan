@@ -252,19 +252,18 @@ async def stream_chat_response(
     resume_snapshot = load_run_snapshot(conversation_id) if cached_execution is None and persisted_run is None else None
     fields = payload.model_fields_set
     inherited_options = resume_snapshot.web_search_options if resume_snapshot is not None else None
-    # New turns use the configured search service automatically. Persisted runs
-    # and waiting-task confirmations retain their original search binding.
-    automatic_options = WebSearchOptions(enabled=bool(getattr(get_settings(), "web_research_enabled", False)))
+    # Only same-run recovery retains consent. A new request can inherit
+    # search preferences from a waiting task, but must opt in explicitly.
     if persisted_run is not None:
         # A run ID names an immutable turn, even if a reconnect submits changes.
         search_options = persisted_run.get("web_search_options") or WebSearchOptions()
     else:
         search_options = normalize_web_search_options(
-            enabled=payload.web_search if "web_search" in fields else None,
+            enabled=payload.web_search is True,
             topic=payload.web_search_topic if "web_search_topic" in fields else None,
             source_preference=payload.web_search_source_preference if "web_search_source_preference" in fields else None,
             legacy_mode=payload.web_search_mode if "web_search_mode" in fields else None,
-            base=inherited_options or automatic_options,
+            base=inherited_options,
             provider=payload.web_search_provider if inherited_options is None or inherited_options.provider is None else None,
         )
     # Consent no longer rewrites routing text; it only extends the trusted tool
@@ -278,12 +277,11 @@ async def stream_chat_response(
         if persisted_run is None:
             # A new topic must not inherit consent/preferences from an abandoned task.
             search_options = normalize_web_search_options(
-                enabled=payload.web_search if "web_search" in fields else None,
+                enabled=payload.web_search is True,
                 topic=payload.web_search_topic if "web_search_topic" in fields else None,
                 source_preference=payload.web_search_source_preference if "web_search_source_preference" in fields else None,
                 legacy_mode=payload.web_search_mode if "web_search_mode" in fields else None,
                 provider=payload.web_search_provider,
-                base=automatic_options,
             )
     elif resume_snapshot is not None:
         resume_snapshot = restore_snapshot_attachment_text(conversation_id, resume_snapshot)
@@ -358,6 +356,13 @@ async def stream_chat_response(
         if abandon_snapshot:
             clear_run_snapshot(conversation_id)
 
+    if cached_execution is None and not recovering_terminal_result:
+        try:
+            validated_kernel = validate_kernel_selection(conversation_kernel)
+            kernel_runtime = resolve_kernel_runtime(validated_kernel, runtime)
+        except KernelUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     if cached_execution is not None or recovered_user_message is not None:
         task_id = int(persisted_run.get("task_id") or 0) or None
         attachment_context, attachment_summaries, image_urls = "", [], []
@@ -369,11 +374,6 @@ async def stream_chat_response(
         history = []
         agent_input = str(persisted_run.get("user_content") or payload.content)
     else:
-        try:
-            validated_kernel = validate_kernel_selection(conversation_kernel)
-            kernel_runtime = resolve_kernel_runtime(validated_kernel, runtime)
-        except KernelUnavailable as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
         task_id = ensure_active_task(conversation_id)
         attachment_context, attachment_summaries, image_urls = _attachment_context(
             conversation_id, payload.attachment_ids, payload.vision_attachment_ids

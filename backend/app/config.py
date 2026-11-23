@@ -6,6 +6,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 from dotenv import dotenv_values, load_dotenv
@@ -37,6 +38,9 @@ class Settings(BaseModel):
     login_max_attempts: int = Field(default=5, ge=1, le=100)
     login_lockout_seconds: int = Field(default=300, ge=30, le=86_400)
     auth_token_ttl_seconds: int = Field(default=28_800, ge=300, le=86_400)
+    qq_app_id: str = ""
+    qq_app_key: str = Field(default="", repr=False, exclude=True)
+    qq_redirect_uri: str = ""
     model_provider: str = "openai"
     model_protocol: Literal["auto", "openai", "responses", "images", "anthropic", "gemini", "ollama"] = "auto"
     model_name: str = ""
@@ -71,6 +75,26 @@ class Settings(BaseModel):
         return _is_loopback(self.bind_host)
 
     @property
+    def qq_origin(self) -> str | None:
+        if not self.qq_app_id.isascii() or not self.qq_app_id.isdecimal() or not self.qq_app_key:
+            return None
+        try:
+            target = urlsplit(self.qq_redirect_uri)
+            if (
+                not target.hostname or target.username is not None or target.password is not None
+                or target.scheme != "https" or target.path != "/api/auth/qq/callback"
+                or target.query or target.fragment or target.netloc != target.netloc.lower()
+                or target.port == 443
+                or self.qq_redirect_uri != f"https://{target.netloc}/api/auth/qq/callback"
+            ):
+                return None
+        except ValueError:
+            return None
+        if not all(character.isascii() and (character.isalnum() or character in ".-:[]") for character in target.netloc):
+            return None
+        return f"https://{target.netloc}"
+
+    @property
     def resolved_web_search_provider(self) -> Literal["tavily", "agent_search"]:
         if self.web_search_provider != "auto":
             return self.web_search_provider
@@ -100,6 +124,19 @@ def _benchmark_api_key() -> str | None:
     return (values.get("ARTIFICIAL_ANALYSIS_API_KEY") or "").strip() or None
 
 
+def _qq_env() -> dict[str, str]:
+    names = ("QQ_APP_ID", "QQ_APP_KEY", "QQ_REDIRECT_URI")
+    filename = (env("TUANTUAN_QQ_ENV_FILE") or "").strip()
+    values = {}
+    if filename:
+        try:
+            with Path(filename).open(encoding="utf-8-sig") as source:
+                values = dotenv_values(stream=source, interpolate=False)
+        except FileNotFoundError:
+            pass
+    return {name.lower(): (os.getenv(name, values.get(name)) or "").strip() for name in names}
+
+
 def _resolve_allowed_origins(bind_host: str) -> list[str]:
     """Loopback origins always work; extra hosts must be named explicitly."""
     origins = _origins_for_hosts(["127.0.0.1", "localhost"])
@@ -127,6 +164,7 @@ def get_settings() -> Settings:
         login_max_attempts=_int_env("LOGIN_MAX_ATTEMPTS", 5),
         login_lockout_seconds=_int_env("LOGIN_LOCKOUT_SECONDS", 300),
         auth_token_ttl_seconds=os.getenv("AUTH_TOKEN_TTL_SECONDS", "28800"),
+        **_qq_env(),
         model_provider=os.getenv("MODEL_PROVIDER", "openai"),
         model_protocol=os.getenv("MODEL_PROTOCOL", "auto"),
         model_name=os.getenv("MODEL_NAME", ""),
