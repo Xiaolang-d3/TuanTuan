@@ -110,7 +110,8 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     await expect(submit).toBeEnabled();
     await submit.click();
     const tile = workspace.getByRole("article").filter({ has: page.getByRole("button", { name: `查看 ${text}`, exact: true }) });
-    await expect(tile.getByText("已完成", { exact: true })).toBeVisible();
+    await expect(tile.locator("img")).toBeVisible();
+    await expect(tile.getByText("已完成", { exact: true })).toHaveCount(0);
   }
   expect(requests.map(item => item.prompt)).toEqual(prompts);
   await page.reload();
@@ -133,7 +134,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   }
   await expectOriginalRatios();
   await first.click();
-  await page.getByRole("button", { name: "复用设置", exact: true }).click();
+  await page.getByRole("dialog", { name: "图片详情" }).getByRole("button", { name: "复用描述生图", exact: true }).click();
   await expect(prompt).toHaveValue(prompts[0]);
   await expect(model).toHaveValue("selected");
   await expect(size).toHaveValue("1536x1024");
@@ -167,6 +168,8 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await page.screenshot({ path: resolve(output, "works.png"), animations: "disabled" });
   await page.goto(`${origin}/#/images`);
   await expect(first).toBeVisible();
+  const editedCard = workspace.getByRole("article").filter({ hasText: "把背景改成暖橙色" });
+  await expect(editedCard).toHaveText("把背景改成暖橙色");
   await page.screenshot({ path: resolve(output, "desktop.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expectOriginalRatios();

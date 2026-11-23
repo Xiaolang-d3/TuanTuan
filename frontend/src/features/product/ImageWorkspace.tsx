@@ -96,15 +96,14 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     <div className="studio-grid studio-history-grid">{tasks.map(task => {
       const asset = task.assets[0];
       const status = statusText[task.status];
-      const details = [task.source_asset_id && "编辑版本", task.assets.length > 1 && `${task.assets.length} 张`].filter(Boolean).join(" · ");
       return <article className="studio-card" key={task.id}>
         <button className="studio-card-cover" aria-label={`查看 ${task.prompt}`} onClick={() => show(task)}>
-          {asset ? <StudioThumb id={asset.id} load={api.thumbnail} width={asset.width} height={asset.height} /> : <span className="studio-placeholder"><ImageIcon aria-hidden="true" />{status}</span>}
-          {asset && <span className={`studio-state ${task.status}`}>{status}</span>}
+          {asset ? <StudioThumb id={asset.id} load={api.thumbnail} width={asset.width} height={asset.height} /> : <span className="studio-placeholder"><ImageIcon aria-hidden="true" />{task.status === "done" ? "预览不可用" : status}</span>}
+          {asset && task.status !== "done" && <span className={`studio-state ${task.status}`}>{status}</span>}
         </button>
         <div className="studio-card-body">
           <strong title={task.prompt}>{task.prompt}</strong>
-          {details && <p>{details}</p>}
+          {task.assets.length > 1 && <p>{task.assets.length} 张</p>}
         </div>
       </article>;
     })}</div>
