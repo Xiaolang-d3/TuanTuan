@@ -18,6 +18,7 @@ from .workspace import ensure_workspace
 QQ_HOST = "https://graph.qq.com"
 FLOW_TTL = 600
 RESULT_TTL = 120
+DECISION_TTL = 600
 _OPAQUE = re.compile(r"[A-Za-z0-9_-]{43}")
 _OPEN_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _qq_transport: httpx.BaseTransport | None = None
@@ -101,15 +102,25 @@ def provider_subject(settings: Settings, code: str) -> str:
     return _token_hash(f"{settings.qq_app_id}:{open_id}")
 
 
-def new_result(settings: Settings, browser: str, session_hash: str | None, subject_hash: str) -> str:
+def _linked_user_id(conn, app_id: str, subject_hash: str) -> int | None:
+    record = conn.execute(
+        "SELECT user_id FROM auth_qq_identities WHERE app_id = ? AND subject_hash = ?",
+        (app_id, subject_hash),
+    ).fetchone()
+    return int(record["user_id"]) if record is not None else None
+
+
+def new_result(settings: Settings, browser: str, session_hash: str | None, subject_hash: str) -> tuple[str, int]:
     ticket = secrets.token_urlsafe(32)
     with _connect_auth() as conn:
+        needs_decision = session_hash is None and _linked_user_id(conn, settings.qq_app_id, subject_hash) is None
+        ttl = DECISION_TTL if needs_decision else RESULT_TTL
         conn.execute(
             """INSERT INTO auth_qq_flows (key_hash, browser_hash, app_id, session_hash, subject_hash, expires_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (_token_hash(ticket), _token_hash(browser), settings.qq_app_id, session_hash, subject_hash, _now() + RESULT_TTL),
+            (_token_hash(ticket), _token_hash(browser), settings.qq_app_id, session_hash, subject_hash, _now() + ttl),
         )
-    return ticket
+    return ticket, ttl
 
 
 def finish_flow(
@@ -136,25 +147,22 @@ def finish_flow(
         ).fetchone()
         if record is None:
             raise HTTPException(status_code=400, detail="QQ 授权已失效，请重新开始")
-        linked = conn.execute(
-            "SELECT user_id FROM auth_qq_identities WHERE app_id = ? AND subject_hash = ?",
-            (settings.qq_app_id, record["subject_hash"]),
-        ).fetchone()
-        if user_id is None and linked is None and action is None:
+        linked_user_id = _linked_user_id(conn, settings.qq_app_id, record["subject_hash"])
+        if user_id is None and linked_user_id is None and action is None:
             # Keep the result for the user's decision. The digest ties it to this browser's ticket.
             return {"confirmation": ticket_hash}
         conn.execute("DELETE FROM auth_qq_flows WHERE key_hash = ?", (ticket_hash,))
         if user_id is not None:
             if not _active_session(conn, session_hash, user_id):
                 raise HTTPException(status_code=401, detail="登录状态已失效，请重新登录后绑定 QQ")
-            if linked is not None and linked["user_id"] != user_id:
+            if linked_user_id is not None and linked_user_id != user_id:
                 raise HTTPException(status_code=409, detail="这个 QQ 已绑定其他团团账号，无法重复绑定")
-            if linked is None:
+            if linked_user_id is None:
                 if conn.execute("SELECT 1 FROM auth_qq_identities WHERE user_id = ?", (user_id,)).fetchone():
                     raise HTTPException(status_code=409, detail="当前团团账号已绑定其他 QQ")
                 conn.execute("INSERT INTO auth_qq_identities VALUES (?, ?, ?, 0)", (settings.qq_app_id, record["subject_hash"], user_id))
         else:
-            if linked is None:
+            if linked_user_id is None:
                 email = f"qq-{secrets.token_hex(16)}{QQ_ACCOUNT_SUFFIX}"
                 created = conn.execute(
                     "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
@@ -163,7 +171,7 @@ def finish_flow(
                 user_id = int(created.lastrowid)
                 conn.execute("INSERT INTO auth_qq_identities VALUES (?, ?, ?, 1)", (settings.qq_app_id, record["subject_hash"], user_id))
             else:
-                user_id = int(linked["user_id"])
+                user_id = linked_user_id
             user_row = dict(conn.execute("SELECT id, email, password_hash FROM users WHERE id = ?", (user_id,)).fetchone())
     if authorization is not None:
         return {"user": get_account(user_id)}

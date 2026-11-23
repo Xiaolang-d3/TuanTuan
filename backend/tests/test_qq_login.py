@@ -97,6 +97,7 @@ def test_register_and_return_to_the_same_qq_account(client, qq):
     assert redirect.headers["location"] == f"{ORIGIN}/?qq_auth=login"
     assert redirect.headers["cache-control"] == "no-store"
     assert "provider-code" not in redirect.headers["location"]
+    assert [cookie.split("Max-Age=")[1].split(";")[0] for cookie in redirect.headers.get_list("set-cookie")] == ["600", "600"]
     choice = finish(client).json()
     assert set(choice) == {"confirmation"}
     assert client.get("/auth/config").json()["setup_required"] is True
@@ -108,7 +109,8 @@ def test_register_and_return_to_the_same_qq_account(client, qq):
     assert finish(client).status_code == 400
     assert client.post("/auth/logout", headers=bearer(first)).status_code == 204
 
-    authorise(client, begin(client))
+    returning = authorise(client, begin(client))
+    assert [cookie.split("Max-Age=")[1].split(";")[0] for cookie in returning.headers.get_list("set-cookie")] == ["120", "120"]
     second = finish(client).json()
     assert first["user"]["id"] == second["user"]["id"]
     assert first["access_token"] != second["access_token"]
@@ -130,11 +132,15 @@ def test_binding_preserves_account_and_both_login_methods(client, qq):
     assert client.post("/auth/login", json={"email": EMAIL, "password": LOCAL_CREDENTIAL}).json()["user"] == bound["user"]
 
 
-def test_first_qq_authorization_can_bind_after_email_login(client, qq):
+def test_first_qq_authorization_can_bind_after_email_login(client, qq, monkeypatch):
+    from app import qq_auth
+
     account = register(client)["user"]
     authorise(client, begin(client))
     choice = finish(client).json()
     assert finish(client, action="bind", **choice).status_code == 401
+    after_two_minutes = qq_auth._now() + 121
+    monkeypatch.setattr(qq_auth, "_now", lambda: after_two_minutes)
     login = client.post("/auth/login", json={"email": EMAIL, "password": LOCAL_CREDENTIAL}).json()
     bound = finish(client, bearer(login), action="bind", **choice).json()["user"]
     assert bound["id"] == account["id"]
@@ -221,7 +227,7 @@ def test_concurrent_first_logins_initialize_the_shared_workspace_serially(client
 
     settings = get_settings()
     browsers = ["a" * 43, "b" * 43]
-    tickets = [qq_auth.new_result(settings, browser, None, "same-subject") for browser in browsers]
+    tickets = [qq_auth.new_result(settings, browser, None, "same-subject")[0] for browser in browsers]
     start = Barrier(2)
     initializer_lock = Lock()
     overlap = Event()
@@ -279,7 +285,10 @@ def test_expired_result_cannot_create_an_account(client, qq, monkeypatch):
 
     authorise(client, begin(client))
     choice = finish(client).json()
-    after_expiry = qq_auth._now() + 121
+    issued_at = qq_auth._now()
+    monkeypatch.setattr(qq_auth, "_now", lambda: issued_at + 300)
+    assert finish(client).json() == choice
+    after_expiry = issued_at + 601
     monkeypatch.setattr(qq_auth, "_now", lambda: after_expiry)
     assert finish(client, action="create", **choice).status_code == 400
     assert client.get("/auth/config").json()["setup_required"] is True

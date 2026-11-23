@@ -61,7 +61,7 @@ def callback(request: Request) -> RedirectResponse:
     session_hash, = claimed
     mode = "bind" if session_hash else "login"
     fragment = "#/settings/account" if session_hash else ""
-    result, ticket = "failed", ""
+    result, issued = "failed", None
     if error == "access_denied" or (not error and not code):
         result = "cancelled"
     elif not error and 1 <= len(code) <= 1024:
@@ -71,13 +71,14 @@ def callback(request: Request) -> RedirectResponse:
             pass
         else:
             result = mode
-            ticket = qq_auth.new_result(settings, browser, session_hash, subject)
+            issued = qq_auth.new_result(settings, browser, session_hash, subject)
     if session_hash and result != "bind":
         result = f"bind_{result}"
     response = RedirectResponse(f"{origin}/?qq_auth={result}{fragment}", status_code=303)
-    if ticket:
-        response.set_cookie(_RESULT_COOKIE, ticket, max_age=qq_auth.RESULT_TTL, **_COOKIE_OPTIONS)
-        response.set_cookie(_BROWSER_COOKIE, browser, max_age=qq_auth.RESULT_TTL, **_COOKIE_OPTIONS)
+    if issued is not None:
+        ticket, ttl = issued
+        response.set_cookie(_RESULT_COOKIE, ticket, max_age=ttl, **_COOKIE_OPTIONS)
+        response.set_cookie(_BROWSER_COOKIE, browser, max_age=ttl, **_COOKIE_OPTIONS)
     else:
         response.delete_cookie(_BROWSER_COOKIE, **_COOKIE_OPTIONS)
         response.delete_cookie(_RESULT_COOKIE, **_COOKIE_OPTIONS)
