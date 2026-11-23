@@ -85,11 +85,12 @@ describe("图片工作台",()=>{
     await waitFor(()=>expect(api.history).toHaveBeenCalledWith(expect.objectContaining({offset:18})));fireEvent.change(screen.getByLabelText("搜索创作记录"),{target:{value:"海边"}});
     fireEvent.change(screen.getByLabelText("任务状态"),{target:{value:"done"}});await waitFor(()=>expect(api.history).toHaveBeenCalledWith(expect.objectContaining({offset:0,q:"海边",status:"done"})));expect(api.generate).not.toHaveBeenCalled();
   });
-  it("复用设置先保护已有草稿，并恢复支持的模型和尺寸",async()=>{
+  it("复用描述生图先保护已有草稿，并恢复支持的模型和尺寸",async()=>{
     const {api}=setup([task]);const open=await screen.findByRole("button",{name:"查看 海边画面"});
     const prompt=screen.getByLabelText("画面描述");fireEvent.change(prompt,{target:{value:"新草稿"}});fireEvent.click(open);
     const confirm=vi.spyOn(window,"confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    fireEvent.click(screen.getByText("复用设置"));expect(prompt).toHaveValue("新草稿");fireEvent.click(screen.getByText("复用设置"));
+    const reuse = within(screen.getByRole("dialog", { name: "图片详情" })).getByRole("button", { name: "复用描述生图" });
+    fireEvent.click(reuse);expect(prompt).toHaveValue("新草稿");fireEvent.click(reuse);
     expect(confirm).toHaveBeenCalledTimes(2);expect(prompt).toHaveValue(task.prompt);expect(await screen.findByLabelText("生成画幅")).toHaveValue(task.size);expect(api.generate).not.toHaveBeenCalled();
   });
   it("不能编辑的配置不展示可提交的编辑操作",async()=>{
@@ -97,8 +98,21 @@ describe("图片工作台",()=>{
     expect(within(screen.getByRole("dialog")).getByRole("button",{name:"编辑图片"})).toBeDisabled();
     expect(screen.getByText("请在模型设置中配置支持图片编辑的模型。")).toBeVisible();
   });
+  it("完成卡片仅展示图片和描述，从图片详情进入编辑或复用描述", async () => {
+    setup([{ ...task, source_asset_id: "original-image" }]);
+    const card = await screen.findByRole("article");
+    await within(card).findByAltText("");
+    expect(card).toHaveTextContent(/^海边画面$/);
+    expect(within(card).getAllByRole("button")).toHaveLength(1);
+
+    fireEvent.click(within(card).getByRole("button", { name: "查看 海边画面" }));
+    const detail = screen.getByRole("dialog", { name: "图片详情" });
+    expect(within(detail).getByRole("button", { name: "复用描述生图" })).toBeEnabled();
+    fireEvent.click(within(detail).getByRole("button", { name: /^编辑图片$/ }));
+    expect(screen.getByRole("dialog", { name: "编辑图片" })).toBeVisible();
+  });
   it("模型已删除的历史不静默改用默认模型",async()=>{
-    setup([{...task,profile_id:"gone"}]);fireEvent.click(await screen.findByRole("button",{name:"查看 海边画面"}));fireEvent.click(screen.getByText("复用设置"));
+    setup([{...task,profile_id:"gone"}]);fireEvent.click(await screen.findByRole("button",{name:"查看 海边画面"}));fireEvent.click(screen.getByRole("button",{name:"复用描述生图"}));
     expect(await screen.findByText(/原模型已不可用/)).toBeInTheDocument();expect(screen.getByRole("button",{name:"生成图片"})).toBeDisabled();expect(screen.getByLabelText("画面描述")).toHaveValue(task.prompt);
   });
   it("详情使用受保护原文件，下载与归档仅针对选中的输出",async()=>{
@@ -121,7 +135,8 @@ describe("图片工作台",()=>{
       keyVersion++;
       throw new ApiError("发送原图前，请确认目标模型服务", 409, 0, { code: "image_data_boundary_confirmation_required" });
     });
-    fireEvent.click(await screen.findByRole("button", { name: "编辑图片 海边画面" }));
+    fireEvent.click(await screen.findByRole("button", { name: "查看 海边画面" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "图片详情" })).getByRole("button", { name: "编辑图片" }));
     const dialog = screen.getByRole("dialog");
     const draft = within(dialog).getByLabelText("修改要求");
     fireEvent.change(draft, { target: { value: "改成暖色系" } });
@@ -153,7 +168,9 @@ describe("图片工作台",()=>{
   });
   it("文字编辑使用独立操作号、明确来源，不污染下轮画面描述",async()=>{
     const {api}=setup([task]);await screen.findByRole("button",{name:"查看 海边画面"});const prompt=screen.getByLabelText("画面描述");fireEvent.change(prompt,{target:{value:"下一轮草稿"}});
-    fireEvent.click(screen.getByRole("button",{name:"编辑图片 海边画面"}));await screen.findByRole("img",{name:"原图：海报.png"});fireEvent.change(screen.getByLabelText("修改要求"),{target:{value:"换成橙色，保持构图"}});
+    fireEvent.click(screen.getByRole("button",{name:"查看 海边画面"}));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "图片详情" })).getByRole("button", { name: "编辑图片" }));
+    await screen.findByRole("img",{name:"原图：海报.png"});fireEvent.change(screen.getByLabelText("修改要求"),{target:{value:"换成橙色，保持构图"}});
     const submit = screen.getByRole("button", { name: "生成新版本" });
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
