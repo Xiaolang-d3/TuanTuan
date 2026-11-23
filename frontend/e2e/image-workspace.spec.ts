@@ -95,7 +95,10 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   const prompt = workspace.getByRole("textbox", { name: "画面描述" });
   const model = workspace.getByRole("combobox", { name: "图片模型" });
   const size = workspace.getByRole("combobox", { name: "生成画幅" });
-  await model.selectOption("selected");
+  await expect(model).toHaveValue("square-only");
+  await expect(model.getByRole("option")).toHaveText(["默认图片模型", "横图模型"]);
+  await expect(workspace.getByText(/本次使用/)).toHaveCount(0);
+  await model.selectOption({ label: "横图模型" });
   await size.selectOption("1536x1024");
   const prompts = ["夏日音乐节海报·第一稿", "夏日音乐节海报·第二稿", "夏日音乐节海报·第三稿"];
   for (const text of prompts) {
