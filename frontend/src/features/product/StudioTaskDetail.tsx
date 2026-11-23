@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Archive, Download, Pencil, RotateCcw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Archive, ArrowLeft, Download, Pencil, RotateCcw } from "lucide-react";
 import type { StudioPreview, StudioTask } from "./imageStudioApi";
 import { StudioDialog, StudioOriginal, useStudioBlob } from "./StudioMedia";
 import { StudioModelPicker, useStudioModelPreview } from "./StudioModelPicker";
@@ -14,11 +14,12 @@ export type StudioEditBinding = {
   confirmed: boolean;
 };
 
-type Props={api:StudioApi;task:StudioTask;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
+type Props={api:StudioApi;task:StudioTask;editInitially:boolean;canEdit:boolean;busy:boolean;archived:ReadonlySet<string>;
   issue:string;onEdit:(task:StudioTask,asset:ChatAttachment,prompt:string,binding:StudioEditBinding,onConflict:(message:string)=>void)=>Promise<boolean>;onClose:()=>void;
-  onArchive:(id:string)=>Promise<void>;onReuse:(t:StudioTask)=>void;onWorks:()=>void;onConversation:(id:number)=>void;onQuery:()=>void};
-export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose}:Props){
-  const [index,setIndex]=useState(0),[editing,setEditing]=useState(false),[instruction,setInstruction]=useState("");
+  onArchive:(id:string)=>Promise<void>;onReuse:(t:StudioTask)=>void;onWorks:()=>void;onConversation:(id:number)=>void;onQuery?:()=>void;
+  onStartEdit?:(task:StudioTask)=>void };
+export function StudioTaskDetail({api,task,issue,editInitially,canEdit,busy,archived,onEdit,onArchive,onReuse,onWorks,onConversation,onQuery,onClose,onStartEdit}:Props){
+  const [index,setIndex]=useState(0),[editing,setEditing]=useState(editInitially),[instruction,setInstruction]=useState("");
   const [saving,setSaving]=useState(false),[error,setError]=useState(""),[compare,setCompare]=useState(false);
   const asset=task.assets[index]||task.assets[0];const image=useStudioBlob(asset?.id,api.assetFile);
   const source=useStudioBlob(compare?task.source_asset_id||undefined:undefined,api.assetFile);
@@ -35,7 +36,10 @@ export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,on
     !!preview.data?.eligible && !!resolved?.service_name && !!comparisonKey && (!needsConfirmation || confirmed);
   function close(){if(editing&&instruction.trim()&&!window.confirm("放弃尚未提交的修改要求？"))return;onClose();}
   async function save(){if(!asset||saving||archived.has(asset.id))return;setSaving(true);setError("");try{await onArchive(asset.id);}catch(e){setError(failureMessage(e));}finally{setSaving(false);}}
-  return <StudioDialog title={editing ? "编辑图片" : "图片详情"} onClose={close} editing={editing}>
+  const focused = !!onStartEdit;
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (focused) heading.current?.focus({preventScroll:true}); }, [focused]);
+  const content = <>
     {editing&&asset?<div className="studio-edit"><figure><StudioOriginal name={`原图：${asset.original_filename}`} image={image}/><figcaption>原图 · {asset.original_filename}</figcaption></figure>
       <form onSubmit={async event => {
         event.preventDefault();
@@ -55,6 +59,7 @@ export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,on
         </label>}
         <div className="studio-actions"><button type="button" onClick={()=>{if(instruction.trim()&&!window.confirm("放弃尚未提交的修改要求？"))return;setEditing(false);setInstruction("");setEditProfile(null);setConfirmedKey(null);preview.refresh();}}>取消</button><button type="submit" className="studio-primary" disabled={!canSubmit}>{busy?"有任务进行中":"生成新版本"}</button></div></form>
       </div>:<div className="studio-detail-content">
+      {focused && task.status === "running" && !issue && <div className="studio-generation-animation" aria-hidden="true"><span className="studio-dot-matrix"/></div>}
       {asset&&<div><StudioOriginal image={compare?source:image} name={compare?"来源原图":asset.original_filename}/>
         {task.assets.length>1&&<div className="studio-actions" aria-label="选择本轮图片">{task.assets.map((a,i)=><button key={a.id} aria-pressed={i===index} onClick={()=>{setIndex(i);setCompare(false);}}>第 {i+1} 张</button>)}</div>}
         {task.source_asset_id&&<button onClick={()=>setCompare(v=>!v)}>{compare?"返回当前版本":"与原图对比"}</button>}</div>}
@@ -65,10 +70,10 @@ export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,on
        {task.selection_reason && <><dt>选择依据</dt><dd>{task.selection_reason}</dd></>}
        <dt>请求画幅</dt><dd>{task.size?sizeText(task.size):"未记录"}</dd>
       {asset&&<><dt>实际尺寸</dt><dd>{asset.width&&asset.height?`${asset.width} × ${asset.height}`:"未记录"}</dd></>}</dl>
-      {task.status==="uncertain"&&<p role="status">暂未确认生成结果，请先查询。不会自动重新提交。</p>}{task.error&&<p role="alert">{task.error}</p>}
+      {task.status==="uncertain"&&<p role="status">暂未确认生成结果，请先{onQuery ? "查询任务状态" : "核对服务记录"}。不会自动重新提交。</p>}{task.error&&<p role="alert">{task.error}</p>}
       <div className="studio-actions">
         {!compare && <>
-          {asset && <button className="studio-primary" disabled={!canEdit} onClick={() => setEditing(true)}><Pencil size={15} />编辑图片</button>}
+          {asset && <button className="studio-primary" disabled={!canEdit} onClick={() => onStartEdit ? onStartEdit(task) : setEditing(true)}><Pencil size={15} />编辑图片</button>}
           <button onClick={() => onReuse(task)}><RotateCcw size={15} />复用描述生图</button>
           {asset && <>
             {!canEdit && <span className="studio-muted">请在模型设置中配置支持图片编辑的模型。</span>}
@@ -77,7 +82,17 @@ export function StudioTaskDetail({api,task,issue,canEdit,busy,archived,onEdit,on
           </>}
         </>}
         {task.conversation_id != null && <button onClick={() => onConversation(task.conversation_id!)}>查看所属对话</button>}
-        {task.status !== "done" && <button onClick={onQuery}>查询任务状态</button>}
+        {task.status !== "done" && onQuery && <button onClick={onQuery}>查询任务状态</button>}
       </div>{error&&<p role="alert">{error}</p>}</div></div>}
-    {issue&&<p className="studio-error" role="alert">{issue}</p>}</StudioDialog>;
+    {issue&&issue!==task.error&&<p className="studio-error" role="alert">{issue}</p>}</>;
+  if (!focused) return <StudioDialog title={editing ? "编辑图片" : "图片详情"} onClose={close} editing={editing}>{content}</StudioDialog>;
+  const title = task.status === "done" ? "图片已生成" : task.status === "running" && issue ? "等待确认生成结果" : statusText[task.status];
+  return <section className="studio-generation" aria-label="本次图片生成">
+    <button type="button" onClick={onClose}><ArrowLeft size={16} aria-hidden="true"/>返回创作广场</button>
+    <div className="studio-generation-panel">
+      <h2 ref={heading} tabIndex={-1} aria-live="polite">{title}</h2>
+      {task.status === "running" && !issue && <p className="studio-muted">正在根据描述生成图片，完成后会在这里显示。</p>}
+      {content}
+    </div>
+  </section>;
 }
