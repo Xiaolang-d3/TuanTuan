@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import math
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -21,6 +23,28 @@ def configured() -> bool:
     from ..config import get_settings
 
     return bool(getattr(get_settings(), "artificial_analysis_api_key", None))
+
+
+@contextmanager
+def stream_page(
+    client: httpx.Client, url: str, key: str, *, deadline: float, params: dict[str, int] | None = None,
+) -> Iterator[httpx.Response]:
+    with ExitStack() as stack:
+        for attempt in range(2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("官方评测 API 请求超时，已保留上次快照")
+            try:
+                response = stack.enter_context(client.stream(
+                    "GET", url, params=params, headers={"x-api-key": key, "Accept": "application/json"},
+                    timeout=httpx.Timeout(min(25, remaining), connect=min(10, remaining)),
+                ))
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if attempt == 1:
+                    raise ValueError("暂时无法连接官方评测 API，已保留上次快照") from None
+                continue
+            yield response
+            return
 
 
 def normalize(payload: Any) -> list[dict[str, Any]]:
@@ -81,12 +105,7 @@ def fetch() -> list[dict[str, Any]]:
         context = None
         with httpx.Client(timeout=httpx.Timeout(25, connect=10), follow_redirects=False) as client:
             for page in range(1, MAX_PAGES + 1):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise ValueError("官方评测 API 请求超时，已保留上次快照")
-                with client.stream("GET", API_URL, params={"page": page},
-                                   headers={"x-api-key": key, "Accept": "application/json"},
-                                   timeout=httpx.Timeout(min(25, remaining), connect=min(10, remaining))) as response:
+                with stream_page(client, API_URL, key, deadline=deadline, params={"page": page}) as response:
                     if response.status_code == 401:
                         raise ValueError("官方评测 API 密钥无效或已失效，请检查数据源配置")
                     if response.status_code == 403:

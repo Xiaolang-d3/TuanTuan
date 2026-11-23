@@ -80,7 +80,7 @@ def fetch(board: Board) -> list[dict[str, Any]]:
     try:
         deadline = time.monotonic() + 45
         with httpx.Client(timeout=httpx.Timeout(25, connect=10), follow_redirects=False) as client:
-            with client.stream("GET", board.api_url, headers={"x-api-key": key, "Accept": "application/json"}) as response:
+            with benchmarks.stream_page(client, board.api_url, key, deadline=deadline) as response:
                 if response.status_code == 401:
                     raise ValueError("官方评测 API 密钥无效或已失效，请检查数据源配置")
                 if response.status_code == 403:
