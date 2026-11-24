@@ -7,6 +7,7 @@ import { StudioModelPicker, useStudioModelPreview } from "./StudioModelPicker";
 import { StudioThumb } from "./StudioMedia";
 import { StudioTaskDetail, type StudioEditBinding } from "./StudioTaskDetail";
 import { failureMessage, sizeText, statusText, useImageWorkspace, useStudioHistory, type StudioApi, type StatusFilter } from "./useImageWorkspace";
+import { layoutImageHistory } from "./imageHistoryLayout";
 import "./ImageWorkspace.css";
 
 const examples=[['活动海报','为夏日音乐节画一张海报，以紫色行星为主视觉，顶部留出标题位置。'],['商品封面','拍一张陶瓷咖啡杯的产品照，木质桌面，窗边柔光。'],['绘本插画','小狐狸在雨后的森林里散步，植物挂着水珠，温暖的绘本风格。']];
@@ -94,6 +95,21 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
   const tasks=history.items.map(t=>outstanding?.id===t.id?outstanding:t).filter(t=>!history.status||history.status===t.status);
   if(matchesRecent&&outstanding&&history.offset===0&&!tasks.some(t=>t.id===outstanding.id)&&(run.locked||run.receipt===outstanding.id))tasks.unshift(outstanding);
   const generation = enabled && outstanding?.id === generationId ? outstanding : null;
+  const historyGrid = useRef<HTMLDivElement>(null);
+  const [historyWidth, setHistoryWidth] = useState(0);
+  useEffect(() => {
+    const grid = historyGrid.current;
+    if (!grid || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setHistoryWidth(Math.floor(entry.contentRect.width)));
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [!!generation]);
+  const layout = historyWidth >= 100 ? layoutImageHistory(tasks.map(task => {
+    const asset = task.assets[0];
+    return asset?.width && asset.height ? asset.width / asset.height : 0;
+  }), historyWidth) : null;
+  const cards = layout ? layout.tiles.map(tile => ({ task: tasks[tile.index], tile }))
+    : tasks.map(task => ({ task, tile: null }));
   const detailProps = {
     api, canEdit: canEdit && !optionsBusy && !optionError, busy: run.busy, archived: saved, onEdit: edit,
     onArchive: async (id: string) => {
@@ -115,10 +131,13 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     <div className="studio-scroll" aria-label="创作历史" aria-busy={history.loading}>
     {history.error&&<p role="alert" className="studio-error">无法读取历史：{history.error}</p>}
     {!tasks.length&&!history.error&&(history.loading?<p className="studio-muted">正在读取历史…</p>:<div className="studio-empty"><ImageIcon size={28} aria-hidden="true"/><h2>{history.query||history.status?"没有匹配的任务":"还没有创作记录"}</h2><p>{history.query||history.status?"换个关键词，或调整任务状态。":"写下画面描述，或从一个示例开始。"}</p><div className="studio-actions">{history.query||history.status?<button onClick={()=>{history.search("");history.filter("");}}>清除筛选</button>:examples.map(([label,text])=><button key={label} onClick={()=>fillDraft(text)}>{label}</button>)}</div></div>)}
-    <div className="studio-grid studio-history-grid">{tasks.map(task => {
+    <div ref={historyGrid} className={`studio-grid studio-history-grid${layout ? " studio-history-packed" : ""}`}
+      style={layout ? { height: layout.height } : undefined}>{cards.map(({ task, tile }) => {
       const asset = task.assets[0];
       const status = statusText[task.status];
-      return <article className="studio-card" key={task.id}>
+      return <article className="studio-card" key={task.id} style={tile ? {
+        insetInlineStart: tile.x, top: tile.y, width: tile.width, height: tile.height,
+      } : undefined}>
         <button className="studio-card-cover" aria-label={`查看 ${task.prompt}`} onClick={() => show(task)}>
           {asset ? <StudioThumb id={asset.id} load={api.thumbnail} width={asset.width} height={asset.height} /> : <span className="studio-placeholder"><ImageIcon aria-hidden="true" />{task.status === "done" ? "预览不可用" : status}</span>}
           {asset && task.status !== "done" && <span className={`studio-state ${task.status}`}>{status}</span>}
