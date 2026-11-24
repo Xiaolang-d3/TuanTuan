@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Download, FolderPlus, X } from "lucide-react";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/Dialog";
+import { DiscardDraftDialog } from "./DiscardDraftDialog";
 import { MarkdownContent } from "./ChatMarkdown";
 import { isLocalEvidence } from "./local-evidence";
 import { downloadBlob, downloadText, markdownToText } from "./result-files";
@@ -24,14 +25,27 @@ export function ResultDialog({ messageId, conversationId, selector = "answer", s
   const [attempt, setAttempt] = useState(0);
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [documentDirty, setDocumentDirty] = useState(false);
+  const [discardAction, setDiscardAction] = useState<"close" | "back" | null>(null);
   const creatingDocument = useRef(false);
   const attemptedEditing = useRef("");
-  const dialog = useRef<HTMLElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   const controller = useRef<AbortController | null>(null);
   const savingRef = useRef(false);
   const serviceRef = useRef(services);
   serviceRef.current = services;
-  const close = () => { if (!documentDirty || window.confirm("文档还有未保存的草稿，确定关闭并放弃草稿吗？")) onClose(); };
+
+  function finishExit(action: "close" | "back") {
+    if (action === "close") onClose();
+    else {
+      setDocumentId(null);
+      setDocumentDirty(false);
+    }
+  }
+
+  function requestExit(action: "close" | "back") {
+    if (documentDirty) setDiscardAction(action);
+    else finishExit(action);
+  }
   async function editDocument() {
     const documents = services.documentService, signal = controller.current?.signal;
     if (!documents || !manifest || !conversationId || creatingDocument.current || busy || signal?.aborted) return;
@@ -60,13 +74,6 @@ export function ResultDialog({ messageId, conversationId, selector = "answer", s
     finally { if (!signal?.aborted) setBusy(false); }
   }
 
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    dialog.current?.querySelector<HTMLElement>("button")?.focus();
-    return () => { document.body.style.overflow = overflow; previous?.focus({ preventScroll: true }); };
-  }, []);
   useEffect(() => {
     const abort = new AbortController();
     controller.current = abort;
@@ -109,19 +116,17 @@ export function ResultDialog({ messageId, conversationId, selector = "answer", s
     } finally { savingRef.current = false; if (!signal?.aborted) setBusy(false); }
   }
 
-  return createPortal(<div className="chat-result-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-    <section className="chat-result-dialog" ref={dialog} role="dialog" aria-modal="true" aria-label="聊天成果" onKeyDown={event => {
-      if (event.key === "Escape") { event.stopPropagation(); close(); }
-      if (event.key !== "Tab") return;
-      const fields = [...dialog.current!.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,a[href],[tabindex='0']")].filter(element => {
-        const closed = element.closest("details:not([open])");
-        return !element.closest("[hidden],[inert]") && (!closed || element.tagName === "SUMMARY" && element.parentElement === closed);
-      });
-      if (event.shiftKey && document.activeElement === fields[0]) { event.preventDefault(); fields.at(-1)?.focus(); }
-      else if (!event.shiftKey && document.activeElement === fields.at(-1)) { event.preventDefault(); fields[0]?.focus(); }
-    }}>
-      <header><div><h2>{documentId ? "文档编辑" : "聊天成果"}</h2><p>{manifest?.incomplete ? "未完成的执行 · 已保留现有内容" : "阅读、下载或保存到文件库"}</p></div><button type="button" aria-label="关闭成果" onClick={close}><X size={19} /></button></header>
-      {documentId && services.documentService ? <><div className="chat-result-tools"><button type="button" onClick={() => { if (!documentDirty || window.confirm("放弃未保存的文档草稿，返回聊天成果？")) { setDocumentId(null); setDocumentDirty(false); } }}>返回聊天成果</button></div><DocumentEditor key={documentId} documentId={documentId} service={services.documentService} folders={services.resultFolders} onDirtyChange={setDocumentDirty} onArchived={services.onDocumentArchived} onContinue={services.onContinueDocument ? async (document, signal) => { await services.onContinueDocument!(document, signal); close(); } : undefined} /></>
+  return <Dialog open onOpenChange={(open, event) => {
+    if (open) return;
+    if (documentDirty) event.cancel();
+    requestExit("close");
+  }}>
+    <DialogContent className="chat-result-dialog" backdropClassName="chat-result-backdrop" aria-modal="true" initialFocus={closeButton}>
+      <header>
+        <div><DialogTitle>{documentId ? "文档编辑" : "聊天成果"}</DialogTitle><DialogDescription>{manifest?.incomplete ? "未完成的执行 · 已保留现有内容" : "阅读、下载或保存到文件库"}</DialogDescription></div>
+        <DialogClose ref={closeButton} type="button" aria-label="关闭成果"><X size={19} aria-hidden="true" /></DialogClose>
+      </header>
+      {documentId && services.documentService ? <><div className="chat-result-tools"><button type="button" onClick={() => requestExit("back")}>返回聊天成果</button></div><DocumentEditor key={documentId} documentId={documentId} service={services.documentService} folders={services.resultFolders} onDirtyChange={setDocumentDirty} onArchived={services.onDocumentArchived} onContinue={services.onContinueDocument ? async (document, signal) => { await services.onContinueDocument!(document, signal); requestExit("close"); } : undefined} /></>
         : !manifest ? <div className="chat-result-empty">{error ? <><p role="alert">{error}</p><button type="button" onClick={() => setAttempt(value => value + 1)}>重新加载</button></> : <p role="status">正在读取成果…</p>}</div> : !artifact ? <p className="chat-result-empty">暂无可保存的成果。</p> : <>
         <div className="chat-result-tools"><label>成果<select aria-label="选择成果" value={selected} disabled={busy} onChange={event => {
           const next = manifest.artifacts.find(item => item.selector === event.target.value)!;
@@ -147,6 +152,16 @@ export function ResultDialog({ messageId, conversationId, selector = "answer", s
         </form> : null}
         <div className="chat-result-body">{artifact.kind === "answer" ? <MarkdownContent localEvidence={manifest.sources?.filter(isLocalEvidence)} imageLoader={imageLoader}>{artifact.content ?? ""}</MarkdownContent> : artifact.asset ? <MarkdownContent imageLoader={imageLoader}>{`![生成图片](assets/${artifact.asset.id}.${artifact.mime_type === "image/jpeg" ? "jpg" : artifact.mime_type.split("/")[1]})`}</MarkdownContent> : artifact.content !== undefined ? <pre><code>{artifact.content}</code></pre> : <p>保存原附件的独立副本；原文件可在聊天附件预览中查看和下载。</p>}</div>
       </>}
-    </section>
-  </div>, document.body);
+      <DiscardDraftDialog
+        open={discardAction !== null}
+        description={discardAction === "back" ? "放弃未保存的文档草稿，返回聊天成果？" : "文档还有未保存的草稿，确定关闭并放弃草稿吗？"}
+        onCancel={() => setDiscardAction(null)}
+        onDiscard={() => {
+          if (!discardAction) return;
+          setDiscardAction(null);
+          finishExit(discardAction);
+        }}
+      />
+    </DialogContent>
+  </Dialog>;
 }

@@ -2,7 +2,8 @@
 .md-local-citation:hover { color: var(--color-brand); border-color: currentColor; }
 .md-local-citation:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .md-local-citation-unverified { margin-inline: 4px; color: var(--color-text-muted); font-size: 12px; }
-.local-source-backdrop { z-index: 175; backdrop-filter: none; }
+.local-source-backdrop, .local-source-backdrop + .ui-dialog-viewport { z-index: 175; }
+.local-source-backdrop { backdrop-filter: none; }
 .local-source-dialog > header { gap: 16px; }
 .local-source-dialog h2 { overflow-wrap: anywhere; }
 .local-source-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 20px; }
@@ -15,9 +16,8 @@
 .local-source-text mark { color: var(--color-text); background: color-mix(in srgb, var(--color-brand) 12%, var(--color-surface)); }
 .local-source-body > [role=alert] { color: var(--color-danger); }
 .local-source-body > [role=alert] button { margin-inline-start: 8px; }
+.local-context-positioner { z-index: 174; }
 .local-context-popover {
-  position: fixed;
-  z-index: 174;
   display: grid;
   gap: 8px;
   width: min(20rem, calc(100vw - 16px));

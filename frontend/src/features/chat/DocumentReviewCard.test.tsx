@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { DocumentReviewCard } from "./DocumentReviewCard";
-import { LocalCitationActionsContext } from "./LocalCitation";
+import { LocalCitationContext } from "./LocalCitation";
 import type { LocalEvidence } from "./local-evidence";
 import type { DocumentReviewJob, DocumentReviewService } from "./document-review-service";
 
@@ -16,16 +16,17 @@ function fixture() {
   return { create: vi.fn(), list: vi.fn(), get: vi.fn(), confirm: vi.fn(), cancel: vi.fn(), resume: vi.fn() } as unknown as DocumentReviewService;
 }
 
-it("opens committed citations even when the model summary has no inline markers", () => {
+it("opens committed citations even when the model summary has no inline markers", async () => {
   const evidence: LocalEvidence = { citation_id: `e_${"a".repeat(32)}`, source_kind: "library", source_id: 1,
     source_revision: "b".repeat(64), block_id: "c".repeat(32), title: "长资料.pdf", locator: { kind: "pdf_page", page: 3 },
     excerpt: "第三页的已提交片段。", excerpt_hash: "d".repeat(64) };
-  const open = vi.fn();
-  render(<LocalCitationActionsContext.Provider value={open}><DocumentReviewCard service={fixture()} onChange={vi.fn()}
+  const loadPreview = vi.fn().mockResolvedValue({ ...evidence, text: evidence.excerpt, is_current: true, original: { available: false, reason: "没有原文件" } });
+  render(<LocalCitationContext.Provider value={{ loadPreview, loadOriginal: vi.fn() }}><DocumentReviewCard service={fixture()} onChange={vi.fn()}
     job={{ ...running, status: "succeeded", result: { coverage, summary: "只有结论，没有引用标记。", local_evidence: [evidence] } }} />
-  </LocalCitationActionsContext.Provider>);
+  </LocalCitationContext.Provider>);
   fireEvent.click(screen.getByRole("button", { name: "核对来源：长资料.pdf，第 3 页" }));
-  expect(open).toHaveBeenCalledWith(evidence);
+  expect(await screen.findByText("没有原文件")).toBeVisible();
+  expect(loadPreview).toHaveBeenCalledWith(evidence, expect.any(AbortSignal));
 });
 
 it("separates successful job lifecycle from incomplete extraction, even at 100 percent of blocks", () => {

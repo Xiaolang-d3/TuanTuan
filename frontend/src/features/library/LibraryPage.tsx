@@ -749,7 +749,7 @@ export function LibraryPage(props: Props) {
                   <LibraryCollections collections={collections} selectedId={collectionId} busy={working}
                     onSelect={(id) => { setCollectionId(id); setSelected([]); closePreview(); }}
                     onRename={(id) => show("renameCollection", [id])} onDelete={(id) => show("deleteCollection", [id])} />
-                  <LibraryFilters filters={filters} showKnowledge={!mediaLibrary} onChange={(next) => { setFilters(next); setSelected([]); }} />
+                  <LibraryFilters container={libraryRef} filters={filters} showKnowledge={!mediaLibrary} onChange={(next) => { setFilters(next); setSelected([]); }} />
                   <div className="fl-view-controls">
                     <button type="button" className="fl-sort" aria-pressed={ascending} aria-label={ascending ? "按时间从新到旧" : "按时间从旧到新"}
                       title={ascending ? "当前从旧到新，点击切换" : "当前从新到旧，点击切换"} onClick={() => setAscending(!ascending)}>

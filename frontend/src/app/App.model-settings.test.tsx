@@ -120,9 +120,7 @@ function replaceApi(override: (path: string, options?: RequestInit) => Promise<u
 }
 
 function openAdvancedSettings() {
-  const summary = screen.getByText("高级设置");
-  fireEvent.click(summary);
-  const details = summary.closest("details");
+  const details = screen.getByText("高级设置").closest("details");
   if (details) details.open = true;
 }
 
@@ -242,8 +240,10 @@ describe("App model settings", () => {
 
     fireEvent.change(await modelField("模型名称"), { target: { value: "unsaved-model" } });
     openAdvancedSettings();
-    expect(screen.getByRole("button", { name: "检测" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "立即检测" })).toBeDisabled();
+    // The modal hides background diagnostics from the accessibility tree.
+    expect(screen.queryByRole("button", { name: "检测" })).not.toBeInTheDocument();
+    expect(screen.getByText("检测", { exact: true }).closest("button")).toBeDisabled();
+    expect(screen.getByText("立即检测", { exact: true }).closest("button")).toBeDisabled();
 
     const later = Date.now() + 31_000;
     vi.spyOn(Date, "now").mockReturnValue(later);
@@ -320,7 +320,7 @@ describe("App model settings", () => {
     replaceApi((path, options) => path === "/agent/models/capabilities" && options?.method === "POST"
       ? Promise.reject(new Error("检测请求超时")) : undefined);
     renderApp();
-    await modelField("模型名称");
+    await screen.findByRole("button", { name: "配置模型" });
     openAdvancedSettings();
     const probe = screen.getByRole("button", { name: "检测" });
     await waitFor(() => expect(probe).toBeEnabled());

@@ -65,20 +65,24 @@ describe("official model Data API display", () => {
 
   it("reflows the chart into narrow containers without dropping models or crowding labels", () => {
     let width = 480;
-    let resize = () => {};
+    const observers = new Map<Element, () => void>();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({ width, height: 380, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 380, toJSON: () => ({}) }));
     vi.stubGlobal("ResizeObserver", class {
-      constructor(callback: () => void) { resize = callback; }
-      observe() {}
-      disconnect() {}
+      private targets = new Set<Element>();
+      constructor(private callback: () => void) {}
+      observe(target: Element) { this.targets.add(target); observers.set(target, this.callback); }
+      unobserve(target: Element) { this.targets.delete(target); observers.delete(target); }
+      disconnect() { for (const target of this.targets) this.unobserve(target); }
     });
     const view = render(<HomeModelBenchmarks data={snapshot(Array.from({ length: 61 }, (_, i) => model(i)))} />);
     const chart = screen.getByRole("group", { name: "模型能力与成本散点图" });
     expect(chart).toHaveAttribute("viewBox", "0 0 480 380");
     expect(within(chart).getAllByRole("button")).toHaveLength(61);
     expect(view.container.querySelectorAll(".home-benchmark-point-label").length).toBeLessThanOrEqual(5);
+    const resize = observers.get(chart.parentElement!);
+    expect(resize).toBeDefined();
     width = 760;
-    act(() => resize());
+    act(() => resize!());
     expect(chart).toHaveAttribute("viewBox", "0 0 760 450");
     expect(within(chart).getAllByRole("button")).toHaveLength(61);
   });

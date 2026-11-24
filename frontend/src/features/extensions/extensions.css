@@ -193,10 +193,8 @@ button.extension-row-content { cursor: pointer; }
 .extension-file-input { display: none; }
 .extension-spinning { animation: extension-spin 1.2s linear infinite; }
 @keyframes extension-spin { to { transform: rotate(360deg); } }
-.extension-skill-picker { position: relative; display: inline-flex; }
-.assistant-surface .chat-workspace .chat-main > .chat-composer:has(.extension-skill-popover),
-.assistant-surface .chat-workspace.is-empty .chat-main > .chat-composer:has(.extension-skill-popover) { overflow: visible; }
-.extension-skill-popover { position: absolute; z-index: 8; bottom: calc(100% + 14px); left: 0; width: min(220px, calc(100vw - 32px)); max-height: min(520px, calc(100dvh - 120px)); overflow-y: auto; padding: 6px; border: 1px solid var(--color-border); border-radius: 10px; background: linear-gradient(var(--color-surface), var(--color-surface)), var(--color-bg); box-shadow: 0 10px 28px #00000020; color: var(--color-text); }
+.extension-skill-picker { display: inline-flex; }
+.extension-skill-popover { width: min(220px, var(--available-width)); max-height: min(520px, var(--available-height)); overflow-y: auto; padding: 6px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); box-shadow: 0 10px 28px #00000020; color: var(--color-text); }
 .extension-skill-list { margin: 0; padding: 0; list-style: none; }
 .extension-skill-option { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
 .extension-skill-option:hover:not(:disabled) { background: var(--color-surface-subtle); }
@@ -237,10 +235,7 @@ button.extension-row-content { cursor: pointer; }
   .extension-wizard { padding: 0 17px 20px; }
   .extension-stepper > span { gap: 5px; font-size: 10px; }
   .extension-stepper > span:not(:last-child)::after { margin: 0 6px; }
-  .extension-skill-popover { left: -4px; width: min(220px, calc(100vw - 24px)); max-height: min(460px, calc(100dvh - 110px)); }
-  .chat-workspace .composer-tools-bar { position: relative; }
-  .chat-workspace .composer-tools-bar .extension-skill-picker { position: static; }
-  .chat-workspace .composer-tools-bar .extension-skill-popover { left: 0; max-width: 100%; }
+  .extension-skill-popover { max-height: min(460px, var(--available-height)); }
 }
 @media (prefers-reduced-motion: reduce) {
   .extension-spinning { animation: none; }

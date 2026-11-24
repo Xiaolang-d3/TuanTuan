@@ -266,9 +266,9 @@ describe("ChatWorkspace", () => {
     expect(within(tools).getByRole("link", { name: "外部连接" })).toHaveAttribute("href", "#/settings/extensions");
     const skill = within(tools).getByRole("button", { name: "技能" });
     fireEvent.click(skill);
-    expect(screen.getByRole("region", { name: "可用技能" })).toBeInTheDocument();
-    fireEvent.keyDown(skill, { key: "Escape" });
-    expect(screen.queryByRole("region", { name: "可用技能" })).not.toBeInTheDocument();
+    const picker = screen.getByRole("dialog", { name: "可用技能" });
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "可用技能" })).not.toBeInTheDocument();
     expect(input).toHaveValue("整理这周的资料");
     expect(props.onSend).not.toHaveBeenCalled();
   });
@@ -763,7 +763,7 @@ describe("ChatWorkspace", () => {
     expect(input).toHaveAttribute("maxlength", "200000");
   });
 
-  it("opens the real upload and library actions without changing or sending the draft", () => {
+  it("opens the real upload and library actions without changing or sending the draft", async () => {
     const props = renderChat();
     const input = screen.getByRole("textbox", { name: "输入消息" });
     const trigger = screen.getByRole("button", { name: "添加资料" });
@@ -771,25 +771,25 @@ describe("ChatWorkspace", () => {
     const choose = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
     fireEvent.change(input, { target: { value: "已有草稿" } });
 
-    fireEvent.click(trigger);
+    act(() => trigger.focus());
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(choose).not.toHaveBeenCalled();
-    const options = within(screen.getByRole("group", { name: "资料选项" }));
-    const upload = options.getByRole("button", { name: "上传文件" });
-    const library = options.getByRole("button", { name: "打开文件库" });
-    expect(upload).toHaveFocus();
+    const options = within(screen.getByRole("menu", { name: "资料选项" }));
+    const upload = options.getByRole("menuitem", { name: "上传文件" });
+    const library = options.getByRole("menuitem", { name: "打开文件库" });
+    await waitFor(() => expect(upload).toHaveFocus());
     fireEvent.keyDown(upload, { key: "ArrowDown" });
-    expect(library).toHaveFocus();
+    await waitFor(() => expect(library).toHaveFocus());
     fireEvent.keyDown(library, { key: "Escape" });
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(trigger);
-    fireEvent.click(upload);
+    fireEvent.click(screen.getByRole("menuitem", { name: "上传文件" }));
     expect(choose).toHaveBeenCalledOnce();
-    expect(trigger).toHaveFocus();
     fireEvent.click(trigger);
-    fireEvent.click(library);
+    fireEvent.click(screen.getByRole("menuitem", { name: "打开文件库" }));
     expect(props.onOpenLibrary).toHaveBeenCalledOnce();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
 
@@ -802,7 +802,7 @@ describe("ChatWorkspace", () => {
     fireEvent.click(trigger);
     props.view.rerender(<ChatWorkspace {...props} attachmentBusy />);
     expect(screen.getByRole("button", { name: "附件处理中" })).toBeDisabled();
-    expect(screen.queryByRole("group", { name: "资料选项" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu", { name: "资料选项" })).not.toBeInTheDocument();
   });
 
   it.each(["page", "dock"] as const)("keeps the model picker and send button but no kernel control in the %s composer", (density) => {

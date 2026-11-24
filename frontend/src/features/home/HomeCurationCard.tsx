@@ -1,3 +1,4 @@
+import type { MouseEventHandler } from "react";
 import { Newspaper } from "lucide-react";
 import { validWebUrl } from "./HomeFeedCards";
 import type { HomeCuration } from "./types";
@@ -7,7 +8,7 @@ type HomeCurationCardProps = {
   loading: boolean;
   now: Date;
   onRegenerate: () => void;
-  onOpenInterest: () => void;
+  onOpenInterest: MouseEventHandler<HTMLButtonElement>;
 };
 
 export function HomeCurationCard({ curation, loading, now, onRegenerate, onOpenInterest }: HomeCurationCardProps) {

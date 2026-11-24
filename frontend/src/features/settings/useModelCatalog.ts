@@ -106,5 +106,6 @@ export function useModelCatalog({ fetchJson, scope, enabled, refreshKey }: { fet
     return () => { owner.active = false; owner.writing = false; invalidate(); };
   }, [owner, enabled, refreshKey]);
 
-  return { catalog: snapshot?.owner === owner ? snapshot.catalog : emptyCatalog, loading, busy, error, reload, mutate, ensureProfile };
+  const current = snapshot?.owner === owner ? snapshot : null;
+  return { catalog: current?.catalog ?? emptyCatalog, loaded: current !== null, loading, busy, error, reload, mutate, ensureProfile };
 }

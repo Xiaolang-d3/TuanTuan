@@ -1,7 +1,7 @@
 import { Button } from "@base-ui/react/button";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
-type ActionButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type ActionButtonProps = ComponentPropsWithRef<"button"> & {
   variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "sm" | "md";
   icon?: ReactNode;

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { HomeModelBenchmarks } from "./HomeModelBenchmarks";
 import type { HomeMediaBoard, HomeMediaModel, HomeModelBenchmarks as Data } from "./types";
@@ -15,7 +15,7 @@ const board = (id: string, category: HomeMediaBoard["category"], label: string, 
 const snapshot = (media: HomeMediaBoard[]): Data => ({ media, models: [], status: "ready", error: null, collected_at: null, source_url: "https://artificialanalysis.ai/", docs_url: "https://artificialanalysis.ai/data-api/docs/reference" });
 
 describe("four model categories", () => {
-  it("matches the four requested categories, supports keyboard tabs and independent task boards", () => {
+  it("matches the four requested categories, supports keyboard tabs and independent task boards", async () => {
     render(<HomeModelBenchmarks data={snapshot([
       board("text-to-image", "image", "图像生成", [model("image")]),
       board("image-editing", "image", "图像编辑", [model("edit")]),
@@ -23,16 +23,25 @@ describe("four model categories", () => {
     ])} />);
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map(tab => tab.textContent)).toEqual(["语言模型", "图像", "视频", "语音"]);
+    tabs[0].focus();
+    fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
+    await waitFor(() => expect(tabs[3]).toHaveFocus());
+    expect(tabs[3]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(tabs[3], { key: "Home" });
+    await waitFor(() => expect(tabs[0]).toHaveFocus());
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+    await waitFor(() => expect(tabs[1]).toHaveFocus());
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
-    expect(tabs[1]).toHaveFocus();
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName("图像");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("id", tabs[1].getAttribute("aria-controls"));
     expect(screen.getByRole("button", { name: /查看媒体模型：Model image/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /查看媒体模型：Model video/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "图像编辑" }));
     expect(screen.getByRole("button", { name: /查看媒体模型：Model edit/ })).toBeVisible();
     fireEvent.click(tabs[2]);
     expect(screen.getByRole("button", { name: /查看媒体模型：Model video/ })).toBeVisible();
+    fireEvent.click(tabs[1]);
+    expect(screen.getByRole("button", { name: /查看媒体模型：Model image/ })).toBeVisible();
   });
 
   it("retains every returned media model, ranks Elo descending, searches unknown creators and shows confidence", () => {

@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronUp, Code2, Copy, Download, GitCompareArrows 
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkLocalCitations } from "./remark-local-citations";
-import { LocalCitation, LocalCitationActionsContext } from "./LocalCitation";
+import { LocalCitation, LocalCitationContext } from "./LocalCitation";
 import type { LocalEvidence } from "./local-evidence";
 import { ChatWorkspaceMermaid } from "../../components/ChatWorkspaceMermaid";
 import { ChatWorkspaceMindmap } from "../../components/ChatWorkspaceMindmap";
@@ -133,11 +133,11 @@ function MarkdownLinkRenderer({ children, href }: { children?: ReactNode; href?:
 
 function MarkdownSpanRenderer({ node, children, ...props }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
   const { localEvidence, streaming } = useContext(MarkdownRenderContext);
-  const open = useContext(LocalCitationActionsContext);
+  const citationLoaders = useContext(LocalCitationContext);
   const citationId = node?.properties?.["data-local-citation"];
   if (typeof citationId !== "string") return <span {...props}>{children}</span>;
   const evidence = localEvidence.find(item => item.citation_id === citationId);
-  if (evidence && open) return <LocalCitation evidence={evidence} onOpen={open} />;
+  if (evidence && citationLoaders) return <LocalCitation key={evidence.citation_id} evidence={evidence} loaders={citationLoaders} />;
   return <span className="md-local-citation-unverified" title={evidence ? "当前页面暂不支持原文预览" : "没有与此标记对应的已核验证据"}>{evidence ? "本地来源" : streaming ? "核对来源中…" : "引用未核对"}</span>;
 }
 

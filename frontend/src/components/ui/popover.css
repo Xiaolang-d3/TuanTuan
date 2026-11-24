@@ -1,0 +1,2 @@
+.ui-popover-positioner { z-index: 80; }
+.ui-popover-positioner[data-anchor-hidden] { visibility: hidden; pointer-events: none; }

@@ -1368,7 +1368,7 @@ export function App({
                         disabled={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} />}
                     /> : undefined}
                     error={errorMessage}
-                    purposeManager={modelCatalog.catalog.purpose_defaults ? <ModelUsageRules catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} loading={modelCatalog.loading} onMutate={modelCatalog.mutate} onApplied={refreshDefaultModelSelection} /> : modelCatalog.loading ? <p role="status">正在读取使用规则…</p> : undefined}
+                    purposeManager={modelCatalog.catalog.purpose_defaults ? <ModelUsageRules catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} loading={modelCatalog.loading} onMutate={modelCatalog.mutate} onApplied={refreshDefaultModelSelection} /> : modelCatalog.loading && !modelCatalog.loaded ? <p role="status">正在读取使用规则…</p> : undefined}
                     routingManager={<><ModelFallbackSettings fetchJson={fetchJson} catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} /><ModelRoutingPanel key={userEmail} fetchJson={fetchJson} catalog={modelCatalog.catalog}
                       disabled={agentSettingsBusy || modelCatalog.busy || Boolean(modelSaveUnknown)}
                       onApplied={async () => { await modelCatalog.reload(); await refreshDefaultModelSelection(); }} /></>}

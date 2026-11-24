@@ -1,4 +1,4 @@
-.home-page, .developer-home-shell {
+.home-page, .developer-home-shell, .home-dialog, .home-menu {
   --home-bg: var(--color-bg); --home-panel: var(--color-surface); --home-panel-2: var(--color-surface-subtle);
   --home-line: var(--color-border); --home-line-2: var(--color-border); --home-line-strong: var(--color-border-strong);
   --home-text: var(--color-text); --home-text-2: var(--color-text-secondary); --home-text-3: var(--color-text-muted);
@@ -13,7 +13,7 @@
   --home-shadow-popup: 0 12px 32px -8px rgba(18, 18, 18, .2), 0 2px 8px rgba(18, 18, 18, .06);
   --home-on-accent: var(--color-on-brand);
 }
-:root[data-theme="dark"] .home-page, :root[data-theme="dark"] .developer-home-shell {
+:root[data-theme="dark"] :is(.home-page, .developer-home-shell, .home-dialog, .home-menu) {
   color-scheme: dark;
   --home-bg: var(--color-bg); --home-panel: var(--color-surface); --home-panel-2: var(--color-surface-subtle);
   --home-line: var(--color-border); --home-line-2: var(--color-border); --home-line-strong: var(--color-border-strong);
@@ -29,10 +29,10 @@
   --home-shadow-popup: 0 12px 32px -8px rgba(0, 0, 0, .65), 0 2px 8px rgba(0, 0, 0, .35);
   --home-on-accent: var(--color-on-brand);
 }
-.home-page { color: var(--home-text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
-.home-page button, .home-page a { box-shadow: none; }
-.home-page button:focus-visible, .home-page a:focus-visible, .home-page input:focus-visible, .home-page textarea:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; box-shadow: none; }
-.home-page button { color: inherit; background: none; }
+.home-page, .home-dialog, .home-menu { color: var(--home-text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
+:is(.home-page, .home-dialog, .home-menu) :is(button, a) { box-shadow: none; }
+:is(.home-page, .home-dialog, .home-menu) :is(button, a, input, textarea):focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; box-shadow: none; }
+:is(.home-page, .home-dialog, .home-menu) button { color: inherit; background: none; }
 .home-eyebrow, .home-sync { color: var(--home-text-3); }
 .home-time, .home-sync b, .home-digest { color: var(--home-text-2); }
 .home-welcome, .home-digest b { color: var(--home-text); }
@@ -104,7 +104,7 @@
 .home-menu, .home-dialog { background: var(--home-panel); border-color: var(--home-line); box-shadow: var(--home-shadow-popup); }
 .home-menu button { color: var(--home-text); }
 .home-menu button svg { color: var(--home-text-3); }
-.home-menu button:hover, .home-menu button:focus-visible { background: var(--home-hover-2); }
+.home-menu button:hover, .home-menu button[data-highlighted] { background: var(--home-hover-2); }
 .home-menu button:focus-visible { outline-offset: -2px; }
 .home-dialog-description, .home-field span { color: var(--home-text-3); }
 .home-field input, .home-field textarea { background: var(--home-panel-2); border-color: var(--home-line); color: var(--home-text); }

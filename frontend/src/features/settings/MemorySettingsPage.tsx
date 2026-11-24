@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Brain, ListChecks, Pencil, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { ApiError, type createApiClient } from "../../api/client";
+import { Switch } from "../../components/ui/Switch";
 import type { AgentSettings, MemoryOverview, MemoryRule, MemorySummary } from "../../types";
 import "./memory-settings-page.css";
 
@@ -23,17 +24,10 @@ function errorMessage(reason: unknown, fallback: string): string {
 
 function ToggleSwitch({ checked, disabled, label, onChange }: { checked: boolean; disabled?: boolean; label: string; onChange: (next: boolean) => void }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="memory-switch-track"><span className="memory-switch-thumb" /></span>
+    <Switch.Root checked={checked} aria-label={label} disabled={disabled} onCheckedChange={onChange}>
+      <span className="memory-switch-track"><Switch.Thumb className="memory-switch-thumb" /></span>
       <span>{checked ? "已开启" : "已关闭"}</span>
-    </button>
+    </Switch.Root>
   );
 }
 
@@ -351,17 +345,15 @@ export function MemorySettingsPage({ fetchJson }: Props) {
                       <>
                         <p className="memory-rule-text">{rule.rule}</p>
                         <div className="memory-rule-actions">
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={rule.enabled}
+                          <Switch.Root
+                            checked={rule.enabled}
                             aria-label={`规则「${rule.rule}」${rule.enabled ? "停用" : "启用"}`}
                             title={rule.enabled ? "停用" : "启用"}
                             disabled={busy}
-                            onClick={() => void toggleRule(rule, !rule.enabled)}
+                            onCheckedChange={(next) => void toggleRule(rule, next)}
                           >
                             {rule.enabled ? "已启用" : "已停用"}
-                          </button>
+                          </Switch.Root>
                           <button type="button" className="memory-icon-button" aria-label={`编辑规则：${rule.rule}`} title="编辑" disabled={busy} onClick={() => { setEditingId(rule.id); setEditingText(rule.rule); }}>
                             <Pencil size={15} aria-hidden="true" />
                           </button>
