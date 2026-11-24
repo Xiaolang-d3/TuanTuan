@@ -337,7 +337,37 @@ def clear_all_memory(db_path: str | Path | None = None) -> dict[str, int]:
     return {"cleared_items": items, "cleared_rules": rules}
 
 
+def _uses_chatgpt_subscription(connection: dict[str, Any]) -> bool:
+    return (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription")
+
+
+def _subscription_selected(conn: sqlite3.Connection, conversation_id: int) -> bool:
+    # The extraction model is the workspace default, which may differ from the
+    # conversation's pick. Check both without touching the credential store.
+    return conn.execute(
+        """SELECT 1 FROM model_profiles p JOIN model_connections c ON p.connection_id = c.id
+           WHERE c.secret_ref = 'chatgpt_subscription' AND p.id IN (
+             SELECT model_profile_id FROM conversations WHERE id = ?
+             UNION ALL SELECT default_model_profile_id FROM agent_settings WHERE id = 1
+           ) LIMIT 1""",
+        (conversation_id,),
+    ).fetchone() is not None
+
+
+def _run_used_subscription(run: sqlite3.Row | None) -> bool:
+    if run is None:
+        return False
+    try:
+        selection = json.loads(run["model_selection_json"])
+    except (TypeError, ValueError):
+        return False
+    return isinstance(selection, dict) and _uses_chatgpt_subscription(selection)
+
+
 def _build_provider(connection: dict[str, Any]) -> Any:
+    if _uses_chatgpt_subscription(connection):
+        raise ValueError("ChatGPT 订阅不可用于后台记忆抽取")
     from ...models.configured import configure_model_provider
     from ...models.factory import build_model_provider
 
@@ -417,20 +447,22 @@ def _completed_result(result: AgentRunResult) -> bool:
 def _extraction_window(
     conn: sqlite3.Connection, conversation_id: int, through_message_id: int | None,
 ) -> tuple[int, int] | None:
+    if _subscription_selected(conn, conversation_id):
+        return None
     if through_message_id is None:
         # Reset may retry the most recent turn, but never a waiting/failed/in-progress one.
         run = conn.execute(
-            "SELECT assistant_message_id, status, stop_reason, result_json FROM agent_execution_runs "
+            "SELECT assistant_message_id, status, stop_reason, result_json, model_selection_json FROM agent_execution_runs "
             "WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1",
             (conversation_id,),
         ).fetchone()
     else:
         run = conn.execute(
-            "SELECT assistant_message_id, status, stop_reason, result_json FROM agent_execution_runs "
+            "SELECT assistant_message_id, status, stop_reason, result_json, model_selection_json FROM agent_execution_runs "
             "WHERE conversation_id = ? AND assistant_message_id = ?",
             (conversation_id, through_message_id),
         ).fetchone()
-    if run is None or run["status"] != "completed" or not run["assistant_message_id"]:
+    if run is None or run["status"] != "completed" or not run["assistant_message_id"] or _run_used_subscription(run):
         return None
     if run["stop_reason"] != "completed" or not _completed_result(AgentRunResult.model_validate_json(run["result_json"])):
         return None
@@ -451,8 +483,10 @@ def _due_window(
         return None
     with connect(db_path) as conn:
         window = _extraction_window(conn, conversation_id, through_message_id)
-    if window and get_model_connection(db_path, resolve_credentials=False).get("model_name"):
-        return window
+    if window is not None:
+        connection = get_model_connection(db_path, resolve_credentials=False)
+        if connection.get("model_name") and not _uses_chatgpt_subscription(connection):
+            return window
     return None
 
 
@@ -569,7 +603,7 @@ def _extract_from_conversation(
             connection = get_model_connection(db_path)
         except Exception:
             return 0
-        if not connection.get("model_name"):
+        if not connection.get("model_name") or _uses_chatgpt_subscription(connection):
             return 0
         try:
             provider = _build_provider(connection)

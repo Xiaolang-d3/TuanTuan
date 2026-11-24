@@ -310,6 +310,9 @@ _ROLE_FIELDS = {
 def route_target_for_connection(connection: dict[str, Any], *, timeout_seconds: float) -> RouteTarget:
     from ..model_protocol import protocol_requires_api_key
 
+    if (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription"):
+        raise ValueError("ChatGPT 订阅不可作为 LiteLLM 备用模型")
     protocol = connection.get("detected_protocol") or connection["resolved_model_protocol"]
     if protocol == "images":
         raise ValueError("图片模型不能作为聊天备用模型")
@@ -341,6 +344,9 @@ def build_routed_provider(
     load_profile,
 ) -> Any:
     """Wrap ``primary`` with router fallbacks; return it unchanged when none apply."""
+    if (primary_connection.get("auth_kind") == "chatgpt_subscription"
+            or primary_connection.get("secret_ref") == "chatgpt_subscription"):
+        return primary
     primary_id = str(primary_connection.get("profile_id") or "")
     fallbacks: dict[str, list[RouteTarget]] = {}
     cache: dict[str, RouteTarget | None] = {}
@@ -353,7 +359,7 @@ def build_routed_provider(
                 try:
                     cache[profile_id] = route_target_for_connection(load_profile(profile_id), timeout_seconds=timeout_seconds)
                 except Exception:
-                    # Disabled, deleted or credential-less fallbacks are skipped.
+                    # Ineligible fallbacks (including subscriptions) are skipped.
                     cache[profile_id] = None
             if cache[profile_id] is not None:
                 targets.append(cache[profile_id])

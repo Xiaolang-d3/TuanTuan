@@ -160,10 +160,18 @@ def _parse(text: str, sections_input: list[dict[str, Any]]) -> dict[str, Any]:
     return {"overview": overview.strip()[:600], "sections": parsed_sections}
 
 
+def _require_background_model(connection: dict[str, Any]) -> None:
+    if (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription"):
+        raise ValueError("ChatGPT 订阅仅支持团团对话，不可用于日报或资讯精选")
+
+
 def _resolve_connection(profile_id: str) -> dict[str, Any]:
     from ..agent.model_catalog import get_profile_connection
 
-    return get_profile_connection(profile_id)
+    connection = get_profile_connection(profile_id)
+    _require_background_model(connection)
+    return connection
 
 
 def validate_profile(profile_id: str) -> None:
@@ -178,12 +186,14 @@ def validate_profile(profile_id: str) -> None:
         raise ValueError("日报模型暂时不可用，请检查模型设置") from exc
     except ValueError as exc:
         raise ValueError(f"日报模型不可用：{exc}") from exc
+    _require_background_model(connection)
     if connection.get("resolved_model_protocol") == "images":
         raise ValueError("日报需要文本模型，请在模型设置中选择文本档案")
 
 
 def _request_model(connection: dict[str, Any], prompt: str, *, stage: str = "digest", selection_reason: str = "home_digest", max_output_tokens: int = 1200) -> str:
     """One blocking model call, monitored like other provider calls."""
+    _require_background_model(connection)
     from ..config import get_settings
     from ..domain import AgentMessage, ModelRequest
     from ..models import build_model_provider

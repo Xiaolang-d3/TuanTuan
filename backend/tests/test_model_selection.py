@@ -222,6 +222,42 @@ def test_known_video_preference_switches_text_to_chat_before_building_runtime(cl
     assert result["selection_reason"] == "text_intent"
 
 
+@pytest.mark.parametrize("model_name,protocol", [("gpt-image-2", "images"), ("sora-2", "auto")])
+def test_chatgpt_subscription_text_rebind_requires_an_interactive_turn(client, monkeypatch, model_name, protocol):
+    from app import chatgpt_subscription, db
+    from app.agent import bootstrap
+    from app.agent.model_catalog import add_model_profile, ensure_chatgpt_connection, get_model_catalog
+    from app.agent.model_purposes import save_purpose_default
+    from app.models.catalog_discovery import store_discovery
+    from app.workspace import resolve_db_path
+
+    _, non_chat = add_service(client, "non-chat", model_name, protocol)
+    account_id = "subscription-test-account"
+    monkeypatch.setattr(chatgpt_subscription, "local_enabled", lambda: True)
+    monkeypatch.setattr(chatgpt_subscription, "binding", lambda path, cid: "fake-generation" if cid == account_id else "")
+    # Use the real saved purpose defaults and catalog rather than stubbing re-selection.
+    ensure_chatgpt_connection(account_id, "ChatGPT", resolve_db_path())
+    with db.connect() as conn:
+        assert store_discovery(conn, account_id, 1, [{"id": "subscription-chat", "output_types": ["chat"]}])
+    chat = add_model_profile({"connection_id": account_id, "model_name": "subscription-chat"})
+    save_purpose_default("chat", {"profile_id": chat["id"], "expected_version": get_model_catalog()["purpose_version"]})
+
+    def no_runtime(connection):
+        pytest.fail("External turns must reject subscription rebinding before constructing a runtime")
+
+    monkeypatch.setattr(bootstrap, "_cached_components", no_runtime)
+    with pytest.raises(ValueError, match="不支持外部消息渠道"):
+        bootstrap.get_agent_runtime(non_chat["id"], user_content="你好", allow_chatgpt_subscription=False)
+    with pytest.raises(ValueError, match="不支持外部消息渠道"):
+        bootstrap.get_agent_runtime(non_chat["id"], user_content="你好")
+
+    monkeypatch.setattr(bootstrap, "_cached_components", lambda connection: (connection, {}))
+    interactive = bootstrap.get_agent_runtime(non_chat["id"], user_content="你好", allow_chatgpt_subscription=True)
+    assert interactive["profile_id"] == chat["id"]
+    assert interactive["selection_reason"] == "text_intent"
+    assert {stage["profile_id"] for stage in interactive["stage_connections"].values()} == {chat["id"]}
+
+
 def test_image_input_binds_vision_default_only_for_new_vision_turns(client, monkeypatch):
     from app.agent import bootstrap
     from app.agent.model_binding import internal_model_selection
