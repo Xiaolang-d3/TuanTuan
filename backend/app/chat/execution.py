@@ -155,21 +155,15 @@ def cancel_durable_agent_run(run_id: str) -> dict[str, Any]:
 
 
 def require_configured_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
-                               user_content: str | None = None, has_image_input: bool = False):
+                               user_content: str | None = None, has_image_input: bool = False,
+                               allow_chatgpt_subscription: bool = False):
     """Ensure model is configured before AG-UI streaming starts.
 
     Missing API key must surface as HTTP 400 (not an in-stream 200 failure or 500).
     """
     try:
-        if selection is not None:
-            return get_agent_runtime(selection=selection)
-        if has_image_input:
-            return get_agent_runtime(profile_id, user_content=user_content, has_image_input=True)
-        if user_content is not None:
-            return get_agent_runtime(profile_id, user_content=user_content)
-        if profile_id is not None:
-            return get_agent_runtime(profile_id)
-        return get_agent_runtime()
+        return get_agent_runtime(profile_id, selection=selection, user_content=user_content,
+                                 has_image_input=has_image_input, allow_chatgpt_subscription=allow_chatgpt_subscription)
     except SecretStoreUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -184,6 +178,7 @@ async def stream_chat_response(
     *,
     ag_ui_input: RunAgentInput,
     accept: str | None = None,
+    allow_chatgpt_subscription: bool = False,
 ) -> StreamingResponse:
     conversation_id = payload.conversation_id or _default_conversation_id()
     conversation = require_conversation(conversation_id)
@@ -341,7 +336,7 @@ async def stream_chat_response(
         if historical_selection is not None and not is_bound_selection(historical_selection) and not is_legacy_selection(historical_selection):
             raise HTTPException(status_code=409, detail="运行的模型绑定信息不完整，无法恢复")
         if is_bound_selection(historical_selection):
-            runtime = require_configured_runtime(selection=historical_selection)
+            runtime = require_configured_runtime(selection=historical_selection, allow_chatgpt_subscription=allow_chatgpt_subscription)
             model_selection = internal_model_selection(historical_selection)
         else:
             # Omitted inherits conversation; explicit null selects the account default.
@@ -352,6 +347,7 @@ async def stream_chat_response(
                 profile_id,
                 user_content=effective_content if historical_selection is None else None,
                 has_image_input=bool(historical_selection is None and conversation_kernel == "tuantuan" and prepared_attachments and prepared_attachments[2]),
+                allow_chatgpt_subscription=allow_chatgpt_subscription,
             )
             if historical_selection is not None:
                 model_selection = internal_model_selection(historical_selection)

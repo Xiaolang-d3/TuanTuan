@@ -5,6 +5,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, HTTPException, Response
+from pydantic import BaseModel, Field
+
+from .. import chatgpt_subscription as subscription
+from ..chatgpt_store import SubscriptionStoreError
+from ..workspace import resolve_db_path
 from ..agent import get_agent_capabilities
 from ..agent.bootstrap import reload_agent_components
 from ..agent.model_capabilities import apply_actual_protocol, build_model_list, infer_model_capabilities
@@ -64,6 +69,8 @@ def _same_saved_connection(connection: dict[str, Any], saved: dict[str, Any]) ->
 def _provider_for(connection: dict[str, Any], timeout_seconds: float, *, remember: bool = True):
     from ..agent.model_catalog import detected_protocol_recorder
 
+    if connection.get("auth_kind") == subscription.AUTH_KIND:
+        return subscription.build_subscription_provider(connection, timeout_seconds=timeout_seconds)
     if not remember:
         connection = {**connection, "detected_protocol": None, "connection_id": ""}
     return build_model_provider(
@@ -165,6 +172,73 @@ def _catalog_mutation(operation, *args) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+_SUBSCRIPTION_HEADERS = {"Cache-Control": "no-store"}
+
+
+class ChatGPTStartIn(BaseModel):
+    account_id: str | None = Field(default=None, max_length=36)
+    reconsent: bool = False
+
+
+class ChatGPTActiveIn(BaseModel):
+    account_id: str = Field(min_length=1, max_length=36)
+
+
+def _subscription_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SubscriptionStoreError):
+        return HTTPException(status_code=503, detail="本机安全凭证存储不可用，请检查或重试。", headers=_SUBSCRIPTION_HEADERS)
+    if isinstance(exc, OSError):
+        return HTTPException(status_code=503, detail="无法开启本机 ChatGPT 登录，请稍后重试。", headers=_SUBSCRIPTION_HEADERS)
+    return HTTPException(status_code=400, detail=str(exc), headers=_SUBSCRIPTION_HEADERS)
+
+
+@router.get("/agent/chatgpt-subscription")
+def chatgpt_status(response: Response) -> dict[str, Any]:
+    response.headers.update(_SUBSCRIPTION_HEADERS)
+    return subscription.status(resolve_db_path())
+
+
+@router.post("/agent/chatgpt-subscription/start")
+async def chatgpt_start(payload: ChatGPTStartIn, response: Response) -> dict[str, Any]:
+    response.headers.update(_SUBSCRIPTION_HEADERS)
+    try:
+        return await subscription.start(resolve_db_path(), account_id=payload.account_id, reconsent=payload.reconsent)
+    except (subscription.SubscriptionError, SubscriptionStoreError, OSError) as exc:
+        raise _subscription_error(exc) from None
+
+
+@router.get("/agent/chatgpt-subscription/attempts/{attempt_id}")
+async def chatgpt_attempt(attempt_id: str, response: Response) -> dict[str, Any]:
+    response.headers.update(_SUBSCRIPTION_HEADERS)
+    try:
+        return subscription.attempt_status(resolve_db_path(), attempt_id)
+    except subscription.SubscriptionError as exc:
+        raise _subscription_error(exc) from None
+
+
+@router.post("/agent/chatgpt-subscription/active")
+async def chatgpt_activate(payload: ChatGPTActiveIn, response: Response) -> dict[str, Any]:
+    response.headers.update(_SUBSCRIPTION_HEADERS)
+    db_path = resolve_db_path()
+    try:
+        await subscription.activate(db_path, payload.account_id)
+    except (subscription.SubscriptionError, SubscriptionStoreError) as exc:
+        raise _subscription_error(exc) from None
+    return await asyncio.to_thread(subscription.status, db_path)
+
+
+@router.delete("/agent/chatgpt-subscription")
+async def chatgpt_sign_out(response: Response) -> dict[str, Any]:
+    response.headers.update(_SUBSCRIPTION_HEADERS)
+    db_path = resolve_db_path()
+    try:
+        warning = await subscription.sign_out(db_path)
+    except (subscription.SubscriptionError, SubscriptionStoreError) as exc:
+        raise _subscription_error(exc) from None
+    status = await asyncio.to_thread(subscription.status, db_path)
+    return {**status, "message": warning} if warning else status
+
+
 @router.get("/agent/model-connections")
 def model_connections_get() -> dict[str, Any]:
     from ..agent.model_catalog import get_model_catalog
@@ -192,7 +266,10 @@ def model_connection_reveal_key(connection_id: str, response: Response) -> dict[
 
     response.headers["Cache-Control"] = "no-store"
     try:
-        return {"api_key": get_service_connection(connection_id)["api_key"]}
+        connection = get_service_connection(connection_id)
+        if connection.get("auth_kind") == subscription.AUTH_KIND:
+            raise ValueError("ChatGPT 订阅不提供 API Key")
+        return {"api_key": connection["api_key"]}
     except SecretStoreUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc), headers={"Cache-Control": "no-store"}) from exc
     except ValueError as exc:
@@ -282,14 +359,14 @@ def _profile_for_connection(connection_id: str) -> dict[str, Any]:
 
 @router.post("/agent/model-connections/{connection_id}/discover")
 async def model_connection_discover(connection_id: str) -> dict[str, Any]:
-    connection = _profile_for_connection(connection_id)
+    connection = await asyncio.to_thread(_profile_for_connection, connection_id)
     return await _discover_connection(connection)
 
 
 @router.post("/agent/model-connections/{connection_id}/check")
 async def model_connection_check(connection_id: str) -> dict[str, Any]:
-    connection = _profile_for_connection(connection_id)
-    if not connection["model_name"]:
+    connection = await asyncio.to_thread(_profile_for_connection, connection_id)
+    if not connection["model_name"] or connection.get("auth_kind") == subscription.AUTH_KIND:
         result = await _discover_connection(connection)
         return {"available": True, "check_error_message": "", "check_scope": "catalog", "models": result["models"]}
     return await _check_connection(connection)
@@ -312,7 +389,8 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
     model_name = connection["model_name"]
     model_protocol = connection["model_protocol"]
     resolved_protocol = connection["resolved_model_protocol"]
-    if protocol_requires_api_key(resolved_protocol) and not api_key:
+    is_subscription = connection.get("auth_kind") == subscription.AUTH_KIND
+    if not is_subscription and protocol_requires_api_key(resolved_protocol) and not api_key:
         raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
 
     provider = _provider_for(connection, min(get_settings().model_timeout_seconds, 20), remember=remember)
@@ -321,7 +399,7 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
             async with asyncio.timeout(_diagnostic_timeout()):
                 models = await provider.list_models()
     except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="读取模型列表超时，请重试或手动填写模型名称") from exc
+        raise HTTPException(status_code=504, detail="读取 ChatGPT 订阅模型目录超时，请重试" if is_subscription else "读取模型列表超时，请重试或手动填写模型名称") from exc
     except ModelProviderError as exc:
         suggested = _suggested_protocol(connection, exc.code)
         raise HTTPException(
@@ -333,16 +411,16 @@ async def _discover_connection(connection: dict[str, Any], *, remember: bool = T
         raise HTTPException(
             status_code=502,
             detail=(
-                f"读取模型目录 {provider.models_url} 时发生未预期异常，"
-                "请确认 Base URL 与 API Key 后重试"
+                "读取 ChatGPT 订阅模型目录失败，请确认登录后重试" if is_subscription else
+                f"读取模型目录 {provider.models_url} 时发生未预期异常，请确认 Base URL 与 API Key 后重试"
             ),
         ) from exc
     if not models:
         raise HTTPException(
             status_code=404,
             detail=(
-                f"服务已连接，但 {provider.models_url} 没有返回可用模型；"
-                "请继续手动填写模型名称"
+                "当前 ChatGPT 订阅未返回可用模型，请检查账号授权。" if is_subscription else
+                f"服务已连接，但 {provider.models_url} 没有返回可用模型；请继续手动填写模型名称"
             ),
         )
     provider_name = provider.name
@@ -504,6 +582,8 @@ async def model_profile_capabilities_probe(profile_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if connection.get("auth_kind") == subscription.AUTH_KIND:
+        raise HTTPException(status_code=400, detail="ChatGPT 订阅当前仅支持文字聊天，不能探测图片输入。")
     if protocol_requires_api_key(connection["resolved_model_protocol"]) and not connection["api_key"]:
         raise HTTPException(status_code=400, detail="请先为该连接保存 API Key")
     provider = _provider_for(connection, min(get_settings().model_timeout_seconds, 20))

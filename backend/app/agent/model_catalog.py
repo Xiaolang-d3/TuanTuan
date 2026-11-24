@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from .. import chatgpt_subscription as subscription
+from ..workspace import resolve_db_path
 from ..model_connection import normalize_api_root, resolve_model_connection
 from ..model_protocol import model_protocol_for_profile, PROTOCOL_LABELS, connection_protocol_label, normalize_detected_protocol, normalize_model_protocol, resolve_model_protocol
 from ..secret_store import secret_backend_name, secret_storage_writable, secret_reference_backend, SecretStoreUnavailable
@@ -49,6 +51,8 @@ def _decode_connection(row: Any) -> dict[str, Any]:
     result = dict(row)
     result["enabled"] = bool(result["enabled"])
     result["detected_protocol"] = normalize_detected_protocol(result.get("detected_protocol"))
+    if result["secret_ref"] == subscription.AUTH_KIND:
+        result["auth_kind"] = subscription.AUTH_KIND
     return result
 
 
@@ -76,6 +80,8 @@ def _version(conn, kind: str, record: dict[str, Any]) -> None:
 
 def _secret(connection: dict[str, Any], model_name: str, db_path) -> tuple[str, str, str]:
     reference = str(connection.get("secret_ref") or "none")
+    if reference == subscription.AUTH_KIND:
+        raise SecretStoreUnavailable("ChatGPT 订阅不提供 API Key")
     if reference == "none":
         return "", "none", ""
     if reference == settings._ENVIRONMENT_REF:
@@ -109,6 +115,9 @@ def _secret(connection: dict[str, Any], model_name: str, db_path) -> tuple[str, 
 def _secret_preview(connection: dict[str, Any], model_name: str, db_path) -> tuple[str, str, str, bool, str]:
     """Display saved state without authenticating to the OS keychain."""
     reference = str(connection.get("secret_ref") or "none")
+    if reference == subscription.AUTH_KIND:
+        authorized = bool(subscription.binding(resolve_db_path(db_path), connection["id"]))
+        return "", "none", "", False, "available" if authorized else "unavailable"
     if reference.startswith("legacy:"):
         with connect(db_path) as conn:
             alias = conn.execute("SELECT secret_ref FROM model_credential_aliases WHERE reference=?", (reference,)).fetchone()
@@ -131,6 +140,8 @@ def _public_connection(connection: dict[str, Any], db_path) -> dict[str, Any]:
     result.update(detected_protocol=detected, detected_protocol_label=PROTOCOL_LABELS[detected] if detected else None,
                   protocol_label=connection_protocol_label(connection["protocol"], detected, "", connection.get("effective_base_url") or ""))
     result.update(model_base_url=connection["base_url"], model_protocol=connection["protocol"], api_key_configured=configured, credential_status=status, api_key_source=source, secret_storage=secret_backend_name(), secret_storage_writable=secret_storage_writable(), secret_migration_warning=warning)
+    if connection.get("auth_kind") == subscription.AUTH_KIND:
+        result["protocol_label"] = "ChatGPT 订阅"
     return result
 
 
@@ -204,16 +215,28 @@ def get_model_catalog(db_path: str | Path | None = None) -> dict[str, Any]:
     return {"connections": [_public_connection(item, db_path) for item in connections], "profiles": profiles, "default_profile_id": row["default_model_profile_id"], "effective_execution_profile_id": execution_profile, "config_revision": row["config_revision"], "purpose_defaults": defaults, "purpose_version": purpose_version, "service_connection_id": service["id"] if service else None}
 
 
+def _subscription_fields(connection: dict[str, Any], db_path, *, required: bool) -> dict[str, Any]:
+    db_path = resolve_db_path(db_path)
+    generation = subscription.binding(db_path, connection["id"])
+    if required and not generation:
+        raise SecretStoreUnavailable("ChatGPT 订阅不可用，请登录或切回此连接绑定的账号。")
+    return {"auth_kind": subscription.AUTH_KIND, "subscription_db_path": db_path,
+            "credential_fingerprint": generation, "api_key_configured": False,
+            "credential_status": "available" if generation else "unavailable"}
+
+
 def get_service_connection(connection_id: str, db_path: str | Path | None = None) -> dict[str, Any]:
     _ensure_catalog(db_path)
     with connect(db_path) as conn:
         connection = _connection(conn, connection_id)
     if not connection["enabled"]:
         raise ValueError("连接已停用")
-    key, _, _ = _secret(connection, "", db_path)
+    fields = (_subscription_fields(connection, db_path, required=True)
+              if connection.get("auth_kind") == subscription.AUTH_KIND else {})
+    key = "" if fields else _secret(connection, "", db_path)[0]
     resolved = resolve_model_connection({"model_name": "", "model_base_url": connection["effective_base_url"], "model_protocol": connection["protocol"], "api_key": key})
     resolved.update(connection_id=connection_id, connection_revision=connection["revision"], secret_ref=connection["secret_ref"], detected_protocol=connection.get("detected_protocol"), connection_effective_base_url=connection["effective_base_url"])
-    return resolved
+    return resolved | fields
 
 
 def get_profile_connection(profile_id: str | None = None, db_path: str | Path | None = None, selection: dict[str, Any] | None = None, *, resolve_credentials: bool = True) -> dict[str, Any]:
@@ -252,24 +275,34 @@ def get_profile_connection(profile_id: str | None = None, db_path: str | Path | 
         live.get(key) == connection.get(key) for key in ("effective_base_url", "protocol", "secret_ref")
     ):
         detected = normalize_detected_protocol(live.get("detected_protocol"))
-    if resolve_credentials:
+    fields = (_subscription_fields(connection, db_path, required=resolve_credentials)
+              if connection.get("secret_ref") == subscription.AUTH_KIND else {})
+    if fields:
+        api_key, source, warning, configured, status = "", "none", "", False, fields["credential_status"]
+    elif resolve_credentials:
         api_key, source, warning = _secret(connection, profile["model_name"], db_path)
         configured, status = bool(api_key), "available" if api_key else "missing"
     else:
         api_key, source, warning, configured, status = _secret_preview(connection, profile["model_name"], db_path)
-    credential_fingerprint = hashlib.sha256(api_key.encode()).hexdigest()
+    credential_fingerprint = fields["credential_fingerprint"] if fields else hashlib.sha256(api_key.encode()).hexdigest()
     if requested.get("credential_fingerprint") and not hmac.compare_digest(requested["credential_fingerprint"], credential_fingerprint):
         raise SecretStoreUnavailable("运行绑定的模型凭证已改变，无法恢复原配置；请新建任务")
     # Restored runs retain their bound adapter; only new selections infer an Images adapter.
     profile_protocol = (requested.get("model_protocol") or connection["protocol"]) if selection is not None else model_protocol_for_profile(profile["model_name"], connection["protocol"], profile.get("capabilities"), connection["effective_base_url"])
+    if fields:
+        if (connection["effective_base_url"] != subscription.API_ROOT or profile_protocol != "responses"
+                or live["secret_ref"] != subscription.AUTH_KIND):
+            raise ValueError("ChatGPT 订阅连接配置无效，无法继续使用。")
     resolved = resolve_model_connection({"model_name": profile["model_name"], "model_base_url": connection["effective_base_url"], "model_protocol": profile_protocol, "api_key": api_key})
     if resolved["resolved_model_protocol"] == "images":
         detected = None
     resolved.update(profile_id=profile["id"], connection_id=connection["id"], profile_revision=profile["revision"], connection_revision=connection["revision"], secret_ref=connection["secret_ref"], credential_fingerprint=credential_fingerprint, data_boundary=connection["data_boundary"], parameters=profile["parameters"], capabilities=profile["capabilities"], context_limit=profile["context_limit"], price_per_million_input=profile["price_per_million_input"], price_per_million_output=profile["price_per_million_output"], config_revision=config_revision, connection_configured_base_url=connection["base_url"], api_key_source=source if resolved["api_key"] else "none", secret_migration_warning=warning)
     resolved.update(connection_effective_base_url=connection["effective_base_url"], detected_protocol=detected, reasoning_effort=normalize_reasoning_effort(profile.get("reasoning_effort")))
     resolved.update(api_key_configured=configured, credential_status=status, api_key_source=source)
+    resolved.update(fields)
     if not resolve_credentials:
         resolved.pop("credential_fingerprint", None)
+        resolved.pop("subscription_db_path", None)
     return resolved
 
 
@@ -385,6 +418,24 @@ def _write_connection(conn, record: dict[str, Any]) -> None:
     _version(conn, "connection", _connection(conn, record["id"]))
 
 
+def ensure_chatgpt_connection(account_id: str, label: str, db_path: Path) -> None:
+    """Register a workspace-local service. Its secret_ref is a marker, not a key."""
+    if not subscription.local_enabled():
+        raise ValueError("ChatGPT 订阅登录仅支持本机运行。")
+    _ensure_catalog(db_path)
+    with connect(db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT secret_ref FROM model_connections WHERE id=?", (account_id,)).fetchone()
+        if row is not None:
+            if row["secret_ref"] != subscription.AUTH_KIND:
+                raise ValueError("ChatGPT 连接标识冲突")
+            return
+        _write_connection(conn, {"id": account_id, "name": label, "base_url": subscription.API_ROOT,
+                                  "effective_base_url": subscription.API_ROOT, "protocol": "responses",
+                                  "secret_ref": subscription.AUTH_KIND, "data_boundary": account_id,
+                                  "enabled": True, "revision": 1})
+
+
 def _create_connection_records(conn, values, db_path, candidates):
     connection_id = str(uuid4())
     protocol = normalize_model_protocol(values.get("protocol", values.get("model_protocol")))
@@ -408,6 +459,8 @@ def create_model_connection(values: dict[str, Any], db_path: str | Path | None =
 
 def _updated_connection(conn, connection_id, values, db_path, candidates, model_name=""):
     current = _connection(conn, connection_id)
+    if current.get("auth_kind") == subscription.AUTH_KIND:
+        raise ValueError("请在 ChatGPT 订阅设置中管理此连接")
     if current.get("deleted_at"):
         raise ValueError("服务已删除，请重新添加服务")
     _check_revision(current, values)
@@ -496,12 +549,27 @@ def _write_profile(conn, record):
     _version(conn, "profile", _profile(conn, record["id"]))
 
 
+def _subscription_profile(conn, connection, profile):
+    if connection.get("auth_kind") != subscription.AUTH_KIND:
+        return profile
+    from ..models.catalog_discovery import discovered_entry
+
+    entry = discovered_entry(conn, connection["id"], connection["revision"], profile["model_name"])
+    if not entry:
+        raise ValueError("请先刷新 ChatGPT 订阅模型目录，再选择其中的模型。")
+    return {**profile, "parameters": {}, "reasoning_effort": None,
+            "price_per_million_input": None, "price_per_million_output": None,
+            "capabilities": {"chat": "supported", "streaming": "supported", "tools": "supported",
+                             "vision": "unsupported", "image_generation": "unsupported",
+                             "video_generation": "unsupported"}}
+
+
 def add_model_profile(values: dict[str, Any], db_path: str | Path | None = None) -> dict[str, Any]:
     def operation(conn, _candidates):
         connection = _connection(conn, str(values.get("connection_id") or ""))
         if not connection["enabled"]:
             raise ValueError("连接已停用")
-        record = {"id": str(uuid4()), "connection_id": connection["id"], "revision": 1, **_validated_profile(values)}
+        record = {"id": str(uuid4()), "connection_id": connection["id"], "revision": 1, **_subscription_profile(conn, connection, _validated_profile(values))}
         _write_profile(conn, record)
         return _profile(conn, record["id"])
     return _mutate("add_profile", values, db_path, operation)
@@ -526,7 +594,7 @@ def ensure_service_model_profile(connection_id: str, values: dict[str, Any], db_
             raise ValueError("此模型已停用，请在模型设置中启用")
         from ..models.catalog_discovery import discovered_capabilities
         capabilities = discovered_capabilities(conn, connection_id, connection["revision"], model_name)
-        record = {"id": str(uuid4()), "connection_id": connection_id, "revision": 1, **_validated_profile({"model_name": model_name, "capabilities": capabilities})}
+        record = {"id": str(uuid4()), "connection_id": connection_id, "revision": 1, **_subscription_profile(conn, connection, _validated_profile({"model_name": model_name, "capabilities": capabilities}))}
         _write_profile(conn, record)
         return _profile(conn, record["id"])
     return _mutate(f"ensure_service_profile:{connection_id}", values, db_path, operation)
@@ -545,14 +613,14 @@ def update_model_profile(profile_id: str, values: dict[str, Any], db_path: str |
             changes.pop("capabilities")
         if changes.get("model_name", current["model_name"]) != current["model_name"] and "image_generation" not in (values.get("capabilities") or {}):
             changes["capabilities"] = {**current["capabilities"], **changes.get("capabilities", {}), "image_generation": "unknown"}
-        record = {**current, **_validated_profile(changes, current), "revision": current["revision"] + 1}
+        source = _connection(conn, current["connection_id"])
+        record = {**current, **_subscription_profile(conn, source, _validated_profile(changes, current)), "revision": current["revision"] + 1}
         if not record["enabled"] and conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0] == profile_id:
             raise ValueError("请先选择其他默认模型，再停用当前默认模型")
         from .model_purposes import catalog_vision_statuses, profile_with_vision_status, protect_purpose_defaults, purpose_defaults, supported_purposes
         if not record["enabled"]:
             protect_purpose_defaults(conn, profile_id=profile_id)
         defaults, _ = purpose_defaults(conn)
-        source = _connection(conn, record["connection_id"])
         purpose_record = profile_with_vision_status(record, source, catalog_vision_statuses(conn, profile_id).get(profile_id, {}), load_model_metadata=True) if defaults["vision"] == profile_id else record
         for kind, selected in defaults.items():
             if selected == profile_id and kind not in supported_purposes(purpose_record, source):
@@ -568,6 +636,8 @@ def set_default_model_profile(profile_id: str, values: dict[str, Any] | None = N
         connection = _connection(conn, profile["connection_id"])
         if not profile["enabled"] or not connection["enabled"]:
             raise ValueError("所选模型或连接已停用")
+        if connection.get("auth_kind") == subscription.AUTH_KIND:
+            raise ValueError("请在使用规则中将 ChatGPT 订阅设为聊天模型。")
         row = conn.execute("SELECT config_revision FROM agent_settings WHERE id=1").fetchone()
         if (values or {}).get("expected_revision") is not None and int(values["expected_revision"]) != row[0]:
             raise settings.AgentSettingsConflict("默认模型已更新，请重新读取")
@@ -599,6 +669,8 @@ def remove_model_connection(connection_id: str, values: dict[str, Any], db_path:
     """Remove a service from selection while retaining historical model bindings."""
     def operation(conn, _candidates):
         current = _connection(conn, connection_id)
+        if current.get("auth_kind") == subscription.AUTH_KIND:
+            raise ValueError("请在 ChatGPT 订阅设置中退出登录")
         _check_revision(current, values)
         default_id = conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0]
         if default_id and _profile(conn, default_id)["connection_id"] == connection_id:

@@ -14,7 +14,7 @@ import { createDocumentService, type DocumentService, type SavedDocument } from 
 import { DocumentLibraryDialog } from "../features/chat/DocumentLibraryDialog";
 import { PageLoading } from "../components/PageLoading";
 import { downloadConversationMarkdown } from "../features/chat/conversationActions";
-import { composerModelSources } from "./model-sources";
+import { composerDefaultModelProfile, composerModelSources, isComposerModelConnectionAvailable } from "./model-sources";
 import { composerCatalogsWithSavedModels } from "./composer-catalogs";
 import { readConversationFolders, readIdList, readStringMap, writeConversationFolders, writeIdList, writeStringMap, type ConversationFolder } from "../features/chat/localChatPreferences";
 import { useImageEdits } from "../features/chat/useImageEdits";
@@ -126,6 +126,7 @@ const MemorySettingsPage = lazy(() => loadMemorySettingsPage().then((module) => 
 
 const ModelConnectionManager = lazy(() => import("../features/settings/ModelConnectionManager").then((module) => ({ default: module.ModelConnectionManager })));
 const UnifiedModelManager = lazy(() => import("../features/settings/UnifiedModelManager").then((module) => ({ default: module.UnifiedModelManager })));
+const ChatGPTSubscriptionSettings = lazy(() => import("../features/settings/ChatGPTSubscriptionSettings").then((module) => ({ default: module.ChatGPTSubscriptionSettings })));
 const ModelRoutingPanel = lazy(() => import("../features/settings/ModelRoutingPanel").then((module) => ({ default: module.ModelRoutingPanel })));
 const ModelFallbackSettings = lazy(() => import("../features/settings/ModelFallbackSettings").then((module) => ({ default: module.ModelFallbackSettings })));
 const ModelUsageRules = lazy(() => import("../features/settings/ModelUsageRules").then((module) => ({ default: module.ModelUsageRules })));
@@ -328,15 +329,18 @@ export function App({
     refreshKey: savedAgentSettings.config_revision
   });
   const currentConversation = conversations.find((item) => item.id === currentConversationId) ?? null;
-  const activeModelProfiles = modelCatalog.catalog.profiles.filter(profile => profile.enabled && modelCatalog.catalog.connections.some(connection => connection.id === profile.connection_id && connection.enabled));
+  const activeModelProfiles = modelCatalog.catalog.profiles.filter(profile => profile.enabled && modelCatalog.catalog.connections.some(connection => connection.id === profile.connection_id && isComposerModelConnectionAvailable(connection)));
   const selectedModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === currentConversation?.model_profile_id);
-  const defaultModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === (modelCatalog.catalog.effective_execution_profile_id || modelCatalog.catalog.default_profile_id));
-  const currentModelName = selectedModelProfile?.model_name || defaultModelProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
-  const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
+  const defaultModelProfile = composerDefaultModelProfile(modelCatalog.catalog);
+  const currentPickerProfile = selectedModelProfile || defaultModelProfile;
+  const currentProfileConnection = modelCatalog.catalog.connections.find(connection => connection.id === currentPickerProfile?.connection_id);
+  const currentSubscriptionProfile = currentProfileConnection?.auth_kind === "chatgpt_subscription" ? currentPickerProfile : undefined;
+  const subscriptionModelReady = currentSubscriptionProfile ? activeModelProfiles.some(profile => profile.id === currentSubscriptionProfile.id) : undefined;
+  const currentModelName = currentPickerProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
+  const modelProfileUnavailable = subscriptionModelReady === false || Boolean(selectedModelProfile && !activeModelProfiles.some(profile => profile.id === selectedModelProfile.id));
 
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
   const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections, restoreCached: true });
-  const currentPickerProfile = selectedModelProfile || defaultModelProfile;
   const composerServiceCatalogs = composerCatalogsWithSavedModels(composerDiscovery.catalogs, modelCatalog.catalog.profiles, currentPickerProfile?.id);
   const defaultModelHasDraft = Boolean(agentSettings.api_key.trim()) || agentSettings.model_name !== savedAgentSettings.model_name
     || agentSettings.model_base_url !== savedAgentSettings.model_base_url || agentSettings.model_protocol !== savedAgentSettings.model_protocol;
@@ -897,6 +901,11 @@ export function App({
     } finally { if (current()) setModelSelectionBusy(false); }
   }
 
+  async function refreshChatGPTSubscription() {
+    routeDataCacheRef.current.invalidate("agentSettings", "modelMonitor", "modelCapabilities", "capabilities");
+    await Promise.all([refreshAgentSettings({ preserveDraft: true }), modelCatalog.reload({ strict: true })]);
+  }
+
   async function refreshDefaultModelSelection() {
     invalidateModelRequests();
     invalidateDiscovery();
@@ -1355,6 +1364,8 @@ export function App({
                       fetchJson={fetchJson} secretWritable={savedAgentSettings.secret_storage_writable}
                       onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
                       onApplied={refreshDefaultModelSelection} advanced={advanced}
+                      additionalConnectionActions={<ChatGPTSubscriptionSettings fetchJson={fetchJson} onChanged={refreshChatGPTSubscription}
+                        disabled={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} />}
                     /> : undefined}
                     error={errorMessage}
                     purposeManager={modelCatalog.catalog.purpose_defaults ? <ModelUsageRules catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} loading={modelCatalog.loading} onMutate={modelCatalog.mutate} onApplied={refreshDefaultModelSelection} /> : modelCatalog.loading ? <p role="status">正在读取使用规则…</p> : undefined}
@@ -1369,6 +1380,8 @@ export function App({
                       defaultLocked={defaultModelHasDraft || Boolean(modelSaveUnknown)}
                       onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
                       onDefaultChanged={refreshDefaultModelSelection}
+                      additionalConnectionActions={<ChatGPTSubscriptionSettings fetchJson={fetchJson} onChanged={refreshChatGPTSubscription}
+                        disabled={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} />}
                     />}
                     settings={agentSettings}
                     savedSettings={savedAgentSettings}
@@ -1453,10 +1466,10 @@ export function App({
             serviceModels={composerServiceCatalogs.find(service => service.connection_id === composerConnection?.id)}
             additionalServiceModels={composerServiceCatalogs.filter(service => service.connection_id !== composerConnection?.id)}
             onDiscoverServiceModels={composerDiscovery.discover}
-            onServiceModelChange={async (modelName, connectionId) => { const connection = modelCatalog.catalog.connections.find(item => item.id === (connectionId ?? composerConnection?.id) && item.enabled); if (connection) await selectConversationModel(null, { connectionId: connection.id, modelName, revision: connection.revision }); else setModelSelectionFeedback({ kind: "error", text: "模型连接不可用，请刷新列表后重试。" }); }}
-            selectedModelProfileId={(selectedModelProfile || defaultModelProfile)?.id ?? null}
-            modelSettings={(selectedModelProfile || defaultModelProfile) ? {
-              profile: (selectedModelProfile || defaultModelProfile)!,
+            onServiceModelChange={async (modelName, connectionId) => { const connection = composerServiceConnections.find(item => item.id === (connectionId ?? composerConnection?.id)); if (connection) await selectConversationModel(null, { connectionId: connection.id, modelName, revision: connection.revision }); else setModelSelectionFeedback({ kind: "error", text: "模型连接不可用，请刷新列表后重试。" }); }}
+            selectedModelProfileId={currentPickerProfile?.id ?? null}
+            modelSettings={currentPickerProfile && !modelProfileUnavailable ? {
+              profile: currentPickerProfile,
               protocol: composerConnection?.detected_protocol || composerConnection?.model_protocol,
               fetchJson, onSave: saveComposerModelParameters, error: modelCatalog.error
             } : undefined}

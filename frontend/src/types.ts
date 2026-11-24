@@ -121,6 +121,7 @@ export type ModelConnection = {
   /** Protocol that auto negotiation actually settled on for this connection. */
   detected_protocol?: ResolvedModelProtocol | null;
   protocol_label?: string;
+  auth_kind?: "chatgpt_subscription";
   api_key_configured: boolean;
   credential_status?: "saved_unverified" | "available" | "missing" | "unavailable";
   enabled: boolean;

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
 import { ApiError, type createApiClient } from "../../api/client";
 import type { ModelCatalog, ModelConnection, ModelProtocol, ModelServiceCheck, ProfileCapabilityReport } from "../../types";
@@ -23,9 +23,10 @@ type Props = {
   onDefaultChanged: () => Promise<void>;
   onEnsureProfile?: (connectionId: string, modelName: string, revision: number) => Promise<string | null>;
   singleService?: boolean;
+  additionalConnectionActions?: ReactNode;
 };
 
-export function ModelConnectionManager({ catalog, loading, busy, error, defaultLocked = false, secretWritable, fetchJson, onReload, onMutate, onDefaultChanged, onEnsureProfile, singleService = false }: Props) {
+export function ModelConnectionManager({ catalog, loading, busy, error, defaultLocked = false, secretWritable, fetchJson, onReload, onMutate, onDefaultChanged, onEnsureProfile, singleService = false, additionalConnectionActions }: Props) {
   const [editor, setEditor] = useState<{ id: string | null; revision: number; originalAddress: string } | null>(null);
   const [draft, setDraft] = useState<Draft>(blankDraft);
   const [keyVisible, setKeyVisible] = useState(false);
@@ -55,10 +56,11 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
   useEffect(() => { if (editor) { editorRef.current?.scrollIntoView?.({ block: "nearest" }); editorRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true }); } }, [editor?.id]);
   useEffect(() => { if (capabilityProfileId) modelEditorRef.current?.scrollIntoView?.({ block: "nearest" }); }, [capabilityProfileId]);
   const currentConnection = singleService ? currentModelService(catalog) : catalog.connections.find(item => item.id === selectedId && item.enabled) ?? null;
+  const managedConnection = currentConnection?.auth_kind === "chatgpt_subscription";
   const service = useComposerModelDiscovery({ fetchJson, scope: "model-settings", connection: currentConnection ?? undefined });
   const selectedRef = useRef(selectedId);
   selectedRef.current = currentConnection?.id ?? null;
-  const canDiscover = Boolean(currentConnection && (currentConnection.api_key_configured || keyOptional({ ...blankDraft, model_protocol: currentConnection.model_protocol, model_base_url: currentConnection.model_base_url })));
+  const canDiscover = Boolean(currentConnection && (managedConnection ? currentConnection.credential_status === "available" : currentConnection.api_key_configured || keyOptional({ ...blankDraft, model_protocol: currentConnection.model_protocol, model_base_url: currentConnection.model_base_url })));
   useEffect(() => { if (canDiscover && !purposeMode && !singleService) void service.discover(); }, [service.discover, canDiscover, purposeMode, singleService]);
   const savedProfiles = new Map<string, ModelCatalog["profiles"][number]>();
   for (const profile of catalog.profiles.filter(item => item.connection_id === currentConnection?.id)) {
@@ -82,7 +84,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
     }
   }
   async function useModel(name: string) {
-    if (!currentConnection || busy || defaultLocked) return;
+    if (!currentConnection || managedConnection || busy || defaultLocked) return;
     const connectionId = currentConnection.id;
     const profile = savedProfiles.get(name);
     if (modelCategories(name, currentConnection.model_protocol, profile?.capabilities).includes("video")) { setNotice("视频生成接口暂未接入，暂时无法使用视频模型。"); return; }
@@ -113,6 +115,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
   function clearKeyView() { keyRequest.current += 1; setKeyVisible(false); setSavedKey(""); setKeyError(""); }
   function closeEditor() { clearKeyView(); setEditor(null); setDraft({ ...blankDraft }); }
   function editConnection(connection?: ModelConnection) {
+    if (connection?.auth_kind === "chatgpt_subscription") return;
     clearKeyView();
     setCapabilityProfileId(null);
     setNotice("");
@@ -122,6 +125,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
   async function saveConnection() {
     if (!editor || busy) return;
     const existing = catalog.connections.find(item => item.id === editor.id);
+    if (existing?.auth_kind === "chatgpt_subscription") return;
     const changedAddress = address(draft.model_base_url) !== address(editor.originalAddress);
     if (!keyOptional(draft) && !draft.api_key.trim() && (!existing?.api_key_configured || changedAddress)) return;
     const body = editor.id ? { name: draft.name, model_base_url: draft.model_base_url, model_protocol: draft.model_protocol, api_key: draft.api_key, expected_revision: editor.revision }
@@ -136,6 +140,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
     if (defaultLocked || busy) return;
     const profile = catalog.profiles.find(item => item.id === profileId);
     const source = catalog.connections.find(item => item.id === profile?.connection_id);
+    if (source?.auth_kind === "chatgpt_subscription") return;
     if (profile && modelCategories(profile.model_name, source?.model_protocol, profile.capabilities).includes("video")) {
       setNotice("视频生成接口暂未接入，暂时无法设为默认模型。");
       return;
@@ -146,7 +151,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
     }
   }
   async function addModel() {
-    if (!currentConnection || !modelName.trim() || busy) return;
+    if (!currentConnection || managedConnection || !modelName.trim() || busy) return;
     if (await onMutate("/agent/model-profiles", "POST", { connection_id: currentConnection.id, model_name: modelName.trim() })) {
       setModelName(""); setNotice("模型已添加，可以设为默认或在对话中选择。");
     }
@@ -158,7 +163,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
     if (success) setNotice("模型已启用，可在下方使用规则中选择默认用途。");
   }
   async function switchToResponses() {
-    if (!currentConnection || busy) return;
+    if (!currentConnection || managedConnection || busy) return;
     const connectionId = currentConnection.id;
     if (await onMutate(`/agent/model-connections/${encodeURIComponent(connectionId)}`, "PATCH", { model_protocol: "responses", expected_revision: currentConnection.revision })) {
       setProtocolSuggestion(null);
@@ -191,11 +196,13 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
   }
   const parameterProfile = catalog.profiles.find(profile => profile.id === capabilityProfileId);
   const parameterConnection = catalog.connections.find(connection => connection.id === parameterProfile?.connection_id);
+  const managedParameter = parameterConnection?.auth_kind === "chatgpt_subscription";
   const existingEditor = catalog.connections.find(item => item.id === editor?.id);
-  const editorTitle = singleService ? currentConnection ? "编辑服务" : "配置服务" : editor?.id ? "编辑连接" : "添加连接";
+  const editorTitle = singleService ? editor?.id ? "编辑服务" : "配置服务" : editor?.id ? "编辑连接" : "添加连接";
   const needsKey = !keyOptional(draft) && !draft.api_key.trim() && (!existingEditor?.api_key_configured || address(draft.model_base_url) !== address(editor?.originalAddress ?? ""));
 
   async function toggleKeyVisibility() {
+    if (existingEditor?.auth_kind === "chatgpt_subscription") return;
     if (keyVisible) { clearKeyView(); return; }
     const request = ++keyRequest.current;
     setKeyError("");
@@ -225,11 +232,11 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
       }} /> : null}
       {notice ? <p className="model-connections-notice" role="status">{notice}</p> : null}
       <details className="model-profile-advanced"><summary>更多选项</summary>
-        <div className="model-connection-actions">{!purposeMode ? <button type="button" disabled={busy || defaultLocked || !parameterProfile.enabled || parameterProfile.id === catalog.default_profile_id} onClick={() => void setDefault(parameterProfile.id)}>设为默认</button> : <p className="model-connections-hint">默认模型在下方使用规则中设置。</p>}<button type="button" disabled={busy || defaultIds.has(parameterProfile.id)} onClick={() => void onMutate(`/agent/model-profiles/${encodeURIComponent(parameterProfile.id)}`, "PATCH", { enabled: !parameterProfile.enabled, expected_revision: parameterProfile.revision })}>{parameterProfile.enabled ? "停用模型" : "启用模型"}</button></div>
+        <div className="model-connection-actions">{!purposeMode ? !managedParameter && <button type="button" disabled={busy || defaultLocked || !parameterProfile.enabled || parameterProfile.id === catalog.default_profile_id} onClick={() => void setDefault(parameterProfile.id)}>设为默认</button> : <p className="model-connections-hint">默认模型在下方使用规则中设置。</p>}<button type="button" disabled={busy || defaultIds.has(parameterProfile.id)} onClick={() => void onMutate(`/agent/model-profiles/${encodeURIComponent(parameterProfile.id)}`, "PATCH", { enabled: !parameterProfile.enabled, expected_revision: parameterProfile.revision })}>{parameterProfile.enabled ? "停用模型" : "启用模型"}</button></div>
         <ModelProfileCapabilities profileId={parameterProfile.id} modelName={parameterProfile.model_name} fetchJson={fetchJson} disabled={busy} onReport={setParameterCapabilityReport} />
       </details>
     </section> : null);
-  const connectionEditor = (editor ? <div ref={editorRef} className="model-inline-editor" role="region" aria-label={editorTitle}>{!singleService ? <div className="model-connections-heading"><h4>{editorTitle}</h4></div> : null}{notice && <p role="status" className="model-connections-notice">{notice}</p>}{error && <p role="alert" className="model-capability-error">{error}</p>}<form className="model-connection-editor" onSubmit={event => { event.preventDefault(); void saveConnection(); }}>
+  const connectionEditor = (editor && existingEditor?.auth_kind !== "chatgpt_subscription" ? <div ref={editorRef} className="model-inline-editor" role="region" aria-label={editorTitle}>{!singleService ? <div className="model-connections-heading"><h4>{editorTitle}</h4></div> : null}{notice && <p role="status" className="model-connections-notice">{notice}</p>}{error && <p role="alert" className="model-capability-error">{error}</p>}<form className="model-connection-editor" onSubmit={event => { event.preventDefault(); void saveConnection(); }}>
       {!singleService ? <p className="model-connections-hint">填写服务地址和密钥。保存后读取服务提供的模型，并选择要使用的模型。</p> : null}
       <label>{singleService ? "服务地址（Base URL）" : "连接 Base URL"}<input type="url" autoComplete="off" value={draft.model_base_url} disabled={busy} onChange={event => { clearKeyView(); setDraft({ ...draft, model_base_url: event.target.value, api_key: "" }); }} placeholder="服务商提供的 API 根地址" /></label>
       <label>{singleService ? "API Key" : "连接 API Key"}<span className="model-key-input"><input type={keyVisible ? "text" : "password"} autoComplete="new-password" value={draft.api_key || savedKey} disabled={busy || secretWritable === false} onChange={event => { keyRequest.current += 1; setSavedKey(""); setDraft({ ...draft, api_key: event.target.value }); }} placeholder={existingEditor?.api_key_configured && !needsKey ? "留空继续使用此连接的密钥" : keyOptional(draft) ? "本地 Ollama 可留空" : "请输入此连接的密钥"} /><button type="button" aria-label={keyVisible ? "隐藏 API Key" : "查看 API Key"} disabled={busy} onClick={() => void toggleKeyVisibility()}>{keyVisible ? <EyeOff size={16} /> : <Eye size={16} />}</button></span><small>{address(draft.model_base_url) !== address(editor.originalAddress) && editor.id ? "地址已更改，请填写新地址的密钥；不会复用原连接密钥。" : "密钥默认隐藏，提交或取消后清空输入。"}</small>{keyError && <small role="alert">{keyError}</small>}</label>
@@ -245,8 +252,8 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
   const modelTools = currentConnection ? <div className="model-add-profile">
     <div className="model-connections-heading"><div>{singleService ? <h3>模型</h3> : <h4>模型</h4>}<p>从当前服务读取模型，按能力筛选并启用。</p></div><div className="model-directory-actions"><button type="button" aria-label="读取模型列表" disabled={busy || service.busy || !canDiscover} onClick={() => void diagnose("discover")}>{service.busy ? "读取中…" : "读取模型"}</button></div></div>
     {service.models.length > 0 ? <p role="status">已读取 {service.models.length} 个模型。{purposeMode ? "启用后可在使用规则中选择。自动分类不代表接口一定可用。" : "列表以服务返回为准；仅选用或保存参数时记录配置。"}</p> : null}
-    {!singleService ? <details><summary>手动添加模型</summary><label htmlFor="additional-model-name">为 {currentConnection.name || "此连接"} 添加模型</label><div className="model-connection-actions"><input id="additional-model-name" placeholder="输入服务商提供的模型名称" value={modelName} disabled={busy} onChange={event => setModelName(event.target.value)} /><button type="button" disabled={busy || !modelName.trim()} onClick={() => void addModel()}>添加模型</button></div></details> : null}
-    {!singleService ? <details><summary>检测与诊断</summary><p>检测会使用连接下的模型检查接口，可能产生调用费用；没有模型时仅读取目录。</p><button type="button" disabled={busy || diagnosticBusy || !canDiscover} onClick={() => void diagnose("check")}>{diagnosticBusy ? "检测中…" : "检测此连接"}</button></details> : null}
+    {!singleService && !managedConnection ? <details><summary>手动添加模型</summary><label htmlFor="additional-model-name">为 {currentConnection.name || "此连接"} 添加模型</label><div className="model-connection-actions"><input id="additional-model-name" placeholder="输入服务商提供的模型名称" value={modelName} disabled={busy} onChange={event => setModelName(event.target.value)} /><button type="button" disabled={busy || !modelName.trim()} onClick={() => void addModel()}>添加模型</button></div></details> : null}
+    {!singleService && !managedConnection ? <details><summary>检测与诊断</summary><p>检测会使用连接下的模型检查接口，可能产生调用费用；没有模型时仅读取目录。</p><button type="button" disabled={busy || diagnosticBusy || !canDiscover} onClick={() => void diagnose("check")}>{diagnosticBusy ? "检测中…" : "检测此连接"}</button></details> : null}
     {diagnosticMessage ? <p role="status">{diagnosticMessage}</p> : null}
     {(protocolSuggestion === currentConnection.id || service.suggestedProtocol === "responses") ? <div className="model-protocol-suggestion" role="alert"><span>该模型不支持 Chat Completions，改用 OpenAI Responses API</span><button type="button" disabled={busy || diagnosticBusy} onClick={() => void switchToResponses()}>改用 Responses 并重新检测</button></div> : null}
     {!purposeMode && [...savedProfiles.values()].some(profile => !service.models.includes(profile.model_name)) ? <details><summary>已保存的历史配置</summary><p className="model-connections-hint">以下配置不代表服务当前可用的模型，仅供已有对话和参数管理。</p>{[...savedProfiles.values()].filter(profile => !service.models.includes(profile.model_name)).map(profile => <button type="button" key={profile.id} aria-label={profile.model_name + " 历史配置"} onClick={() => setCapabilityProfileId(profile.id)}>{profile.model_name}</button>)}</details> : null}
@@ -269,20 +276,21 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
           return <Fragment key={name}><div className={`model-profile-row${purposeMode ? " model-directory-row" : ""}${profile?.id === catalog.default_profile_id ? " is-default" : ""}`}>
             <span><strong>{name}</strong>{profile?.id === catalog.default_profile_id && !purposeMode ? <small>默认模型</small> : profile && !profile.enabled ? <small>已停用</small> : null}{!singleService ? <small>来源：{connection.name || connection.model_base_url || "模型服务"}</small> : null}{!purposeMode ? <><small>分类参考：{inferred}{isVideo ? "（暂未接入）" : ""}</small><small>{supported.length ? `已配置能力：${supported.join("、")}` : "能力待确认"}</small></> : null}</span>
             {purposeMode ? <span className="model-directory-capabilities">{inferred}<small>{profile?.output_types_source === "configured" ? "已配置" : categories.length ? "自动识别" : "请确认能力"}{supported.length ? ` · ${supported.join("、")}` : ""}</small>{categories.includes("image") && profile && !profile.supported_purposes?.includes("image") ? <small>图片生成接口待接入</small> : null}</span> : null}
-            <div>{purposeMode ? isVideo ? <span className="model-enabled-label">暂未接入</span> : profile?.enabled ? <span className="model-enabled-label">已启用{catalog.purpose_defaults?.chat === profile.id ? " · 聊天默认" : ""}{catalog.purpose_defaults?.image === profile.id ? " · 图片默认" : ""}</span> : <button type="button" aria-label={`${name} 启用模型`} disabled={busy || (!profile && !onEnsureProfile)} onClick={() => void enableModel(name)}>启用</button> : profile?.id !== catalog.default_profile_id ? <button type="button" aria-label={`${name} 用于新对话`} disabled={busy || defaultLocked || isVideo || (!profile && !onEnsureProfile)} onClick={() => void useModel(name)}>使用</button> : null}<button type="button" aria-label={`${name} 设置`} disabled={busy} onClick={() => void openModelSettings(name)}>设置</button></div>
+            <div>{purposeMode ? isVideo ? <span className="model-enabled-label">暂未接入</span> : profile?.enabled ? <span className="model-enabled-label">已启用{catalog.purpose_defaults?.chat === profile.id ? " · 聊天默认" : ""}{catalog.purpose_defaults?.image === profile.id ? " · 图片默认" : ""}</span> : <button type="button" aria-label={`${name} 启用模型`} disabled={busy || (!profile && !onEnsureProfile)} onClick={() => void enableModel(name)}>启用</button> : !managedConnection && profile?.id !== catalog.default_profile_id ? <button type="button" aria-label={`${name} 用于新对话`} disabled={busy || defaultLocked || isVideo || (!profile && !onEnsureProfile)} onClick={() => void useModel(name)}>使用</button> : null}<button type="button" aria-label={`${name} 设置`} disabled={busy || (managedConnection && !canDiscover)} onClick={() => void openModelSettings(name)}>设置</button></div>
           </div>{parameterProfile?.model_name === name && parameterProfile.connection_id === connection.id ? modelPanel : null}</Fragment>;
         })}</div>
         {purposeMode && !visibleNames.length && !service.busy && (service.models.length > 0 || savedProfiles.size > 0) ? <p role="status" className="model-connections-hint">{singleService ? "当前分类下没有模型，可切换分类或重新读取模型。" : "没有符合筛选条件的模型，请调整分类或搜索词。"}</p> : null}
         {service.busy ? <p role="status" className="model-connections-hint">正在读取服务模型…</p> : service.error ? <p role="alert" className="model-capability-error">{service.error}</p> : !service.models.length ? <p className="model-connections-hint">{canDiscover ? purposeMode ? "尚未读取服务目录。已保存的模型仍会显示，可点击读取更新列表。" : singleService ? "服务尚未返回模型，请重新读取。" : "服务尚未返回模型，可刷新列表或手动填写。" : "请先编辑此连接并配置密钥，再读取模型列表。"}</p> : null}
 
         {parameterProfile && !visibleNames.includes(parameterProfile.model_name) ? modelPanel : null}
-        {!singleService ? <details className="model-connection-more"><summary>连接选项</summary><p className="model-connections-hint">接口协议：{connectionProtocolLabel(connection.model_protocol, connection.detected_protocol)}</p><button type="button" disabled={busy || connection.id === defaultConnectionId} onClick={() => setArchiveCandidate(connection.id)}>停用连接</button></details> : null}
+        {!singleService && !managedConnection ? <details className="model-connection-more"><summary>连接选项</summary><p className="model-connections-hint">接口协议：{connectionProtocolLabel(connection.model_protocol, connection.detected_protocol)}</p><button type="button" disabled={busy || connection.id === defaultConnectionId} onClick={() => setArchiveCandidate(connection.id)}>停用连接</button></details> : null}
   </>;
 
   if (singleService) return <div className="model-single-service">
+    {additionalConnectionActions}
     <section className="settings-card model-settings-card model-connections-card model-service-summary" aria-labelledby="model-connections-title">
-      <div className="model-connections-heading"><div><h3 id="model-connections-title">服务连接</h3><p>配置一个模型服务，在下方管理它提供的所有模型。</p></div><button type="button" className="model-service-edit" disabled={busy || loading || editor !== null} onClick={() => editConnection(currentConnection ?? undefined)}>{currentConnection ? "编辑服务" : "配置服务"}</button></div>
-      {!editor ? currentConnection ? <dl className="model-service-facts"><div className="model-service-address"><dt>服务地址</dt><dd>{currentConnection.model_base_url || "服务商默认地址"}</dd></div><div><dt>API Key</dt><dd>{currentConnection.api_key_configured ? "已配置" : "未配置"}</dd></div><div><dt>接口协议</dt><dd>{connectionProtocolLabel(currentConnection.model_protocol, currentConnection.detected_protocol)}</dd></div></dl> : <p className="model-connections-hint">{loading ? "正在读取服务配置…" : "填写服务地址和 API Key，即可读取对话、图片等模型。"}</p> : null}
+      <div className="model-connections-heading"><div><h3 id="model-connections-title">服务连接</h3><p>配置一个模型服务，在下方管理它提供的所有模型。</p></div>{!managedConnection && <button type="button" className="model-service-edit" disabled={busy || loading || editor !== null} onClick={() => editConnection(currentConnection ?? undefined)}>{currentConnection ? "编辑服务" : "配置服务"}</button>}</div>
+      {managedConnection ? <p className="model-connections-hint">{canDiscover ? "当前 ChatGPT 订阅可用。" : "当前不可用，请在 ChatGPT 订阅登录中管理账号。"}</p> : !editor ? currentConnection ? <dl className="model-service-facts"><div className="model-service-address"><dt>服务地址</dt><dd>{currentConnection.model_base_url || "服务商默认地址"}</dd></div><div><dt>API Key</dt><dd>{currentConnection.api_key_configured ? "已配置" : "未配置"}</dd></div><div><dt>接口协议</dt><dd>{connectionProtocolLabel(currentConnection.model_protocol, currentConnection.detected_protocol)}</dd></div></dl> : <p className="model-connections-hint">{loading ? "正在读取服务配置…" : "填写服务地址和 API Key，即可读取对话、图片等模型。"}</p> : null}
       {editor ? connectionEditor : null}
       {error ? <p className="model-capability-error" role="alert">{error}<button type="button" disabled={busy || loading} onClick={() => void onReload()}>重新读取</button></p> : null}
       {notice && !editor && !parameterProfile ? <p role="status" className="model-connections-notice">{notice}</p> : null}
@@ -294,6 +302,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
 
   return <section className="settings-card model-settings-card model-connections-card" aria-labelledby="model-connections-title">
     <div className="model-connections-heading"><div><h3 id="model-connections-title">服务连接</h3><p>管理服务地址和密钥，一个连接可以提供多种模型。</p></div><button className="model-connections-add" type="button" disabled={busy} onClick={() => editConnection()}>添加连接</button></div>
+    {additionalConnectionActions}
     {editor && !editor.id ? connectionEditor : null}
     {error ? <p className="model-capability-error" role="alert">{error}<button type="button" disabled={busy || loading} onClick={() => void onReload()}>重新读取</button></p> : null}
     {notice && !editor && !parameterProfile ? <p className="model-connections-notice" role="status">{notice}</p> : null}
@@ -303,7 +312,7 @@ export function ModelConnectionManager({ catalog, loading, busy, error, defaultL
     <div className="model-connection-list">{catalog.connections.filter(item => item.enabled).map(connection => <article key={connection.id} className={selectedId === connection.id ? "selected" : ""}>
       <div className="model-connection-head">
       <button className="model-connection-select" type="button" aria-expanded={selectedId === connection.id} onClick={() => { setSelectedId(current => current === connection.id ? null : connection.id); setModelName(""); setModelFilter(""); setArchiveCandidate(null); setCapabilityProfileId(null); }}><strong>{connection.name || connection.model_base_url || "模型服务"}<ChevronDown size={14} aria-hidden="true" /></strong><small>{connection.model_base_url || "官方默认地址"} · {connection.api_key_configured ? "密钥已配置" : "未配置密钥"}{defaultConnectionId === connection.id ? " · 包含当前默认模型" : ""}</small><small>{selectedId === connection.id ? service.busy ? "正在读取服务模型…" : service.models.length ? `服务返回 ${service.models.length} 个模型` : "展开后读取服务模型" : "展开后读取服务模型"}</small></button>
-      <div className="model-connection-actions"><button type="button" disabled={busy} onClick={() => editConnection(connection)}>编辑连接</button></div>
+      {connection.auth_kind !== "chatgpt_subscription" && <div className="model-connection-actions"><button type="button" disabled={busy} onClick={() => editConnection(connection)}>编辑连接</button></div>}
       </div>
       {editor?.id === connection.id ? connectionEditor : null}
       {archiveCandidate === connection.id ? <div className="model-archive-confirm"><span>停用后，该连接的模型将无法用于新对话。</span><button type="button" disabled={busy} onClick={async () => { if (await onMutate(`/agent/model-connections/${encodeURIComponent(connection.id)}`, "DELETE")) { setArchiveCandidate(null); if (selectedId === connection.id) setSelectedId(null); } }}>确认停用</button><button type="button" disabled={busy} onClick={() => setArchiveCandidate(null)}>取消</button></div> : null}

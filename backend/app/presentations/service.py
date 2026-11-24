@@ -24,9 +24,9 @@ def production_enabled() -> bool:
 
 def resolve_model(profile_id=None, *, preferred_profile_id=None):
     from ..agent.model_purposes import resolve_purpose_connection
-    # A conversation may still prefer an image model or an unavailable service.
-    # Resolve its text purpose just as chat does, then freeze that exact binding.
-    return resolve_purpose_connection("chat", profile_id=profile_id, preferred_profile_id=preferred_profile_id)
+    # Resolve the text purpose, then freeze that exact binding for background use.
+    return resolve_purpose_connection("chat", profile_id=profile_id, preferred_profile_id=preferred_profile_id,
+                                      action="structured_output")
 
 
 _MODEL_FAILURES = {
@@ -186,6 +186,9 @@ class PresentationService:
             connection = self.model_resolver(**{"preferred_profile_id" if preferred else "profile_id": profile_id}) if profile_id else self.model_resolver()
         except ValueError as exc:
             raise PresentationUnavailable("model_unavailable", "请先在模型设置中配置可用的文本模型") from exc
+        if (connection.get("auth_kind") == "chatgpt_subscription"
+                or connection.get("secret_ref") == "chatgpt_subscription"):
+            raise PresentationUnavailable("model_unavailable", "ChatGPT 订阅仅支持团团对话，不可用于 PPT 制作")
         selection = internal_model_selection(connection)
         if (not is_bound_selection(selection)
                 or connection.get("resolved_model_protocol") not in {"openai", "responses", "anthropic", "gemini", "ollama"}
