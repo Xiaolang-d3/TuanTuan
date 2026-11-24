@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MarkdownContent } from "./ChatMarkdown";
 import { LocalCitationActionsContext, LocalCitationDialog } from "./LocalCitation";
@@ -27,6 +27,25 @@ it("turns only backed normal-text markers into source controls", () => {
   expect([...document.querySelectorAll("code")].every(node => node.textContent?.includes(marker))).toBe(true);
   fireEvent.click(button);
   expect(open).toHaveBeenCalledWith(evidence);
+});
+
+it("previews actual local evidence on keyboard focus, dismisses on Escape, then opens the same source", () => {
+  const open = vi.fn();
+  render(<LocalCitationActionsContext.Provider value={open}><MarkdownContent localEvidence={[evidence]}>{marker}</MarkdownContent></LocalCitationActionsContext.Provider>);
+  const button = screen.getByRole("button", { name: /核对来源/ });
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  act(() => button.focus());
+  const card = screen.getByRole("tooltip");
+  expect(button).toHaveAttribute("aria-describedby", card.id);
+  expect(within(card).getByText("资料库 · 第 3 页")).toBeVisible();
+  expect(within(card).getByText(evidence.title)).toBeVisible();
+  expect(within(card).getByText(evidence.excerpt)).toBeVisible();
+  expect(open).not.toHaveBeenCalled();
+  fireEvent.keyDown(button, { key: "Escape" });
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  expect(button).toHaveFocus();
+  fireEvent.click(button);
+  expect(open).toHaveBeenCalledExactlyOnceWith(evidence);
 });
 
 it("keeps unknown and partial streaming references noninteractive", () => {

@@ -21,6 +21,7 @@ import { useVoiceAnswer } from "../hooks/useVoiceAnswer";
 import { VoiceDraftEditor } from "../features/chat/voiceDraft";
 import type { VoiceTranscript } from "../features/chat/voiceInput";
 
+import { ComposerResources } from "./ComposerResources";
 import { ConversationHistoryPanel } from "./ConversationHistoryPanel";
 
 import "./ChatWorkspace.css";
@@ -32,7 +33,7 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
 
@@ -683,10 +684,13 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               />
               <div className="composer-bottom-row">
                 <div className="composer-shortcuts" role="group" aria-label="输入选项">
-                  <button className="composer-tool composer-attachment-tool" type="button" aria-label={props.attachmentBusy ? "附件处理中" : "添加附件"} onClick={() => attachmentInputRef.current?.click()} disabled={props.attachmentBusy} title={props.attachmentBusy ? "正在处理附件" : quickMode ? "添加 Word、文字版 PDF 或文本资料" : "添加图片或文档，也可粘贴图片或拖入文件"}>
-                    {props.attachmentBusy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Paperclip size={16} aria-hidden="true" />}
-                    <span>添加资料</span>
-                  </button>
+                  <ComposerResources
+                    key={conversationId}
+                    busy={props.attachmentBusy}
+                    documentsOnly={quickMode}
+                    onUpload={() => attachmentInputRef.current?.click()}
+                    onOpenLibrary={props.onOpenLibrary}
+                  />
                   <button className={`composer-tool composer-voice-tool${voice.listening ? " is-recording" : ""}`} type="button" aria-pressed={voice.listening} aria-label={voice.listening ? "停止语音输入" : "语音输入"} aria-description={voice.error || undefined} disabled={props.chatBusy} onClick={() => { if (voice.listening) voice.stopListening(); else { voiceDraftRef.current = new VoiceDraftEditor(); void voice.startListening(); } }}>
                     <span className="composer-voice-icon" ref={voiceIconRef} aria-hidden="true">
                       <Mic size={16} />

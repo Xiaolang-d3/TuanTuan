@@ -743,8 +743,8 @@ describe("ChatWorkspace", () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "保留正在编辑的内容" } });
     expect(hint).toHaveAttribute("aria-hidden", "false");
-    const attachment = screen.getByRole("button", { name: "添加附件" });
-    expect(within(screen.getByRole("group", { name: "输入选项" })).getByRole("button", { name: "添加附件" })).toBe(attachment);
+    const attachment = screen.getByRole("button", { name: "添加资料" });
+    expect(within(screen.getByRole("group", { name: "输入选项" })).getByRole("button", { name: "添加资料" })).toBe(attachment);
     expect(attachment).toHaveTextContent("添加资料");
     fireEvent.blur(input, { relatedTarget: attachment });
     fireEvent.focus(attachment);
@@ -763,14 +763,46 @@ describe("ChatWorkspace", () => {
     expect(input).toHaveAttribute("maxlength", "200000");
   });
 
-  it("opens file selection from the compact attachment button", () => {
+  it("opens the real upload and library actions without changing or sending the draft", () => {
     const props = renderChat();
+    const input = screen.getByRole("textbox", { name: "输入消息" });
+    const trigger = screen.getByRole("button", { name: "添加资料" });
     const fileInput = props.view.container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const choose = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
-    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    fireEvent.change(input, { target: { value: "已有草稿" } });
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(choose).not.toHaveBeenCalled();
+    const options = within(screen.getByRole("group", { name: "资料选项" }));
+    const upload = options.getByRole("button", { name: "上传文件" });
+    const library = options.getByRole("button", { name: "打开文件库" });
+    expect(upload).toHaveFocus();
+    fireEvent.keyDown(upload, { key: "ArrowDown" });
+    expect(library).toHaveFocus();
+    fireEvent.keyDown(library, { key: "Escape" });
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(trigger);
+    fireEvent.click(upload);
     expect(choose).toHaveBeenCalledOnce();
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(library);
+    expect(props.onOpenLibrary).toHaveBeenCalledOnce();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(input);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveValue("已有草稿");
+    expect(props.onSend).not.toHaveBeenCalled();
+
+    fireEvent.click(trigger);
     props.view.rerender(<ChatWorkspace {...props} attachmentBusy />);
     expect(screen.getByRole("button", { name: "附件处理中" })).toBeDisabled();
+    expect(screen.queryByRole("group", { name: "资料选项" })).not.toBeInTheDocument();
   });
 
   it.each(["page", "dock"] as const)("keeps the model picker and send button but no kernel control in the %s composer", (density) => {
@@ -1348,7 +1380,7 @@ describe("ChatWorkspace", () => {
   it("keeps the opening hint visible and separates supporting tools from model and send actions", () => {
     const props = renderChat([]);
     const tools = screen.getByRole("group", { name: "输入选项" });
-    expect(within(tools).getByRole("button", { name: "添加附件" })).toHaveTextContent("添加资料");
+    expect(within(tools).getByRole("button", { name: "添加资料" })).toHaveTextContent("添加资料");
     expect(within(tools).getByRole("button", { name: "联网搜索" })).toHaveAttribute("aria-pressed", "false");
     expect(within(tools).queryByRole("button", { name: /切换模型/ })).not.toBeInTheDocument();
     const actions = props.view.container.querySelector(".composer-primary-actions") as HTMLElement;
@@ -1375,7 +1407,7 @@ describe("ChatWorkspace", () => {
     await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("帮我润色这句话", [], [], false));
   });
 
-  it("keeps saved-material access out of the composer while retaining analysis context", () => {
+  it("keeps saved-material navigation inside the closed resource disclosure while retaining analysis context", () => {
     const onOpenLibrary = vi.fn();
     const onSend = vi.fn();
     render(
@@ -1416,7 +1448,7 @@ describe("ChatWorkspace", () => {
       />
     );
 
-    expect(screen.queryByRole("button", { name: "查看已保存资料" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开文件库" })).not.toBeInTheDocument();
     expect(screen.queryByText("已保存资料", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByText("示例公司 · 后端")).toBeInTheDocument();
     expect(screen.queryByText("分析")).not.toBeInTheDocument();
@@ -1530,7 +1562,11 @@ describe("ChatWorkspace", () => {
     expect(document.querySelector(".message-run-result")).not.toBeInTheDocument();
     expect(screen.getByLabelText("输出结果")).toHaveTextContent("你指的是哪家公司？");
 
-    fireEvent.click(screen.getByRole("button", { name: "字节跳动" }));
+    const proceed = within(clarifier).getByRole("button", { name: "继续" });
+    expect(proceed).toBeDisabled();
+    fireEvent.click(within(clarifier).getByRole("radio", { name: "字节跳动" }));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.click(proceed);
     expect(onSend).toHaveBeenCalledWith("按字节跳动继续", [], [], false);
     expect(onSuggestedAction).not.toHaveBeenCalled();
   });
