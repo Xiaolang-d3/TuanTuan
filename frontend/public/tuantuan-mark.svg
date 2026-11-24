@@ -70,7 +70,6 @@
   <circle cx="214" cy="372" r="12" fill="#2CBFE6"/>
   <circle cx="250" cy="372" r="12" fill="#2CBFE6"/>
   <circle cx="286" cy="372" r="12" fill="#2CBFE6"/>
-  <ellipse cx="150" cy="366" rx="30" ry="35" transform="rotate(-14 150 366)" fill="url(#body)"/>
-  <ellipse cx="166" cy="400" rx="20" ry="22" transform="rotate(-24 166 400)" fill="url(#body)"/>
+  <path d="M151 344 C166 343 178 355 182 373 C187 392 179 407 165 409 C151 411 137 400 131 384 C124 366 133 346 151 344 Z" fill="url(#body)"/>
   <ellipse cx="358" cy="378" rx="27" ry="31" transform="rotate(10 358 378)" fill="url(#body)"/>
 </svg>
