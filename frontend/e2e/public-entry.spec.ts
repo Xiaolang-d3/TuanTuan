@@ -17,8 +17,8 @@ test("the sign-in page links to the product page across viewport sizes", async (
     const signIn = page.getByRole("form", { name: "欢迎登录" });
     await expect(signIn).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("heading", { name: "团团", exact: true })).toBeVisible();
-    await expect(page.locator('.auth-header img[src="/tuantuan-favicon.png"]')).toBeVisible();
-    await expect(signIn.locator('img[src="/tuantuan-favicon.png"]')).toHaveCount(0);
+    await expect(page.locator('.auth-header img[src="/tuantuan-mark.svg"]')).toBeVisible();
+    await expect(signIn.locator('img[src="/tuantuan-mark.svg"], img[src="/tuantuan-favicon.png"]')).toHaveCount(0);
     await expect(page.locator(".auth-hero").getByRole("heading", { level: 2 })).toBeInViewport();
     await expect(page.getByRole("heading", { name: /理解你的想法/ })).toHaveCount(0);
     const card = (await signIn.boundingBox())!;
