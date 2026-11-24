@@ -7,7 +7,7 @@ import { useAuthSession } from "../features/auth/useAuthSession";
 import { beginQq, canUseQq, clearQqReturn, finishQq, readQqReturn } from "../features/auth/qq";
 import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
-import { AuthMascot } from "./AuthMascot";
+import { AuthHero } from "./AuthHero";
 import { PublicSiteFooter } from "./PublicSiteFooter";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
@@ -389,9 +389,9 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
   return (
     <AuthGateShell>
       <div className="auth-shell">
+        <AuthHero />
         {choosingQq ? <section className="auth-card" aria-labelledby="auth-qq-choice-title" aria-busy={busy}>
           <div className="auth-heading">
-            <img className="auth-heading-logo" src="/tuantuan-favicon.png" width="44" height="44" alt="" draggable={false} />
             <h2 id="auth-qq-choice-title" className="auth-form-title" ref={qqChoiceHeadingRef} tabIndex={-1}>继续使用 QQ</h2>
           </div>
           <p className="auth-qq-description">这个 QQ 还未绑定团团账号。</p>
@@ -404,7 +404,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           <p className="auth-mode-switch"><button type="button" disabled={busy} onClick={dismissQqReturn}>返回登录</button></p>
         </section> : <form className="auth-card" onSubmit={submit} noValidate aria-busy={busy} aria-labelledby="auth-form-title">
           <div className="auth-heading">
-            <img className="auth-heading-logo" src="/tuantuan-favicon.png" width="44" height="44" alt="" draggable={false} />
             <h2 className="auth-form-title" id="auth-form-title">{title}</h2>
           </div>
           {bindingQq ? <p className="auth-qq-description">登录后，这个 QQ 将绑定到该账号。</p> : null}
@@ -439,7 +438,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
                   ref={passwordInputRef}
                   type={passwordVisible ? "text" : "password"}
                   name="password"
-                  aria-label="密码"
                   autoComplete={creating ? "new-password" : "current-password"}
                   placeholder={creating ? "设置登录密码" : "请输入密码"}
                   value={password}
@@ -451,6 +449,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
                     if (fieldErrors.password) setFieldErrors((current) => ({ ...current, password: undefined }));
                   }}
                 />
+                <label className="auth-floating-label" htmlFor="auth-password">密码</label>
                 <button
                   className="auth-show-password"
                   type="button"
@@ -473,7 +472,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
                     id="auth-password-confirm"
                     ref={passwordConfirmationRef}
                     type={passwordVisible ? "text" : "password"}
-                    aria-label="确认密码"
                     autoComplete="new-password"
                     placeholder="再次输入密码"
                     value={passwordConfirmation}
@@ -485,6 +483,7 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
                       if (fieldErrors.passwordConfirmation) setFieldErrors((current) => ({ ...current, passwordConfirmation: undefined }));
                     }}
                   />
+                  <label className="auth-floating-label" htmlFor="auth-password-confirm">确认密码</label>
                 </span>
                 {fieldErrors.passwordConfirmation || confirmMismatch ? <small id="auth-password-confirm-error" className="auth-field-error">{fieldErrors.passwordConfirmation || "两次输入的密码不一致"}</small> : null}
               </div>
@@ -508,9 +507,9 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
               ) : pendingCreation ? (
                 <button type="button" onClick={() => switchMode(false)} disabled={busy}>返回登录</button>
               ) : registering ? (
-                <button type="button" onClick={() => switchMode(false)} disabled={busy}>已有账号？去登录</button>
+                <button type="button" onClick={() => switchMode(false)} disabled={busy}>已有账号？<span>去登录</span></button>
               ) : (
-                <button type="button" onClick={() => switchMode(true)} disabled={busy}>没有账号？创建账号</button>
+                <button type="button" onClick={() => switchMode(true)} disabled={busy}>没有账号？<span>创建账号</span></button>
               )}
             </p>
           ) : null}
@@ -532,9 +531,6 @@ export function AuthGate({ apiBase, children, publicPage }: { apiBase: string; c
           ) : null}
           {!showQq && !bindingQq ? <p className="auth-local-note"><Lock size={13} aria-hidden="true" /><span>账户、资料和对话只保存在这台设备上，不是云端账号。</span></p> : null}
         </form>}
-        <div className="auth-artwork">
-          <AuthMascot />
-        </div>
       </div>
     </AuthGateShell>
   );
@@ -553,7 +549,7 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
   return (
     <main className={status ? "auth-gate auth-gate-status" : "auth-gate"} onDoubleClick={suppressBackgroundDoubleClick}>
       <header className="auth-header">
-        <h1 className="auth-wordmark">团团</h1>
+        <div className="auth-brand"><img className="auth-brand-mark" src="/tuantuan-favicon.png" width="32" height="32" alt="" draggable={false} /><h1 className="auth-wordmark">团团</h1><span className="auth-brand-caption" aria-hidden="true">AI STUDIO</span></div>
         <nav className="auth-public-nav" aria-label="公共导航">
           <a href={productIntroHash}>关于 团团</a>
           <ThemeToggleButton className="auth-theme-toggle" />
