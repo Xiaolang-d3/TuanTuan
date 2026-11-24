@@ -9,10 +9,37 @@
 .local-source-body > :not(.fl-pdf-reader) { flex: none; }
 .local-source-body .fl-pdf-reader { flex: 1; height: auto; min-height: 240px; --fl-panel: var(--color-surface); --fl-line: var(--color-border); --fl-soft: var(--color-surface-subtle); --fl-muted: var(--color-text-secondary); }
 .local-source-body .fl-pdf-controls { color: var(--color-text); }
-.local-source-body blockquote { max-width: 75ch; margin: 8px 0 24px; padding: 0; border: 0; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.local-source-body blockquote { max-width: 75ch; margin: 6px 0 0; padding: 0; border: 0; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .local-source-caption, .local-source-notice { margin: 8px 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
 .local-source-text { margin: 8px 0 20px; max-width: 75ch; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
 .local-source-text mark { color: var(--color-text); background: color-mix(in srgb, var(--color-brand) 12%, var(--color-surface)); }
 .local-source-body > [role=alert] { color: var(--color-danger); }
 .local-source-body > [role=alert] button { margin-inline-start: 8px; }
+.local-context-popover {
+  position: fixed;
+  z-index: 174;
+  display: grid;
+  gap: 8px;
+  width: min(20rem, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-text) 15%, transparent);
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.local-source-identity, .local-context-footer, .local-context-detail .local-source-caption { display: inline-flex; align-items: center; gap: 6px; }
+.local-source-identity svg, .local-context-footer svg { flex: none; }
+.local-context-popover .local-source-identity { color: var(--color-text-secondary); font-size: 11px; }
+.local-context-title { font-size: 14px; }
+.local-context-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; color: var(--color-text-secondary); }
+.local-context-footer { padding-top: 8px; border-top: 1px solid var(--color-border); color: var(--color-brand-strong); font-size: 12px; }
+.local-context-detail { margin-bottom: 12px; padding: 12px 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-subtle); }
+.local-context-detail .local-source-caption { margin: 0; font-weight: 600; }
+.local-context-detail .local-source-notice { margin: 8px 0 0; }
 @media (pointer: coarse) { .md-local-citation { min-height: 44px; min-width: 44px; } }

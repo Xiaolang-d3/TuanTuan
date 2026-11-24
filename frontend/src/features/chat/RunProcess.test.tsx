@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RunProcess } from "./MessagePresentation";
+import { ComposerClarification, RunProcess } from "./MessagePresentation";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import type { AgentRunResult } from "./types";
 
@@ -19,7 +19,58 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("ComposerClarification", () => {
+  it("submits only a nonblank confirmed reply and resets choices for a different question", () => {
+    const onChoose = vi.fn();
+    const onCancel = vi.fn();
+    const question = { question: "哪一份？", options: [{ id: "a", label: "甲", send: "选择甲" }], allowCustom: true };
+    const view = render(<ComposerClarification clarification={question} busy={false} onChoose={onChoose} onCancel={onCancel} />);
+    const proceed = screen.getByRole("button", { name: "继续" });
+    fireEvent.click(screen.getByRole("radio", { name: "自定义回复" }));
+    const input = screen.getByRole("textbox", { name: "填写自定义回复" });
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(proceed).toBeDisabled();
+    fireEvent.change(input, { target: { value: "  选第三份  " } });
+    fireEvent.click(proceed);
+    expect(onChoose).toHaveBeenCalledExactlyOnceWith("选第三份");
+    fireEvent.click(screen.getByRole("button", { name: "结束任务" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+    view.rerender(<ComposerClarification clarification={{ ...question, question: "换一个问题", allowCustom: false }} busy={false} onChoose={onChoose} onCancel={onCancel} />);
+    expect(screen.getByRole("button", { name: "继续" })).toBeDisabled();
+    expect(screen.queryByRole("radio", { name: "自定义回复" })).not.toBeInTheDocument();
+  });
+});
+
 describe("RunProcess", () => {
+  it("renders only the actual plan as task rows and does not imply work is running after stop", () => {
+    const steps: NonNullable<AgentRunResult["plan"]>["steps"] = [
+      { id: "read", title: "读资料", tool_name: "search_library", risk: "read_only", status: "done" },
+      { id: "check", title: "核对内容", tool_name: "citation_validator", risk: "read_only", status: "running" },
+      { id: "write", title: "整理提纲", tool_name: "agent_tool", risk: "read_only", status: "blocked" }
+    ];
+    const agent = run({ plan: { goal: "阅读", route: "general", requires_confirmation: false, steps } });
+    const view = render(<RunProcess streaming agent={agent} />);
+    const tasks = screen.getByRole("region", { name: "任务步骤" });
+    expect(tasks).toHaveTextContent("已完成 1/3");
+    const rows = within(tasks).getAllByRole("listitem");
+    expect(rows[1]).toHaveAttribute("aria-current", "step");
+    expect(rows[2]).toHaveTextContent("受阻");
+    view.rerender(<RunProcess streaming stopping agent={agent} />);
+    expect(rows[1]).not.toHaveAttribute("aria-current");
+    expect(rows[1]).toHaveTextContent("未完成");
+  });
+
+  it("animates a decorative status and updates only a real elapsed time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-24T09:00:00Z"));
+    const view = render(<RunProcess streaming agent={run({ started_at: "2026-11-24T09:00:00Z" })} />);
+    expect(view.container.querySelector(".run-loading-indicator")).toHaveAttribute("aria-hidden", "true");
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.getByText("已用时 2s")).toBeVisible();
+    expect(screen.getByRole("status")).not.toHaveTextContent("已用时");
+    view.rerender(<RunProcess streaming={false} />);
+    expect(view.container).toBeEmptyDOMElement();
+  });
   it("shows live internal phases immediately without adding empty execution nodes", () => {
     const classify = event("model-stage-classify", "正在理解你的请求", { tool_name: "agent_run_state", status: "running", data: { stage: "classify" } });
     const view = render(<RunProcess streaming agent={run({ events: [classify] })} />);
@@ -157,6 +208,26 @@ describe("RunProcess", () => {
     expect(completed.compareDocumentPosition(firstRead) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("现在核对来源的可信度。")).not.toBeInTheDocument();
     expect(screen.getAllByText("已读取项目资料")).toHaveLength(2);
+  });
+
+  it("summarizes only distinct visible execution records and keeps their details expandable", () => {
+    const search = event("search", "正在搜索资料", { tool_name: "search_public_web", status: "running" });
+    render(<RunProcess streaming={false} agent={run({ duration_ms: 3200, events: [
+      search,
+      event("internal", "隐藏的内部阶段", { tool_name: "agent_run_state" }),
+      { ...search, status: "failed", message: "搜索超时" },
+      event("read", "已读取知识库", { tool_name: "get_library_context" }),
+      event("write", "写入被阻止", { tool_name: "agent_tool", status: "blocked" })
+    ] })} />);
+    const toggle = screen.getByRole("button", { name: "展开思考与执行过程" });
+    expect(toggle).toHaveTextContent("用时 3.2s");
+    expect(toggle).toHaveAccessibleDescription("3 条执行记录 · 1 条失败 · 1 条受阻");
+    expect(screen.queryByRole("region", { name: "执行记录，可滚动查看" })).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    const log = screen.getByRole("region", { name: "执行记录，可滚动查看" });
+    expect(within(log).getByText("已读取知识库")).toBeVisible();
+    fireEvent.click(within(log).getByRole("button", { name: "展开搜索超时的执行说明" }));
+    expect(within(log).getByText("原因：搜索超时")).toBeVisible();
   });
 
   it("keeps the user's collapsed choice while live events update", () => {
@@ -352,13 +423,14 @@ describe("execution record interaction", () => {
     expect(screen.queryByText("详情")).not.toBeInTheDocument();
   });
 
-  it("ticks from the real node start, freezes recorded seconds and removes shimmer at completion", () => {
+  it("ticks from the real node start, freezes recorded seconds and removes the loading indicator at completion", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-15T00:00:00.800Z"));
     const a = event("a", "正在读取资料", { tool_name: "get_library_context", status: "running", started_at: "2026-10-15T00:00:00Z" });
     const view = render(<RunProcess streaming agent={run({ events: [a] })} />);
     expect(screen.getByText("已用 0.8s")).toBeVisible();
-    expect(view.container.querySelectorAll(".is-current-execution")).toHaveLength(2);
+    expect(view.container.querySelectorAll(".run-loading-indicator")).toHaveLength(1);
+    expect(view.container.querySelectorAll(".is-current-execution")).toHaveLength(1);
     act(() => vi.advanceTimersByTime(2000));
     expect(screen.getByText("已用 2.8s")).toBeVisible();
     view.rerender(<RunProcess streaming={false} agent={run({ duration_ms: 2800, events: [{ ...a, status: "done", message: "已读取资料", duration_ms: 2800 }] })} />);
