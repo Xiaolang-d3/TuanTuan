@@ -51,6 +51,17 @@
 .studio-history-grid .studio-thumb { position:static; display:block; }
 .studio-history-grid .studio-card-cover img { display:block; height:auto; object-fit:contain; }
 .studio-history-grid .studio-placeholder { box-sizing:border-box; min-height:96px; justify-content:center; padding:10px; }
+.studio-grid.studio-history-packed { position:relative; display:block; }
+.studio-history-packed .studio-card {
+  position:absolute; box-sizing:border-box; display:grid; grid-template-rows:minmax(0,1fr) 36px;
+}
+.studio .studio-history-packed .studio-card-cover { display:grid; min-height:0; height:100%; }
+.studio-history-packed .studio-thumb { position:absolute; display:grid; }
+.studio-history-packed .studio-card-cover img { height:100%; }
+.studio-history-packed .studio-placeholder { min-height:0; max-height:100%; overflow:hidden; }
+.studio-history-packed .studio-card-body { display:flex; align-items:center; gap:8px; min-width:0; padding:0 8px; }
+.studio-history-packed .studio-card-body strong { flex:1; }
+.studio-history-packed .studio-card-body p { flex:none; }
 .studio-state { display:inline-block; padding:3px 8px; border-radius:8px; color:var(--color-text-secondary); background:var(--color-surface-subtle); font-size:11px; font-weight:650; }
 .studio-card-cover .studio-state { position:absolute; top:8px; left:8px; border:1px solid var(--color-border); }
 .studio-state.uncertain,.studio-state.failed,.studio-error,.studio [role=alert],.studio-dialog [role=alert] { color:var(--color-danger); }
