@@ -111,6 +111,7 @@ _PUBLIC_FRONTEND_FILES = {
     "/tuantuan-legacy-mark-v2.png",
     "/tuantuan-logo.png",
     "/tuantuan-favicon.png",
+    "/tuantuan-mark.svg",
     "/tuantuan-legacy-icon-v1.png",
     "/tuantuan-legacy-mark-v1.png",
     "/tuantuan-legacy-favicon-v1.png",
