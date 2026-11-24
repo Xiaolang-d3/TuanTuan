@@ -8,12 +8,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.agent.kernels.dsh import adapter as adapter_module
+from app.agent.kernels.dsh import adapter as adapter_module, manager as manager_module
 from app.agent.kernels.dsh.adapter import DshKernelRuntime, close_dsh_runtime
 from app.agent.kernels.dsh.approvals import APPROVE_LABEL, approval_clarification, decision_from_reply
 from app.agent.kernels.dsh.client import DshClientError, DshJsonRpcClient, DshLaunch, DshTimeoutError, Notification
 from app.agent.kernels.base import KernelUnavailable
-from app.domain import AgentMessage
+from app.agent.kernels.dsh.manager import DshRuntimeManager, DshSession
+from app.domain import AgentMessage, AgentRunSnapshot
 
 
 PYTHON = sys.executable
@@ -26,20 +27,20 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self._temp_dir.name)
 
     def tearDown(self) -> None:
-        adapter_module._pending.clear()
         self._temp_dir.cleanup()
 
-    def make_session(self, env: dict[str, str] | None = None) -> SimpleNamespace:
+    def make_session(self, env: dict[str, str] | None = None) -> DshSession:
         client = DshJsonRpcClient(
             DshLaunch(bin=PYTHON, args=(FIXTURE,), env=dict(env or {})),
             tmp_dir=self.root / "tmp",
             request_timeout=10.0,
             shutdown_timeout=2.0,
         )
-        return SimpleNamespace(conversation_id=1, client=client, home=self.root, last_active=0.0, initialized=False)
+        return DshSession(1, client, self.root)
 
-    def runtime(self, session: SimpleNamespace, **kwargs) -> DshKernelRuntime:
-        manager = SimpleNamespace(acquire=lambda *a, **k: session)
+    def runtime(self, session: DshSession, **kwargs) -> DshKernelRuntime:
+        manager = DshRuntimeManager()
+        manager._sessions[(0, 1)] = session
         connection = {
             "model_name": "deepseek-v4-flash",
             "model_base_url": "https://api.deepseek.com",
@@ -72,21 +73,64 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
             runtime = self.runtime(session, tool_ready_grace=0)
             first = await self.collect(runtime)
             waiting = next(event for event in first if event["type"] == "waiting_user")
-            snapshot = waiting["result"]["snapshot"]
-            self.assertIn("ping", snapshot["clarification"]["question"])
-            self.assertIn((0, 1), adapter_module._pending)
+            snapshot = AgentRunSnapshot.model_validate(waiting["result"]["snapshot"])
+            self.assertIn("ping", snapshot.clarification.question)
+            public_event = next(event["event"] for event in first if event["type"] == "agent_event")
+            self.assertEqual(public_event["data"]["clarification"], waiting["result"]["snapshot"]["clarification"])
+            self.assertNotIn(snapshot.dsh_wait_token, json.dumps(public_event))
+            self.assertNotIn("req-turn-1", json.dumps(public_event))
+
+            wrong = await self.collect(runtime, user_content=APPROVE_LABEL, resume=snapshot.model_copy(
+                update={"dsh_wait_token": "wrong-request"},
+            ))
+            self.assertEqual(wrong[-1]["result"]["error"]["code"], "dsh_wait_expired")
+            self.assertEqual(len(record.read_text(encoding="utf-8").splitlines()), 1)
+
             second = await self.collect(
-                self.runtime(session, tool_ready_grace=0),
-                user_content=APPROVE_LABEL,
-                resume=type("R", (), {"model_dump": lambda self, **k: snapshot})(),
+                runtime, user_content=f"{APPROVE_LABEL}\n附件上下文",
+                routing_content=APPROVE_LABEL, resume=snapshot,
             )
-            completed = next(event for event in second if event["type"] == "completed")
-            self.assertIn("中文回复", completed["result"]["content"])
-            self.assertNotIn((0, 1), adapter_module._pending)
-            recorded = json.loads(record.read_text(encoding="utf-8").strip().splitlines()[-1])
-            self.assertEqual(recorded["result"], {"outcome": "allowed-once"})
+            self.assertEqual(second[-1]["type"], "completed")
+            self.assertIn("中文回复", second[-1]["result"]["content"])
+            self.assertIsNone(session.pending)
+            query, response = map(json.loads, record.read_text(encoding="utf-8").splitlines())
+            self.assertEqual(query["method"], "session/query")
+            self.assertEqual(response, {"jsonrpc": "2.0", "id": "req-turn-1", "result": {"outcome": "allowed-once"}})
         finally:
             await session.client.close()
+
+    async def test_clarification_resumes_with_the_server_rpc_id(self) -> None:
+        record = self.root / "question.jsonl"
+        session = self.make_session(env={"FAKE_DSH_QUESTION_DURING_TURN": "1", "FAKE_DSH_RECORD": str(record)})
+        self.addAsyncCleanup(session.client.close)
+        runtime = self.runtime(session, tool_ready_grace=0)
+        first = await self.collect(runtime)
+        self.assertEqual(first[-1]["type"], "waiting_user")
+        snapshot = AgentRunSnapshot.model_validate(first[-1]["result"]["snapshot"])
+        self.assertEqual(snapshot.clarification.question, "选哪个项目？")
+        second = await self.collect(runtime, user_content="项目一", resume=snapshot)
+        self.assertEqual(second[-1]["type"], "completed")
+        query, response = map(json.loads, record.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(query["method"], "session/query")
+        self.assertEqual(response["id"], 0)
+        self.assertEqual(response["result"], {"answers": [{"id": "project", "selected": ["项目一"], "custom": ""}]})
+
+    async def test_dead_process_expires_wait_without_launching_a_replacement(self) -> None:
+        record = self.root / "restart.jsonl"
+        session = self.make_session(env={"FAKE_DSH_APPROVE_DURING_TURN": "1", "FAKE_DSH_RECORD": str(record)})
+        self.addAsyncCleanup(session.client.close)
+        runtime = self.runtime(session, tool_ready_grace=0)
+        first = await self.collect(runtime)
+        snapshot = AgentRunSnapshot.model_validate(first[-1]["result"]["snapshot"])
+        await session.client.close()
+        with patch.object(manager_module, "build_dsh_launch") as launch:
+            for manager in (runtime._manager, DshRuntimeManager()):
+                with self.subTest(manager=manager):
+                    expired = await self.collect(DshKernelRuntime(manager, {}, tool_ready_grace=0),
+                                                 user_content=APPROVE_LABEL, resume=snapshot)
+                    self.assertEqual(expired[-1]["result"]["error"]["code"], "dsh_wait_expired")
+            launch.assert_not_called()
+        self.assertEqual(len(record.read_text(encoding="utf-8").splitlines()), 1)
 
     async def test_approval_decision_mapping(self) -> None:
         request = Notification("approval/request", {"requestId": "r1", "toolName": "ping", "reason": "原因"})
@@ -122,6 +166,8 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_empty_idle_turn_completes_without_waiting_for_text(self) -> None:
         class EmptyTurnClient:
+            running = False
+
             def __init__(self) -> None:
                 self._idle_sent = False
 
@@ -143,10 +189,7 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
                     return Notification("session.status", {"status": "idle"})
                 raise DshClientError("运行时已关闭")
 
-        session = SimpleNamespace(
-            conversation_id=1, client=EmptyTurnClient(), home=self.root,
-            last_active=0.0, initialized=False,
-        )
+        session = DshSession(1, EmptyTurnClient(), self.root)
         events = await self.collect(self.runtime(session, tool_ready_grace=0))
         completed = next(event for event in events if event["type"] == "completed")
         self.assertEqual(completed["result"]["status"], "done")
@@ -167,15 +210,11 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failed["result"]["error"]["code"], "dsh_unavailable")
         self.assertIn("DSH 运行时未安装", failed["result"]["error"]["message"])
 
-    async def test_close_runtime_clears_pending_approvals_and_sessions(self) -> None:
+    async def test_close_runtime_closes_all_sessions(self) -> None:
         fake_manager = SimpleNamespace(close_all=AsyncMock())
-        adapter_module._pending[(0, 1)] = {"request_id": "stale"}
-
         with patch.object(adapter_module, "_manager", fake_manager):
             await close_dsh_runtime()
-
         fake_manager.close_all.assert_awaited_once()
-        self.assertEqual(adapter_module._pending, {})
 
 
 if __name__ == "__main__":

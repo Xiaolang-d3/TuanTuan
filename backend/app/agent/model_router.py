@@ -11,6 +11,7 @@ from ..domain import ModelRequest
 from ..model_protocol import protocol_requires_api_key
 from ..models import ModelProviderError
 from .model_binding import internal_model_selection, is_bound_selection, selection_identity
+from .research_context import reduce_old_web_excerpts
 from . import settings
 
 
@@ -207,6 +208,13 @@ class ModelRouter:
         self._strict = strict_capabilities
 
     def select(self, stage: str, request: ModelRequest, *, streaming: bool = False) -> tuple[Any, dict[str, Any]]:
+        provider, selection, _ = self._select(stage, request, streaming=streaming, compact=False)
+        return provider, selection
+
+    def select_for_call(self, stage: str, request: ModelRequest, *, streaming: bool = False) -> tuple[Any, dict[str, Any], ModelRequest]:
+        return self._select(stage, request, streaming=streaming, compact=True)
+
+    def _select(self, stage: str, request: ModelRequest, *, streaming: bool, compact: bool) -> tuple[Any, dict[str, Any], ModelRequest]:
         connection = self._connections[stage]
         required = []
         if request.tools and request.tool_choice != "none":
@@ -236,14 +244,20 @@ class ModelRouter:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段包含图片，当前无法可靠估算图片上下文用量；请使用未设置文本上下文限制的档案")
             from ..models.openai_compatible import SYSTEM_PROMPT
 
-            input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8"))
-            input_bound += len((SYSTEM_PROMPT + settings.persona_prompt(settings.get_agent_settings())).encode("utf-8"))
+            system_bound = len((SYSTEM_PROMPT + settings.persona_prompt(settings.get_agent_settings())).encode("utf-8"))
             profile_limit = connection.get("parameters", {}).get("max_output_tokens")
             if profile_limit is None and "max_output_tokens" not in request.parameters:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段已设置上下文限制，请同时配置输出长度上限")
             output_limit = request.parameters.get("max_output_tokens", profile_limit or 0)
             if profile_limit is not None:
                 output_limit = min(profile_limit, output_limit)
+            input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8")) + system_bound
+            excess = input_bound + output_limit - context_limit
+            if compact and excess > 0:
+                messages = reduce_old_web_excerpts(request.messages, excess)
+                if messages is not request.messages:
+                    request = request.model_copy(update={"messages": messages})
+                    input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8")) + system_bound
             if input_bound + output_limit > context_limit:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段输入与输出预留超过所选模型的上下文限制")
         provider = self._providers.get(stage)
@@ -252,4 +266,4 @@ class ModelRouter:
         selection = internal_model_selection(connection)
         selection["stage"] = stage
         selection["capability_status"] = "unverified" if unknown else "satisfied"
-        return provider, selection
+        return provider, selection, request

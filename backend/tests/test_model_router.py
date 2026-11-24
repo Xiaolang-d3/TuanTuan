@@ -12,6 +12,7 @@ from app.agent.model_binding import internal_model_selection
 from app.agent.model_catalog import add_model_profile, get_profile_connection, update_model_profile
 from app.agent.model_router import ModelRouter, bind_image_model, bind_model_stages, bind_text_model, get_routing_policy, save_routing_policy
 from app.agent.orchestration import TaskRoute
+from app.agent.research_context import web_context_messages
 from app.db import init_db
 from app.domain import AgentMessage, ModelRequest, ModelResponse, ToolDefinition
 from app.models import ModelProviderError
@@ -148,6 +149,43 @@ def test_context_includes_tools_and_output_reservation(monkeypatch):
     with pytest.raises(ModelProviderError) as error:
         router.select("execute", request_for("tools"))
     assert error.value.code == "model_context_limit"
+
+
+def test_context_budget_compacts_only_old_projected_web_excerpts(monkeypatch):
+    monkeypatch.setattr(settings, "get_agent_settings", lambda: {})
+    from app.models.openai_compatible import SYSTEM_PROMPT
+
+    def evidence(call_id):
+        return AgentMessage(role="tool", tool_call_id=call_id, payload={
+            "tool_name": "search_public_web", "status": "done",
+            "sources": [{"url": f"https://test.example/{call_id}", "excerpt": "网页摘录" * 180}],
+        })
+
+    user = AgentMessage(role="user", content="保留我的要求")
+    local = AgentMessage(role="tool", tool_call_id="local", payload={"tool_name": "read_library_source", "evidence": [{"citation_id": "local-ref"}]})
+    request = ModelRequest(messages=web_context_messages([user, evidence("old"), local, evidence("new")]), tools=request_for("tools").tools)
+    baseline = request.model_dump_json()
+    input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8"))
+    system_bound = len((SYSTEM_PROMPT + settings.persona_prompt({})).encode("utf-8"))
+    limit = input_bound + system_bound + 50
+    provider = object()
+    connection = {"context_limit": limit, "parameters": {"max_output_tokens": 50}}
+    full = ModelRouter({"execute": connection}, {"execute": provider})
+    assert full.select_for_call("execute", request)[2] is request
+    compact = ModelRouter({"execute": {**connection, "context_limit": limit - 200}}, {"execute": provider})
+    actual, _, projected = compact.select_for_call("execute", request)
+    assert actual is provider
+    assert projected.messages[0] is user
+    assert projected.messages[2] is local
+    assert projected.messages[3] is request.messages[3]
+    assert projected.messages[1].tool_call_id == "old"
+    old_source = projected.messages[1].payload["sources"][0]
+    assert old_source["url"] == "https://test.example/old"
+    assert old_source["excerpt_omitted"] is True and old_source["excerpt"] == ""
+    assert projected.tools == request.tools and baseline == request.model_dump_json()
+    too_small = ModelRouter({"execute": {**connection, "context_limit": 10}}, {"execute": provider})
+    with pytest.raises(ModelProviderError, match="超过"):
+        too_small.select_for_call("execute", request)
 
 
 def test_context_limit_requires_bounded_output_and_refuses_unknown_image_usage(monkeypatch):

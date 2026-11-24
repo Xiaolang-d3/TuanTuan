@@ -44,17 +44,29 @@ def main() -> None:
             record({"method": method, "params": params})
             session_id = params["sessionId"]
             send({"jsonrpc": "2.0", "id": request_id, "result": {"kind": "prompt", "messageId": "msg-1"}})
+            waiting_id = None
             if os.environ.get("FAKE_DSH_APPROVE_DURING_TURN") == "1":
+                waiting_id = "req-turn-1"
                 send({"jsonrpc": "2.0", "method": "approval/request", "params": {
-                    "requestId": "req-turn-1", "sessionId": session_id, "toolName": "ping", "reason": "测试审批",
+                    "requestId": waiting_id, "sessionId": session_id, "toolName": "ping", "reason": "测试审批",
                 }})
+            elif os.environ.get("FAKE_DSH_QUESTION_DURING_TURN") == "1":
+                waiting_id = 0
+                send({"jsonrpc": "2.0", "id": waiting_id, "method": "user-question/ask", "params": {
+                    "sessionId": session_id,
+                    "questions": [{"id": "project", "question": "选哪个项目？", "options": [{"label": "项目一"}]}],
+                }})
+            if waiting_id is not None:
                 for reply_line in sys.stdin:
                     try:
                         reply = json.loads(reply_line.strip())
                     except json.JSONDecodeError:
                         continue
-                    if reply.get("method") is None and ("result" in reply or "error" in reply):
-                        record(reply)
+                    if reply.get("method") == "shutdown":
+                        send({"jsonrpc": "2.0", "id": reply.get("id"), "result": {}})
+                        return
+                    record(reply)
+                    if reply.get("id") == waiting_id and ("result" in reply or "error" in reply):
                         break
             send({"jsonrpc": "2.0", "method": "session.event", "params": {
                 "sessionId": session_id, "event": {"type": "assistant/message", "data": {

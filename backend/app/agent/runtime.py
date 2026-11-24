@@ -2383,7 +2383,7 @@ class AgentRuntime:
     async def _generate_for_stage(self, provider, stage: str, request: ModelRequest, *, event_callback: StreamCallback | None = None) -> ModelResponse:
         from ..library.document_context import bounded_document_messages
         request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get())})
-        provider, selection = self._select_stage_model(provider, stage, request)
+        provider, selection, request = self._select_stage_model(provider, stage, request)
         labels = {"classify": ("正在理解你的请求", "已理解请求"), "plan": ("正在规划步骤", "已完成规划")}
         progress = ToolEvent(round=0, tool_call_id=f"model-stage-{stage}", tool_name="agent_run_state",
                              status="running", message=labels[stage][0], data={"stage": stage}) if stage in labels else None
@@ -2410,14 +2410,14 @@ class AgentRuntime:
 
     def _select_stage_model(self, provider, stage: str, request: ModelRequest, *, streaming: bool = False):
         if self._model_router is None:
-            return provider, self._current_model_selection()
-        provider, selection = self._model_router.select(stage, request, streaming=streaming)
+            return provider, self._current_model_selection(), request
+        provider, selection, request = self._model_router.select_for_call(stage, request, streaming=streaming)
         current = self._current_model_selection()
         current["stage_selections"][stage] = selection
         if stage == "execute":
             current["capability_status"] = selection["capability_status"]
         self._selection_context.set(current)
-        return provider, selection
+        return provider, selection, request
 
     async def _generate_image_run(self, provider, prompt, platform, conversation_id, callback, run_id, image_urls) -> AgentRunResult:
         from ..chat.image_assets import begin_generation, persist_images
@@ -2477,7 +2477,7 @@ class AgentRuntime:
     async def _generate_response(self, provider, request: ModelRequest, event_callback: StreamCallback | None) -> ModelResponse:
         from ..library.document_context import bounded_document_messages
         request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get())})
-        provider, selection = self._select_stage_model(provider, "execute", request, streaming=event_callback is not None)
+        provider, selection, request = self._select_stage_model(provider, "execute", request, streaming=event_callback is not None)
         with model_call_scope(selection, self._run_context.get(), stage="execute"):
             return await self._generate_response_unscoped(provider, request, event_callback)
 

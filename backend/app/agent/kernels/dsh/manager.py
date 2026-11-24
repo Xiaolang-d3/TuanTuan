@@ -6,13 +6,14 @@ import asyncio
 import shutil
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .... import db
 from ....workspace import current_user_id
 from ..base import KernelUnavailable, is_dsh_safe_endpoint
-from .client import DshJsonRpcClient, DshLaunch
+from .client import DshJsonRpcClient, DshLaunch, Notification
 from .composition import write_patch
 
 
@@ -62,6 +63,13 @@ def build_dsh_launch(connection: dict[str, Any], *, patch_path: Path, patch_args
     return DshLaunch(bin=node, args=args, env=env)
 
 
+@dataclass(frozen=True)
+class DshPendingRequest:
+    token: str
+    request_id: str | int
+    request: Notification
+
+
 class DshSession:
     def __init__(
         self,
@@ -77,6 +85,7 @@ class DshSession:
         self.last_active = time.monotonic()
         self.initialized = False
         self.in_use = False
+        self.pending: DshPendingRequest | None = None
         self.needs_history_rebuild = needs_history_rebuild
 
 
@@ -89,15 +98,15 @@ class DshRuntimeManager:
         self._lock = threading.RLock()
 
     def acquire(self, conversation_id: int, connection: dict[str, Any]) -> DshSession:
-        stale: DshSession | None = None
         key = _session_key(conversation_id)
         with self._lock:
             existing = self._sessions.get(key)
-            if existing is not None and (existing.client.running or not existing.initialized):
+            if existing is not None and existing.pending is None and (existing.client.running or not existing.initialized):
                 existing.last_active = time.monotonic()
                 return existing
             if existing is not None:
-                stale = self._sessions.pop(key)
+                # A new turn must not run inside a process blocked on an abandoned request.
+                self._close_session(self._sessions.pop(key))
             home = dsh_home(conversation_id)
             patch_path = home / "tuantuan.patch.yml"
             write_patch(patch_path, str(connection.get("model_base_url") or ""))
@@ -111,9 +120,21 @@ class DshRuntimeManager:
             )
             self._sessions[key] = session
             self._history_rebuilds.discard(key)
-        if stale is not None:
-            self._close_session(stale)
         return session
+
+    def resume(self, conversation_id: int, token: str | None) -> DshSession | None:
+        """Reserve only the live process that owns the exact persisted wait."""
+        with self._lock:
+            session = self._sessions.get(_session_key(conversation_id))
+            if (
+                session is None or session.in_use or not session.initialized
+                or not session.client.running or session.pending is None
+                or not token or session.pending.token != token
+            ):
+                return None
+            session.in_use = True
+            session.last_active = time.monotonic()
+            return session
 
     def terminate(self, conversation_id: int) -> None:
         key = _session_key(conversation_id)

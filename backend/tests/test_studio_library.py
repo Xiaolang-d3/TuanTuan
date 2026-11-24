@@ -13,7 +13,7 @@ from api_client import create_authenticated_client, register_authenticated_clien
 from app import db
 from app.chat.conversations import create_conversation
 from app.chat.image_assets import begin_generation, persist_images
-from app.db import connect, init_db
+from app.db import DB_SCHEMA_VERSION, connect, init_db
 from app.domain import ModelResponse
 from app.domain.agent import ModelImageOutput
 from app.workspace import resolve_db_path, use_workspace
@@ -267,10 +267,10 @@ def test_v44_upgrade_imports_only_linked_legacy_studio_history(tmp_path):
         with connect() as conn:
             conn.execute('DROP TABLE image_studio_tasks')
             conn.execute('DROP TABLE image_studio_works')
-            conn.execute('UPDATE schema_migrations SET version=44 WHERE version=45')
+            conn.execute('UPDATE schema_migrations SET version=44')
         init_db(resolve_db_path())
         records = {r['id']: r for r in studio_library.history()['items']}
         assert set(records) == {'legacy',str(edit_id)}
         assert records['legacy']['prompt'] == '猫'
         assert records[str(edit_id)]['source_asset_id'] == records['legacy']['assets'][0]['id']
-        assert (resolve_db_path().parent/'.upgrade-backups/before-schema-v45'/resolve_db_path().name).is_file()
+        assert (resolve_db_path().parent / '.upgrade-backups' / f'before-schema-v{DB_SCHEMA_VERSION}' / resolve_db_path().name).is_file()
