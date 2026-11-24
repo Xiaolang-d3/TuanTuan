@@ -92,7 +92,7 @@ test.beforeEach(async ({ page }) => {
   await mockCurrentProduct(page);
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of ["light", "dark", "blue"] as const) {
   test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
     await page.setViewportSize({ width: 874, height: 770 });
@@ -112,7 +112,7 @@ for (const theme of ["light", "dark"] as const) {
         const toggle = page.getByRole("button", { name: collapsed ? "展开侧边栏" : "收起侧边栏", exact: true });
         await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
         await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(collapsed ? 72 : 232);
-        const themeShortcut = sidebar.getByRole("button", { name: /切换到[浅深]色主题/ });
+        const themeShortcut = sidebar.getByRole("button", { name: /点击切换到/ });
         await expect(themeShortcut).toBeInViewport();
         const [sideBox, identityBox, accountBox, themeBox, toggleBox, brandBox] = await Promise.all([
           sidebar.boundingBox(), sidebar.locator(".sidebar-identity-slot").boundingBox(),
@@ -406,6 +406,77 @@ test("AI workspace keeps one reading axis and switches history rail by breakpoin
   }
 });
 
+test("keyboard leaves the account menu and returns focus after closing history dialogs", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 800 });
+  await page.goto("/#/chat/1");
+  const account = page.getByRole("button", { name: "账号菜单" });
+  const accountMenu = page.getByRole("menu", { name: "账号菜单" });
+  await expect(page.getByRole("textbox", { name: "输入消息" })).toBeFocused();
+  await account.press("ArrowDown");
+  await expect(accountMenu.getByRole("menuitem", { name: "账号与安全" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(accountMenu).toBeHidden();
+  await expect(account).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByRole("button", { name: "对话记录", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "对话记录" });
+  const trigger = panel.getByRole("button", { name: "资料研究 的更多操作" });
+  const menu = panel.getByRole("menu", { name: "资料研究 的操作" });
+  await trigger.press("ArrowDown");
+  const rename = menu.getByRole("menuitem", { name: "重命名" });
+  await expect(rename).toBeFocused();
+  const [panelBox, menuBox] = await Promise.all([panel.boundingBox(), menu.boundingBox()]);
+  expect(menuBox!.x).toBeGreaterThanOrEqual(panelBox!.x);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.press("ArrowDown");
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "重命名对话" });
+  const title = dialog.getByRole("textbox", { name: "对话名称" });
+  await expect(title).toBeFocused();
+  await expect(title).toHaveValue("资料研究");
+  const evidenceDir = process.env.CI ? resolve("..", "..", "output", "playwright") : resolve("..", "tmp", "playwright");
+  await mkdir(evidenceDir, { recursive: true });
+  await page.screenshot({ path: resolve(evidenceDir, "shadcn-history-rename.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await menu.getByRole("menuitem", { name: "删除" }).click();
+  const alert = page.getByRole("alertdialog", { name: "删除对话" });
+  const cancel = alert.getByRole("button", { name: "取消" });
+  await expect(cancel).toBeFocused();
+  await cancel.click();
+  await expect(alert).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("scrolling a conversation out of the history list closes its menu", async ({ page }) => {
+  await page.route("http://127.0.0.1:4173/conversations", (route) => route.fulfill({
+    json: [conversation, ...Array.from({ length: 30 }, (_, index) => ({
+      ...conversation, id: index + 2, title: `历史对话 ${index + 2}`
+    }))]
+  }));
+  await page.setViewportSize({ width: 960, height: 600 });
+  await page.goto("/#/chat/1");
+  await page.getByRole("button", { name: "对话记录", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "对话记录" });
+  const trigger = panel.getByRole("button", { name: "资料研究 的更多操作" });
+  const list = panel.locator(".conversation-history-list");
+  await trigger.click();
+  await expect(panel.getByRole("menu")).toBeVisible();
+  await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(panel.getByRole("menu")).toBeHidden();
+});
+
 test("retired career routes are not recognized and open home", async ({ page }) => {
   for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/projects", "/#/knowledge"]) {
     await page.goto(legacyRoute);
@@ -421,7 +492,11 @@ test("home and library use current sources and stay usable on narrow screens", a
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/#/dashboard");
     await expect(page.getByRole("heading", { name: /测试用户/ })).toBeVisible();
+    const aiTab = page.getByRole("tab", { name: /AI 动态/ });
+    await aiTab.click();
     await expect(page.getByRole("heading", { name: "模型动态", exact: true })).toBeVisible();
+    await aiTab.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "技术热榜" })).toBeFocused();
     await expect(page.getByRole("heading", { name: "GitHub 热榜", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.goto("/#/library");

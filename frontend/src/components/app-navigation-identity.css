@@ -15,13 +15,6 @@
   outline: 2px solid var(--home-accent, var(--color-brand));
   outline-offset: 3px;
 }
-.app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .app-identity-menu {
-  top: auto;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: auto;
-  max-height: calc(100dvh - 160px);
-}
 
 @media (min-width: 821px) {
   .app-shell.has-chat-dock .sidebar.context-navigation .brand { gap: 8px; }
@@ -122,13 +115,6 @@
     padding: 0;
   }
   .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .sidebar-identity { width: 44px; }
-  .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .app-identity-menu {
-    top: calc(100% + 8px);
-    bottom: auto;
-    left: auto;
-    right: 0;
-    max-height: calc(100dvh - 80px);
-  }
 }
 
 /* Keep the theme shortcut within reach in both expanded and compact navigation. */

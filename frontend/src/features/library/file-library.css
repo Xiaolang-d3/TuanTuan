@@ -812,9 +812,6 @@
   z-index: 100;
   background: #20213a55;
   backdrop-filter: blur(3px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
 }
 .fl-dialog {
   width: min(100%, 490px);

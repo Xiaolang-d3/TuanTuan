@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { HomeInfoTabs, type HomeInfoTabDef } from "./HomeInfoTabs";
 
@@ -27,21 +27,35 @@ describe("HomeInfoTabs", () => {
     const aiTab = within(tablist).getByRole("tab", { name: /AI 动态/ });
     expect(aiTab).toHaveAttribute("aria-selected", "true");
     expect(within(aiTab).getByText("2 条新")).toBeInTheDocument();
-    expect(aiTab).toHaveAttribute("aria-controls", "home-tab-panel-ai");
+    const activePanel = screen.getByRole("tabpanel");
+    expect(aiTab).toHaveAttribute("aria-controls", activePanel.id);
     expect(screen.getByText("AI 面板内容")).toBeVisible();
     expect(screen.queryByText("热榜面板内容")).not.toBeInTheDocument();
     expect(screen.queryByText("技术栈面板内容")).not.toBeInTheDocument();
-    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "home-tab-ai");
+    expect(activePanel).toHaveAttribute("aria-labelledby", aiTab.id);
   });
 
-  it("switches tabs, keeps the previous panel mounted, and persists the choice per account", () => {
-    renderTabs();
-    fireEvent.click(screen.getByRole("tab", { name: /技术热榜/ }));
-    expect(screen.getByRole("tab", { name: /技术热榜/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("热榜面板内容")).toBeVisible();
+  it("mounts a panel on first visit, preserves its DOM state, and persists the choice per account", () => {
+    const editablePanels = { ...panels, trending: <input aria-label="热榜筛选" /> };
+    render(<HomeInfoTabs accountKey="tabs-account" tabs={tabs} panels={editablePanels} />);
+    const trendingTab = screen.getByRole("tab", { name: "技术热榜" });
+    const aiTab = screen.getByRole("tab", { name: /AI 动态/ });
+    expect(screen.queryByLabelText("热榜筛选")).not.toBeInTheDocument();
+
+    fireEvent.click(trendingTab);
+    expect(trendingTab).toHaveAttribute("aria-selected", "true");
+    const field = screen.getByRole("textbox", { name: "热榜筛选" });
+    fireEvent.change(field, { target: { value: "keep this" } });
     expect(screen.getByText("AI 面板内容")).not.toBeVisible();
     expect(screen.queryByText("技术栈面板内容")).not.toBeInTheDocument();
     expect(window.localStorage.getItem("tuantuan-home-tab:tabs-account")).toBe("trending");
+
+    fireEvent.click(aiTab);
+    expect(field).toBeInTheDocument();
+    expect(field).not.toBeVisible();
+    fireEvent.click(trendingTab);
+    expect(screen.getByRole("textbox", { name: "热榜筛选" })).toBe(field);
+    expect(field).toHaveValue("keep this");
   });
 
   it("restores the last active tab from storage and ignores invalid values", () => {
@@ -62,20 +76,25 @@ describe("HomeInfoTabs", () => {
     expect(screen.getByRole("tab", { name: /AI 动态/ })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("supports arrow, Home, and End keyboard navigation with focus movement", () => {
+  it("supports arrow, Home, and End keyboard navigation with focus movement", async () => {
     renderTabs();
-    const tablist = screen.getByRole("tablist", { name: "信息流分类" });
-    screen.getByRole("tab", { name: /AI 动态/ }).focus();
-    fireEvent.keyDown(tablist, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: /技术热榜/ })).toHaveFocus();
+    const aiTab = screen.getByRole("tab", { name: /AI 动态/ });
+    const trendingTab = screen.getByRole("tab", { name: "技术热榜" });
+    const stackTab = screen.getByRole("tab", { name: "我的技术栈" });
+    aiTab.focus();
+    fireEvent.keyDown(aiTab, { key: "ArrowRight" });
+    await waitFor(() => expect(trendingTab).toHaveFocus());
+    expect(trendingTab).toHaveAttribute("aria-selected", "true");
     expect(window.localStorage.getItem("tuantuan-home-tab:tabs-account")).toBe("trending");
-    fireEvent.keyDown(tablist, { key: "End" });
-    expect(screen.getByRole("tab", { name: /我的技术栈/ })).toHaveFocus();
-    fireEvent.keyDown(tablist, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: /技术热榜/ })).toHaveFocus();
-    fireEvent.keyDown(tablist, { key: "Home" });
-    expect(screen.getByRole("tab", { name: /AI 动态/ })).toHaveFocus();
-    fireEvent.keyDown(tablist, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: /我的技术栈/ })).toHaveFocus();
+    fireEvent.keyDown(trendingTab, { key: "End" });
+    await waitFor(() => expect(stackTab).toHaveFocus());
+    fireEvent.keyDown(stackTab, { key: "ArrowLeft" });
+    await waitFor(() => expect(trendingTab).toHaveFocus());
+    fireEvent.keyDown(trendingTab, { key: "Home" });
+    await waitFor(() => expect(aiTab).toHaveFocus());
+    fireEvent.keyDown(aiTab, { key: "ArrowLeft" });
+    await waitFor(() => expect(stackTab).toHaveFocus());
+    fireEvent.keyDown(stackTab, { key: "ArrowRight" });
+    await waitFor(() => expect(aiTab).toHaveFocus());
   });
 });

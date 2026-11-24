@@ -142,11 +142,6 @@
 .developer-home-shell .sidebar-identity:hover, .developer-home-shell .sidebar-identity.active { background: var(--home-accent-soft); }
 .developer-home-shell .sidebar-identity-avatar { color: var(--home-accent-text); background: var(--home-accent-soft); }
 .developer-home-shell .app-identity-chevron { color: var(--home-text-3); }
-.developer-home-shell .sidebar-identity-slot .app-identity-menu { background: var(--home-panel); border-color: var(--home-line); }
-.developer-home-shell .app-identity-summary { border-color: var(--home-line); }
-.developer-home-shell .app-identity-summary strong { color: var(--home-text); }
-.developer-home-shell .app-identity-summary small, .developer-home-shell .app-identity-menu button { color: var(--home-text-2); }
-.developer-home-shell .app-identity-menu button:hover { color: var(--home-text); background: var(--home-hover); }
 @media (max-width: 1360px) { .app-shell.has-chat-dock.developer-home-shell .home-content { padding-inline: 24px; } }
 @media (max-width: 820px) { .app-shell.has-chat-dock.developer-home-shell .home-content { min-height: calc(100dvh - 62px); padding: 24px 16px 32px; } }
 
@@ -171,4 +166,4 @@
 .home-tablist { border-bottom-color: var(--home-line); }
 .home-tab { color: var(--home-text-2); background: transparent; }
 .home-tab:hover { background: var(--home-hover); color: var(--home-text); }
-.home-tab.on { color: var(--home-accent-text); border-bottom-color: var(--home-accent); }
+.home-tab[data-active] { color: var(--home-accent-text); border-bottom-color: var(--home-accent); }

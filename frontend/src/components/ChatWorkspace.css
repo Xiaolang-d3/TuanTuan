@@ -1643,14 +1643,12 @@
 .chat-workspace .conversation-history-item:hover .conversation-history-actions,
 .chat-workspace .conversation-history-item:focus-within .conversation-history-actions { opacity: 1; }
 .chat-workspace .conversation-history-select[aria-current="page"] strong { color: var(--color-brand-strong); }
-.chat-workspace .conversation-history-menu { background: var(--color-surface); }
-.chat-workspace .conversation-history-menu button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
 @media (max-width: 600px) {
   .chat-workspace .message-edit-actions { flex-wrap: wrap; }
   .chat-workspace .message-edit-composer textarea { font-size: 16px; }
   .chat-workspace .conversation-history-actions { opacity: 1; }
   .chat-workspace .conversation-history-actions > button { width: 36px; height: 36px; }
-  .chat-workspace .conversation-history-menu button { min-height: 38px; }
+  .chat-workspace .conversation-history-menu [role="menuitem"] { min-height: 38px; }
 }
 
 .chat-workspace .message.message-editing .message-meta span { display: inline; }
