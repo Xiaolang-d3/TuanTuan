@@ -54,7 +54,6 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
         ref={inputRef}
         type={registering ? "email" : "text"}
         role="combobox"
-        aria-label="邮箱"
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={expanded ? "auth-email-suggestions" : undefined}
@@ -99,6 +98,7 @@ export function AuthEmailInput({ value, registering, disabled, error, inputRef, 
           }
         }}
       />
+      <label className="auth-floating-label" htmlFor="auth-email">邮箱</label>
       {expanded ? (
         <div className="auth-email-suggestions" id="auth-email-suggestions" role="listbox" aria-label="常见邮箱建议">
           {suggestions.map((email, index) => (

@@ -8,7 +8,6 @@ function EmailForm({ onSubmit = () => undefined }: { onSubmit?: (email: string) 
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <form onSubmit={(event) => { event.preventDefault(); onSubmit(email); }}>
-      <label htmlFor="auth-email">邮箱</label>
       <AuthEmailInput value={email} registering disabled={false} inputRef={inputRef} onChange={setEmail} />
       <button type="submit">注册</button>
     </form>
