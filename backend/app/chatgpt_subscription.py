@@ -97,6 +97,26 @@ def binding(db_path: Path, account_id: str) -> str:
 
 
 async def access_token(db_path: Path, account_id: str, generation: str) -> str:
+    # Refresh tokens rotate remotely. Cancelling a chat must not roll back the
+    # local successor (or terminal invalidation) after the issuer consumed one.
+    # The child owns the entire vault transaction, including its commit/close.
+    job = asyncio.create_task(_access_token(db_path, account_id, generation))
+    try:
+        return await asyncio.shield(job)
+    except asyncio.CancelledError:
+        while not job.done():
+            try:
+                await asyncio.shield(job)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not job.cancelled():
+            job.exception()
+        raise
+
+
+async def _access_token(db_path: Path, account_id: str, generation: str) -> str:
     def usable(state: dict) -> tuple[dict, oauth.TokenSet]:
         account = state["accounts"].get(account_id, {})
         if state["active_id"] != account_id or not generation or account.get("generation") != generation:

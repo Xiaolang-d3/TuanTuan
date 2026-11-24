@@ -265,7 +265,7 @@ def _subscription_chat_default_id(catalog: dict[str, Any]) -> str | None:
 
 def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
                       user_content: str | None = None, has_image_input: bool = False,
-                      allow_chatgpt_subscription: bool = True) -> AgentRuntime:
+                      allow_chatgpt_subscription: bool = False) -> AgentRuntime:
     # Resolve exactly once, before caching; restoring never consults a mutable default.
     from .settings import _settings_lock
     from .model_purposes import selection_catalog
@@ -284,14 +284,8 @@ def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any
                 subscription_default = _subscription_chat_default_id(selection_catalog())
                 initial_profile_id = subscription_default
         connection = get_profile_connection(initial_profile_id, selection=selection)
-        if is_chatgpt_subscription(connection):
-            if not allow_chatgpt_subscription:
-                raise ValueError("ChatGPT 订阅仅支持团团内的交互式文本聊天，不支持外部消息渠道")
-            if selection is None:
-                if has_image_input or image_generation_intent(user_content or "", image_model_selected=False):
-                    raise ValueError("ChatGPT 订阅仅支持交互式文本聊天，请为图片请求选择兼容模型")
-                if subscription_default:
-                    connection["selection_reason"] = "purpose_default"
+        if is_chatgpt_subscription(connection) and subscription_default:
+            connection["selection_reason"] = "purpose_default"
         connection = bind_model_stages(
             connection, explicit_profile=profile_id is not None, selection=selection,
             resolve=get_profile_connection, policy=get_routing_policy() if selection is None else None,
@@ -310,6 +304,15 @@ def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any
                 if chosen is connection and (image_only or (output_types and "chat" not in output_types) or connection.get("capabilities", {}).get("chat") == "unsupported"):
                     chosen = bind_text_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection)
                 connection = chosen
+        # Intent routing can change the executor after the initial selection.
+        # Check the final executor and all stage bindings before building providers.
+        if is_chatgpt_subscription(connection) or any(
+            is_chatgpt_subscription(stage) for stage in connection.get("stage_connections", {}).values()
+        ):
+            if not allow_chatgpt_subscription:
+                raise ValueError("ChatGPT 订阅仅支持团团内的交互式文本聊天，不支持外部消息渠道")
+            if selection is None and (has_image_input or image_generation_intent(user_content or "", image_model_selected=False)):
+                raise ValueError("ChatGPT 订阅仅支持交互式文本聊天，请为图片请求选择兼容模型")
     runtime, _ = _cached_components(connection)
     return runtime
 

@@ -215,3 +215,62 @@ def test_rotation_keeps_binding_but_terminal_refresh_removes_it(tmp_path, vault,
     assert exc.value.code == 'chatgpt_reauthorize'
     assert subscription.binding(path, 'a') == ''
     assert vault[path]['accounts']['a']['tokens'] is None
+
+
+@pytest.mark.parametrize('phase', ['refresh', 'commit'])
+@pytest.mark.parametrize('terminal', [False, True])
+def test_cancelled_refresh_finishes_transaction(tmp_path, vault, monkeypatch, phase, terminal):
+    path = tmp_path / 'workspace.db'
+    old = replace(tokens(), expires_at=time.time() - 1)
+    vault[path] = {'active_id': 'a', 'accounts': {'a': {'generation': 'generation', 'tokens': asdict(old)}}}
+    rotated = replace(tokens(), access_token='rotated-token', refresh_token='rotated-refresh')
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        committed = asyncio.Event()
+        original_edit = subscription.store.edit_state
+
+        @asynccontextmanager
+        async def edit(path):
+            async with original_edit(path) as state:
+                yield state
+                if phase == 'commit':
+                    started.set()
+                    await release.wait()
+            committed.set()
+
+        async def refresh(http, current):
+            assert current.refresh_token == old.refresh_token
+            if phase == 'refresh':
+                started.set()
+                await release.wait()
+            if terminal:
+                raise oauth.OAuthError('invalid_grant')
+            return rotated
+
+        mock_refresh = AsyncMock(side_effect=refresh)
+        monkeypatch.setattr(subscription.store, 'edit_state', edit)
+        monkeypatch.setattr(oauth, 'refresh_tokens', mock_refresh)
+        caller = asyncio.create_task(subscription.access_token(path, 'a', 'generation'))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        caller.cancel()
+        await asyncio.sleep(0)
+        assert not caller.done() and not committed.is_set()
+        caller.cancel()  # Repeated disconnect/cancellation must not cancel the owner.
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(caller, timeout=5)
+        assert committed.is_set()
+        saved = vault[path]['accounts']['a']
+        if terminal:
+            assert saved['tokens'] is None
+            assert subscription.binding(path, 'a') == ''
+        else:
+            assert saved['tokens']['refresh_token'] == 'rotated-refresh'
+            assert subscription.binding(path, 'a') == 'generation'
+            assert await subscription.access_token(path, 'a', 'generation') == 'rotated-token'
+        mock_refresh.assert_awaited_once()
+
+    asyncio.run(scenario())

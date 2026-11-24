@@ -156,24 +156,14 @@ def cancel_durable_agent_run(run_id: str) -> dict[str, Any]:
 
 def require_configured_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
                                user_content: str | None = None, has_image_input: bool = False,
-                               allow_chatgpt_subscription: bool = True):
+                               allow_chatgpt_subscription: bool = False):
     """Ensure model is configured before AG-UI streaming starts.
 
     Missing API key must surface as HTTP 400 (not an in-stream 200 failure or 500).
     """
     try:
-        if not allow_chatgpt_subscription:
-            return get_agent_runtime(profile_id, selection=selection, user_content=user_content,
-                                     has_image_input=has_image_input, allow_chatgpt_subscription=False)
-        if selection is not None:
-            return get_agent_runtime(selection=selection)
-        if has_image_input:
-            return get_agent_runtime(profile_id, user_content=user_content, has_image_input=True)
-        if user_content is not None:
-            return get_agent_runtime(profile_id, user_content=user_content)
-        if profile_id is not None:
-            return get_agent_runtime(profile_id)
-        return get_agent_runtime()
+        return get_agent_runtime(profile_id, selection=selection, user_content=user_content,
+                                 has_image_input=has_image_input, allow_chatgpt_subscription=allow_chatgpt_subscription)
     except SecretStoreUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
