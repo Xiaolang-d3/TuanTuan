@@ -18,7 +18,7 @@ from .approvals import (
     question_clarification,
 )
 from .client import DshClientError, DshTimeoutError, Notification
-from .manager import DshRuntimeManager, DshSession
+from .manager import DshRuntimeManager, DshSession, require_dsh_compatible_auth
 
 
 _manager = DshRuntimeManager()
@@ -341,8 +341,10 @@ def build_dsh_runtime(agent_runtime: Any) -> KernelRuntime:
     from ...bootstrap import get_profile_connection
 
     selection = getattr(agent_runtime, "model_selection", None)
+    require_dsh_compatible_auth(selection or {})
     profile_id = (selection or {}).get("profile_id")
     connection = get_profile_connection(profile_id, selection=selection)
+    require_dsh_compatible_auth(connection)
     return DshKernelRuntime(_manager, connection)
 
 

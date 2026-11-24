@@ -329,7 +329,45 @@ def clear_all_memory(db_path: str | Path | None = None) -> dict[str, int]:
     return {"cleared_items": items, "cleared_rules": rules}
 
 
+def _uses_chatgpt_subscription(connection: dict[str, Any]) -> bool:
+    return (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription")
+
+
+def _subscription_selected(conn: sqlite3.Connection, conversation_id: int) -> bool:
+    # The extraction model is the workspace default, which may differ from the
+    # conversation's pick. Check both without touching the credential store.
+    return conn.execute(
+        """SELECT 1 FROM model_profiles p JOIN model_connections c ON p.connection_id = c.id
+           WHERE c.secret_ref = 'chatgpt_subscription' AND p.id IN (
+             SELECT model_profile_id FROM conversations WHERE id = ?
+             UNION ALL SELECT default_model_profile_id FROM agent_settings WHERE id = 1
+           ) LIMIT 1""",
+        (conversation_id,),
+    ).fetchone() is not None
+
+
+def _latest_run(conn: sqlite3.Connection, conversation_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT status, model_selection_json FROM agent_execution_runs "
+        "WHERE conversation_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+        (conversation_id,),
+    ).fetchone()
+
+
+def _run_used_subscription(run: sqlite3.Row | None) -> bool:
+    if run is None:
+        return False
+    try:
+        selection = json.loads(run["model_selection_json"])
+    except (TypeError, ValueError):
+        return False
+    return isinstance(selection, dict) and _uses_chatgpt_subscription(selection)
+
+
 def _build_provider(connection: dict[str, Any]) -> Any:
+    if _uses_chatgpt_subscription(connection):
+        raise ValueError("ChatGPT 订阅不可用于后台记忆抽取")
     from ...models.configured import configure_model_provider
     from ...models.factory import build_model_provider
 
@@ -409,11 +447,10 @@ def memory_extraction_due(
     try:
         if not get_agent_settings(db_path).get("user_memory_enabled", True):
             return False
-        connection = get_model_connection(db_path)
-        if not connection.get("model_name"):
-            return False
         with connect(db_path) as conn:
             if conn.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone() is None:
+                return False
+            if _subscription_selected(conn, conversation_id) or _run_used_subscription(_latest_run(conn, conversation_id)):
                 return False
             state_row = conn.execute(
                 "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
@@ -423,7 +460,10 @@ def memory_extraction_due(
                 "SELECT COALESCE(MAX(id), 0) AS id FROM chat_messages WHERE conversation_id = ?",
                 (conversation_id,),
             ).fetchone()["id"]
-        return latest_message_id - last_extracted >= EXTRACT_EVERY_MESSAGES
+        if latest_message_id - last_extracted < EXTRACT_EVERY_MESSAGES:
+            return False
+        connection = get_model_connection(db_path)
+        return bool(connection.get("model_name")) and not _uses_chatgpt_subscription(connection)
     except Exception:
         return False
 
@@ -449,11 +489,10 @@ def extract_from_conversation(
         with connect(db_path) as conn:
             if conn.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone() is None:
                 return 0
-            latest_run = conn.execute(
-                "SELECT status FROM agent_execution_runs WHERE conversation_id = ? ORDER BY updated_at DESC LIMIT 1",
-                (conversation_id,),
-            ).fetchone()
-            if latest_run is not None and latest_run["status"] != "completed":
+            if _subscription_selected(conn, conversation_id):
+                return 0
+            latest_run = _latest_run(conn, conversation_id)
+            if latest_run is not None and (latest_run["status"] != "completed" or _run_used_subscription(latest_run)):
                 return 0
             state = _memory_state(conn)
             latest_message_id = conn.execute(
@@ -511,7 +550,7 @@ def extract_from_conversation(
             connection = get_model_connection(db_path)
         except Exception:
             return 0
-        if not connection.get("model_name"):
+        if not connection.get("model_name") or _uses_chatgpt_subscription(connection):
             return 0
         try:
             provider = _build_provider(connection)

@@ -9,7 +9,13 @@ import re
 from ..model_protocol import is_image_generation_model, model_protocol_for_profile, protocol_requires_api_key, resolve_model_protocol, supports_image_edit
 
 
+def is_chatgpt_subscription(connection):
+    return bool(connection and connection.get("auth_kind") == "chatgpt_subscription")
+
+
 def model_output_types(profile, connection):
+    if is_chatgpt_subscription(connection):
+        return ["chat"], "provider"
     name = profile["model_name"].strip().lower().rsplit("/", 1)[-1]
     caps = profile.get("capabilities") or {}
     explicit = [kind for kind, key in (("chat", "chat"), ("image", "image_generation"), ("video", "video_generation")) if caps.get(key) == "supported"]
@@ -30,6 +36,8 @@ def model_output_types(profile, connection):
 
 
 def supported_purposes(profile, connection):
+    if is_chatgpt_subscription(connection):
+        return ["chat"]
     types, _ = model_output_types(profile, connection)
     base = connection.get("effective_base_url", connection.get("model_base_url", ""))
     protocol = model_protocol_for_profile(profile["model_name"], connection.get("protocol", connection.get("model_protocol", "auto")), profile.get("capabilities"), base)
@@ -58,6 +66,12 @@ def purpose_exclusion(profile, connection, purpose, *, strict_capabilities=False
         return "模型已停用"
     if not connection or not connection.get("enabled", True):
         return "连接不存在或已停用"
+    if is_chatgpt_subscription(connection):
+        if purpose != "chat" or action is not None:
+            return "ChatGPT 订阅仅支持交互式文本聊天"
+        if connection.get("credential_status") != "available":
+            return "ChatGPT 订阅授权不可用，请在模型设置中重新登录或切回该账号"
+        return None
     types, _ = model_output_types(profile, connection)
     capability = {"chat": "chat", "image": "image_generation", "vision": "vision"}[purpose]
     status = vision_status(profile) if purpose == "vision" else (profile.get("capabilities") or {}).get(capability, "unknown")
@@ -116,6 +130,12 @@ def select_model_for_purpose(catalog, purpose, profile_id=None, *, strict_capabi
             preferences.extend((value, "default_profile") for value in (catalog.get("effective_execution_profile_id"), catalog.get("default_profile_id")))
         chosen, reason = None, "automatic"
         for preferred, preferred_reason in preferences:
+            if preferred and action == "structured_output":
+                profile = next((item for item in profiles if item["id"] == preferred), None)
+                if profile and is_chatgpt_subscription(sources.get(profile["connection_id"])):
+                    error = "ChatGPT 订阅仅支持交互式文本聊天"
+                    result.update(profile_id=preferred, connection_id=profile["connection_id"], model_name=profile["model_name"], reason=error, error=error)
+                    return result
             chosen = next((item for item in candidates if item["id"] == preferred), None)
             if chosen:
                 reason = preferred_reason

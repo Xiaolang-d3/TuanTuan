@@ -40,8 +40,15 @@ def _vendored_bin_js() -> Path:
     return _data_dir() / "dsh-runtime" / "node_modules" / "@deepseek-ai" / "dsh" / "lib" / "bin.js"
 
 
+def require_dsh_compatible_auth(connection: dict[str, Any]) -> None:
+    if (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription"):
+        raise KernelUnavailable("ChatGPT 订阅仅支持团团对话内核，不可用于 DSH")
+
+
 def build_dsh_launch(connection: dict[str, Any], *, patch_path: Path, patch_args: tuple[str, ...] = ()) -> DshLaunch:
     """把团团模型连接映射为 DSH 子进程启动参数。"""
+    require_dsh_compatible_auth(connection)
     base_url = str(connection.get("model_base_url") or "").strip()
     if not is_dsh_safe_endpoint(base_url):
         raise KernelUnavailable("DSH 内核需要安全的 HTTPS 端点")
@@ -89,6 +96,8 @@ class DshRuntimeManager:
         self._lock = threading.RLock()
 
     def acquire(self, conversation_id: int, connection: dict[str, Any]) -> DshSession:
+        # Check before reusing a session that may hold another connection's key.
+        require_dsh_compatible_auth(connection)
         stale: DshSession | None = None
         key = _session_key(conversation_id)
         with self._lock:

@@ -348,6 +348,7 @@ async def run_ag_ui(payload: dict[str, Any], request: Request) -> StreamingRespo
         chat_input,
         ag_ui_input=ag_ui_input,
         accept=request.headers.get("accept"),
+        allow_chatgpt_subscription=True,
     )
 
 

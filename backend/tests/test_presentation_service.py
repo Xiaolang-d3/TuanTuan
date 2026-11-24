@@ -98,6 +98,42 @@ def test_ppt_uses_available_text_model_when_conversation_preference_cannot_write
     assert get_conversation(conversation["id"])["model_profile_id"] == preferred
 
 
+@pytest.mark.parametrize("selection_source", ["conversation", "chat_default"])
+def test_ppt_does_not_fall_back_from_signed_out_subscription(scope, monkeypatch, selection_source):
+    from app import chatgpt_subscription
+    from app.agent.model_catalog import create_model_connection, get_model_catalog, set_default_model_profile
+    from app.chat.conversations import create_conversation
+    from app.presentations.service import PresentationUnavailable, resolve_model
+
+    monkeypatch.setenv("TUANTUAN_SECRET_BACKEND", "memory")
+    monkeypatch.setattr(chatgpt_subscription, "binding", lambda *_: None)
+    commercial = create_model_connection({"name": "Commercial", "model_base_url": "https://text.test/v1",
+                                          "model_protocol": "openai", "api_key": "synthetic-text-key",
+                                          "model_name": "gpt-4.1"})
+    commercial_profile = next(item for item in get_model_catalog()["profiles"] if item["connection_id"] == commercial["id"])
+    set_default_model_profile(commercial_profile["id"])
+    conversation = create_conversation("PPT with a signed-out subscription")
+    app = service()
+    app.model_resolver = resolve_model
+    assert app.capabilities(scope, conversation_id=conversation["id"])["available"]
+
+    with db.connect() as conn:
+        conn.execute("INSERT INTO model_connections (id, name, effective_base_url, protocol, secret_ref, data_boundary) "
+                     "VALUES ('subscription', 'ChatGPT', ?, 'responses', 'chatgpt_subscription', 'subscription')",
+                     (chatgpt_subscription.API_ROOT,))
+        conn.execute("INSERT INTO model_profiles (id, connection_id, model_name, name) "
+                     "VALUES ('selected', 'subscription', 'gpt-test', 'ChatGPT')")
+        if selection_source == "conversation":
+            conn.execute("UPDATE conversations SET model_profile_id='selected' WHERE id=?", (conversation["id"],))
+        else:
+            conn.execute("UPDATE model_routing_policy SET payload_json=json_set(payload_json, '$.purpose_defaults.chat', 'selected') WHERE id=1")
+
+    assert app.capabilities(scope, conversation_id=conversation["id"])["code"] == "model_unavailable"
+    with pytest.raises(PresentationUnavailable):
+        app.create(PresentationRequest(topic="知识分享", conversation_id=conversation["id"]), scope, "subscription")
+    assert app.jobs.repository.list(scope) == []
+
+
 def test_chat_list_filters_before_pagination_and_exposes_only_safe_display_fields(scope):
     from app.chat.conversations import create_conversation
     from app.presentations.service import public_presentation
