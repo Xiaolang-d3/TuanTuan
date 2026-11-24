@@ -66,6 +66,7 @@ test("manages services and cross-service model defaults through the real setting
     if (path === "/channels/weixin/events") return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": mocked local events\n\n" });
     const send = (json: unknown) => route.fulfill({ json });
     if (path === "/agent/settings") return send(savedSettings());
+    if (path === "/agent/chatgpt-subscription") return send({ available: false, configured: false, plan_enabled: false, status: "unavailable", accounts: [] });
     if (path === "/agent/model-monitor") return send(monitor());
     if (path === "/agent/models/capabilities") return send({ model_name: savedSettings().model_name, provider: "openai", provider_label: "OpenAI", protocol: "openai", protocol_label: "OpenAI", vision: capFlag, streaming: capFlag, tools: capFlag, probed: false, probe_error: null });
     if (path === "/agent/model-connections") {

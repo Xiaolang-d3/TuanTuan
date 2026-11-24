@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Search, SlidersHorizontal } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import type { HomeModelBenchmark, HomeModelBenchmarks as BenchmarkData } from "./types";
 import { CHART, creatorColor, efficientFrontier, makeAxis, placeLabels } from "./benchmark-chart";
 import { HomeMediaBenchmarks } from "./HomeMediaBenchmarks";
@@ -117,19 +118,14 @@ const CATEGORIES = { language: "语言模型", image: "图像", video: "视频",
 type Category = keyof typeof CATEGORIES;
 
 export function HomeModelBenchmarks({ data }: { data?: BenchmarkData }) {
-  const [category, setCategory] = useState<Category>("language");
-  const keys = Object.keys(CATEGORIES) as Category[];
-  return <section className="home-module home-benchmarks" aria-labelledby="home-benchmarks-title">
+  const categories = Object.keys(CATEGORIES) as Category[];
+  return <Tabs render={<section />} className="home-module home-benchmarks" aria-labelledby="home-benchmarks-title" defaultValue="language">
     <div className="home-module-head"><h2 className="home-module-title" id="home-benchmarks-title">模型评测</h2><a className="home-benchmark-source" href={SOURCE_URL} target="_blank" rel="noreferrer">Artificial Analysis <ExternalLink size={11} /></a></div>
-    <div className="home-benchmark-categories" role="tablist" aria-label="模型类别">{keys.map((key, index) => <button key={key} type="button" role="tab" id={`benchmark-category-${key}`} aria-selected={category === key} aria-controls="benchmark-category-panel" tabIndex={category === key ? 0 : -1} onClick={() => setCategory(key)} onKeyDown={event => {
-      const next = event.key === "ArrowRight" ? (index + 1) % keys.length : event.key === "ArrowLeft" ? (index + keys.length - 1) % keys.length : event.key === "Home" ? 0 : event.key === "End" ? keys.length - 1 : -1;
-      if (next < 0) return;
-      event.preventDefault();
-      setCategory(keys[next]);
-      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
-    }}>{CATEGORIES[key]}</button>)}</div>
-    <div id="benchmark-category-panel" role="tabpanel" aria-labelledby={`benchmark-category-${category}`}>
-      {category === "language" ? <HomeLanguageBenchmarks data={data} /> : <HomeMediaBenchmarks key={category} category={category} data={data} />}
-    </div>
-  </section>;
+    <TabsList className="home-benchmark-categories" aria-label="模型类别" activateOnFocus loopFocus>
+      {categories.map((category) => <TabsTrigger key={category} value={category}>{CATEGORIES[category]}</TabsTrigger>)}
+    </TabsList>
+    {categories.map((category) => <TabsContent key={category} value={category} tabIndex={undefined}>
+      {category === "language" ? <HomeLanguageBenchmarks data={data} /> : <HomeMediaBenchmarks category={category} data={data} />}
+    </TabsContent>)}
+  </Tabs>;
 }

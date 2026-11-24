@@ -446,9 +446,9 @@ describe("AuthGate", () => {
     vi.stubGlobal("fetch", vi.fn(async () => authConfig(true)));
     render(<AuthGate apiBase="https://app.example.com">{() => null}</AuthGate>);
     const email = await screen.findByLabelText("邮箱");
-    fireEvent.change(email, { target: { value: "reader@q" } });
+    fireEvent.input(email, { target: { value: "reader@q" }, inputType: "insertText" });
     expect(screen.getByText("请输入有效的邮箱地址")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: "reader@qq.com" }));
+    fireEvent.click(await screen.findByRole("option", { name: "reader@qq.com" }));
     expect(email).toHaveValue("reader@qq.com");
     expect(email).toHaveAttribute("aria-invalid", "false");
     expect(screen.queryByText("请输入有效的邮箱地址")).not.toBeInTheDocument();

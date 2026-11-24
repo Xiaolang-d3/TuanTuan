@@ -237,15 +237,14 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} />);
     await preview();
     const trigger = screen.getByRole("button", { name: "筛选" });
+    trigger.focus();
     fireEvent.click(trigger);
-    const origin = screen.getByLabelText("筛选来源");
-    fireEvent.keyDown(origin, { key: "Escape" });
-    expect(screen.queryByLabelText("筛选来源")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    const panel = screen.getByRole("dialog", { name: "文件筛选" });
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "关闭筛选" })).toHaveFocus());
+    fireEvent.keyDown(within(panel).getByRole("combobox", { name: "筛选来源" }), { key: "Escape" });
+    expect(panel).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(screen.getByRole("complementary", { name: "文件快速预览" })).toBeInTheDocument();
-    fireEvent.click(trigger);
-    fireEvent.pointerDown(screen.getByRole("heading", { name: "文件库" }));
-    expect(screen.queryByLabelText("筛选来源")).not.toBeInTheDocument();
   });
   it("opens a saved result directly and consumes the initial source once", async () => {
     const p = props(), consumed = vi.fn();
@@ -289,12 +288,17 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} sources={[source, image]} />);
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     fireEvent.change(screen.getByLabelText("筛选 AI 使用"), { target: { value: "ready" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭筛选" }));
     fireEvent.click(screen.getByRole("button", { name: "图像" }));
     expect(screen.queryByRole("columnheader", { name: "AI 使用" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("筛选 AI 使用")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "预览 照片" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    expect(screen.getByRole("combobox", { name: "筛选来源" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("筛选 AI 使用")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭筛选" }));
     fireEvent.click(screen.getByRole("button", { name: "文档" }));
     expect(screen.getByRole("columnheader", { name: "AI 使用" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("筛选 AI 使用")).toHaveValue("ready");
   });
   it("preserves search and directory when changing file type and clears empty results", () => {

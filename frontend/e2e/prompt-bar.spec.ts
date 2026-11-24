@@ -36,10 +36,10 @@ test("the mobile prompt bar opens real resource actions without losing a draft",
   await page.goto("/#/chat/1");
   const draft = page.getByRole("textbox", { name: "输入消息" });
   const trigger = page.getByRole("button", { name: "添加资料" });
-  const panel = page.getByRole("group", { name: "资料选项" });
-  const upload = panel.getByRole("button", { name: "上传文件" });
+  const panel = page.getByRole("menu", { name: "资料选项" });
+  const upload = panel.getByRole("menuitem", { name: "上传文件" });
   await draft.fill("保留这段草稿");
-  await trigger.tap();
+  await trigger.press("ArrowDown");
   await expect(panel).toBeInViewport({ ratio: 1 });
   await expect(upload).toBeFocused();
   if (process.env.PROMPT_BAR_SCREENSHOT) await page.screenshot({ path: process.env.PROMPT_BAR_SCREENSHOT });
@@ -55,7 +55,7 @@ test("the mobile prompt bar opens real resource actions without losing a draft",
   expect(posts).toEqual(["/attachments", `/attachments/${attachment.id}/parse`]);
 
   await trigger.tap();
-  await panel.getByRole("button", { name: "打开文件库" }).tap();
+  await panel.getByRole("menuitem", { name: "打开文件库" }).tap();
   await expect(page).toHaveURL(/#\/chat\/library$/);
   await page.goBack();
   await expect(draft).toHaveValue("保留这段草稿");

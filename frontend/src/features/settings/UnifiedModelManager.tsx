@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ChevronDown, Eye, Image, MessageCircle, Plus, RefreshCw, Search, Server, SlidersHorizontal, Video } from "lucide-react";
 import type { createApiClient } from "../../api/client";
+import { Switch } from "../../components/ui/Switch";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger, ComboboxValue } from "../../components/ui/combobox";
 import type { ModelCatalog, ModelCatalogEntry, ModelConnection, ModelProfile } from "../../types";
 import { useComposerModelDiscovery } from "../chat/useComposerModelDiscovery";
@@ -565,7 +566,7 @@ function ManagedModelActions({ row, defaults, locked, ready, onUse, onInspect, o
       {!configured && !subscription && <button type="button" disabled={locked || connectionEditorOpen} onClick={onEditConnection}>编辑服务</button>}
       {configured && needsCapabilities && <button type="button" disabled={locked} onClick={event => onInspect(true, event.currentTarget)}>确认输出能力</button>}
       <button type="button" disabled={locked} onClick={event => onInspect(false, event.currentTarget)}>参数</button>
-      <button type="button" role="switch" aria-checked={enabled} aria-label={`${row.connection.name || row.connection.model_base_url} ${row.name} 启用`} disabled={locked || !configured} onClick={onToggle}>{enabled ? "停用" : "启用"}</button>
+      <Switch.Root checked={enabled} aria-label={`${row.connection.name || row.connection.model_base_url} ${row.name} 启用`} disabled={locked || !configured} onCheckedChange={onToggle}>{enabled ? "停用" : "启用"}</Switch.Root>
       {purposes.filter(purpose => !isCurrent(purpose)).map(purpose => <button key={purpose} type="button" disabled={locked || !configured || !ready} onClick={() => onUse(purpose)}>设为{defaultPurposes[purpose].badge}</button>)}
     </div>
   </div>;

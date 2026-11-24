@@ -317,22 +317,23 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 .auth-card input:disabled { opacity: .65; cursor: wait; }
 .auth-field-error { color: var(--color-danger); font-size: 12px; line-height: 1.5; }
 .auth-email-field { position: relative; min-width: 0; }
+.auth-email-positioner { z-index: 80; }
+.auth-email-positioner[data-anchor-hidden] { visibility: hidden; }
 .auth-email-suggestions {
-  position: absolute;
-  top: calc(100% + 5px);
-  right: 0;
-  left: 0;
-  z-index: 5;
-  max-height: 96px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  box-sizing: border-box;
+  width: min(var(--anchor-width), var(--available-width));
   padding: 5px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
   box-shadow: 0 10px 24px rgba(37, 37, 37, .1);
 }
-.auth-email-suggestions button {
+.auth-email-suggestions [role="listbox"] {
+  max-height: min(84px, max(0px, calc(var(--available-height) - 12px)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.auth-email-suggestions [role="option"] {
   display: block;
   width: 100%;
   min-height: 36px;
@@ -347,7 +348,7 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.auth-email-suggestions button:hover, .auth-email-suggestions button[aria-selected="true"] { background: var(--color-brand-soft); color: var(--color-brand-strong); }
+.auth-email-suggestions [data-highlighted] { background: var(--color-brand-soft); color: var(--color-brand-strong); }
 .auth-password-field { position: relative; display: block; height: var(--auth-control-height); }
 .auth-card .auth-password-field input:not([type="checkbox"]) { padding-inline-end: 54px; }
 .auth-password-field input::-ms-reveal, .auth-password-field input::-ms-clear { display: none; }

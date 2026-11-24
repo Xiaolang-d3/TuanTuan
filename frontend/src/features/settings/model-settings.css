@@ -378,7 +378,8 @@
 .model-current-meta em.degraded { color: var(--color-warning); background: var(--color-warning-soft); }
 .model-current-meta em.unavailable { color: var(--color-danger); background: var(--color-danger-soft); }
 .model-current-summary > button { flex-shrink: 0; }
-.model-dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgb(18 16 36 / 48%); backdrop-filter: blur(8px); }
+.model-dialog-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgb(18 16 36 / 48%); backdrop-filter: blur(8px); }
+.model-dialog-backdrop + .ui-dialog-viewport { z-index: 1001; }
 .model-settings-dialog { max-width: 600px; max-height: calc(100dvh - 40px); overflow: hidden; padding: 0; grid-template-rows: auto minmax(0, 1fr); gap: 0; border: 1px solid var(--color-border); border-radius: 18px; background: #fff; color: var(--color-text); box-shadow: 0 24px 70px rgb(20 16 48 / 28%); }
 .model-dialog-heading { padding: 18px 20px 16px; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; }
 .model-dialog-heading h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
@@ -394,7 +395,7 @@
 :root[data-theme="dark"] :is(.model-settings-dialog, .model-dialog-heading, .model-dialog-body, .model-settings-dialog .model-connection-card, .model-settings-dialog .settings-card, .model-settings-dialog .model-settings-actions) { background: var(--color-surface); }
 :root[data-theme="dark"] .model-settings-dialog :is(input, select) { background: var(--color-surface-subtle); }
 @media (max-width: 520px) {
-  .model-dialog-backdrop { padding: 10px; }
+  .model-dialog-backdrop + .ui-dialog-viewport { padding: 10px; }
   .model-settings-dialog { max-height: calc(100dvh - 20px); }
   .model-current-summary { grid-template-columns: 36px minmax(0, 1fr); }
   .model-current-icon { width: 36px; height: 36px; }

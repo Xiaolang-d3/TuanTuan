@@ -98,10 +98,10 @@
   --fl-danger: var(--color-danger);
   --fl-danger-bg: var(--color-danger-soft);
 }
-:root[data-theme="dark"] :is(.action-dialog, .auth-email-suggestions) { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
-:root[data-theme="dark"] :is(.action-dialog input, .auth-email-suggestions button) { color: var(--color-text-secondary); }
+:root[data-theme="dark"] .action-dialog { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
+:root[data-theme="dark"] :is(.action-dialog input, .auth-email-suggestions [role="option"]) { color: var(--color-text-secondary); }
 :root[data-theme="dark"] .action-dialog input { background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
-:root[data-theme="dark"] .auth-email-suggestions button:hover { background: var(--color-surface-subtle); color: var(--color-text); }
+:root[data-theme="dark"] .auth-email-suggestions [data-highlighted] { background: var(--color-surface-subtle); color: var(--color-text); }
 :root[data-theme="dark"] .chat-workspace .message-markdown :is(h1, h2, h3, h4, h5, h6) { color: var(--color-text); }
 :root[data-theme="dark"] .chat-workspace .message-markdown a { color: var(--color-brand-strong); }
 :root[data-theme="dark"] .chat-workspace .message-markdown blockquote { color: var(--color-text-secondary); border-color: var(--color-brand); }

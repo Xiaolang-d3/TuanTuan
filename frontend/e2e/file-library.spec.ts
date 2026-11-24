@@ -108,12 +108,33 @@ for (const { width, theme } of [
     await toolbar.getByRole("button", { name: "取消选择" }).click();
     await page.getByRole("button", { name: "文件库更多选项" }).click();
     await page.getByRole("button", { name: "搜索与筛选" }).click();
-    await page.getByRole("button", { name: "筛选", exact: true }).click();
-    await page.getByLabel("筛选来源").selectOption("note");
-    await page.getByLabel("筛选来源").press("Escape");
-    await expect(page.getByLabel("筛选来源")).toBeHidden();
+    const filterTrigger = page.getByRole("button", { name: "筛选", exact: true });
+    const filters = page.getByRole("dialog", { name: "文件筛选" });
+    const closeFilters = filters.getByRole("button", { name: "关闭筛选" });
+    const origin = filters.getByRole("combobox", { name: "筛选来源" });
+    const knowledge = filters.getByRole("combobox", { name: "筛选 AI 使用" });
+    await filterTrigger.press("Enter");
+    await expect(filters).toBeInViewport({ ratio: 1 });
+    await expect(closeFilters).toBeFocused();
+    await expect(filters.locator("select")).toHaveCount(2);
+    await expect(knowledge).toHaveValue("all");
+    await origin.selectOption("note");
+    await origin.press("Escape");
+    await expect(filters).toBeHidden();
+    await expect(filterTrigger).toBeFocused();
     await expect(list.locator("tbody tr")).toHaveCount(1);
     await expect(page.locator(".fl-filter-summary")).toContainText("文本笔记");
+    if (width === 320) {
+      await filterTrigger.click();
+      await expect(origin).toHaveValue("note");
+      await page.getByRole("heading", { name: "文件库", exact: true }).click();
+      await expect(filters).toBeHidden();
+      await filterTrigger.click();
+      await page.screenshot({ path: resolve(evidenceDir, "shared-library-filters-mobile.png"), animations: "disabled" });
+      await closeFilters.click();
+      await expect(filters).toBeHidden();
+      await expect(filterTrigger).toBeFocused();
+    }
     await assertNoOverflow();
     await page.getByRole("button", { name: "清除筛选", exact: true }).click();
     await page.getByLabel("筛选目录").selectOption("3");
