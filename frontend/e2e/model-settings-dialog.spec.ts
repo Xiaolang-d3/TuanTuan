@@ -31,7 +31,14 @@ test("legacy model settings trap and restore focus and stay open until saving co
       probed: false, probe_error: null
     },
     "/agent/models/discover": { models: [], count: 0 },
-    "/agent/model-monitor": null,
+    "/agent/model-monitor": {
+      status: "unknown", status_message: "尚未进行调用", model_name: "test-chat",
+      base_url: "https://gateway.example.test/v1", protocol: "openai", api_key_configured: true,
+      window_hours: 24, summary: { total_requests: 0, successful_requests: 0, failed_requests: 0,
+        success_rate: null, average_latency_ms: null, p95_latency_ms: null, timeout_count: 0,
+        consecutive_failures: 0, total_tokens: 0 },
+      error_breakdown: [], recent_events: [], last_event_at: null, last_success_at: null, last_check_at: null
+    },
     "/agent/runs/current": { run: null },
     "/conversations": [],
     "/chat/messages": []
