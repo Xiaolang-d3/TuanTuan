@@ -549,7 +549,7 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
   return (
     <main className={status ? "auth-gate auth-gate-status" : "auth-gate"} onDoubleClick={suppressBackgroundDoubleClick}>
       <header className="auth-header">
-        <div className="auth-brand"><img className="auth-brand-mark" src="/tuantuan-favicon.png" width="32" height="32" alt="" draggable={false} /><h1 className="auth-wordmark">团团</h1><span className="auth-brand-caption" aria-hidden="true">AI STUDIO</span></div>
+        <div className="auth-brand"><img className="auth-brand-mark" src="/tuantuan-mark.svg" width="32" height="32" alt="" draggable={false} /><h1 className="auth-wordmark">团团</h1><span className="auth-brand-caption" aria-hidden="true">AI STUDIO</span></div>
         <nav className="auth-public-nav" aria-label="公共导航">
           <a href={productIntroHash}>关于 团团</a>
           <ThemeToggleButton className="auth-theme-toggle" />

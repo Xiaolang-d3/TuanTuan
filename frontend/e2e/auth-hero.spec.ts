@@ -14,9 +14,9 @@ async function checkLayout(page: Page, width: number) {
   await expect(form).toBeInViewport({ ratio: 1 });
   const card = (await form.boundingBox())!;
   expect(card.width).toBeLessThanOrEqual(432);
-  const logo = page.locator('.auth-brand img[src="/tuantuan-favicon.png"]');
+  const logo = page.locator('.auth-brand img[src="/tuantuan-mark.svg"]');
   await expect(logo).toBeInViewport({ ratio: 1 });
-  await expect(logo).toHaveCSS("mask-image", /tuantuan-header-mask\.svg/);
+  await expect(logo).toHaveCSS("mask-image", "none");
   await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
   await expect(form.locator('img[src="/tuantuan-favicon.png"]')).toHaveCount(0);
   const mascot = hero.locator(".auth-hero-mascot");
