@@ -7,9 +7,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 from ....domain import AgentMessage, AgentRunResult, AgentRunSnapshot, AgentStreamEvent, ToolError, ToolEvent
-from ....workspace import current_user_id
 from ..base import KernelRuntime, KernelUnavailable, register_kernel_runtime
 from .approvals import (
     answers_from_reply,
@@ -17,20 +17,15 @@ from .approvals import (
     decision_from_reply,
     question_clarification,
 )
-from .client import DshClientError, DshTimeoutError, Notification
-from .manager import DshRuntimeManager, DshSession, require_dsh_compatible_auth
+from .client import DshClientError, DshTimeoutError
+from .manager import DshPendingRequest, DshRuntimeManager, DshSession, require_dsh_compatible_auth
 
 
 _manager = DshRuntimeManager()
-_pending: dict[tuple[int, int], dict[str, Any]] = {}
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _conversation_key(conversation_id: int) -> tuple[int, int]:
-    return (int(current_user_id() or 0), int(conversation_id))
 
 
 def _text_from_content(content: Any) -> str:
@@ -69,7 +64,6 @@ def _history_rebuild_prompt(history: list[AgentMessage], user_content: str) -> s
 
 def reset_dsh_conversation_state(conversation_id: int) -> None:
     """Drop approval state and make the next live session rebuild from the SQL conversation."""
-    _pending.pop(_conversation_key(conversation_id), None)
     _manager.reset_for_history_change(conversation_id)
 
 
@@ -78,7 +72,6 @@ def reap_idle_dsh_sessions() -> list[int]:
 
 
 async def close_dsh_runtime() -> None:
-    _pending.clear()
     await _manager.close_all()
 
 
@@ -109,17 +102,15 @@ def _tool_event(event_type: str, event: dict[str, Any], *, round_number: int) ->
     return None
 
 
-def _waiting_result(
-    *,
-    conversation_id: int,
-    provider: str,
-    model_selection: dict[str, Any],
-    snapshot: AgentRunSnapshot,
-    events: list[ToolEvent],
-) -> AgentRunResult:
-    return AgentRunResult(
-        content="", provider=provider, platform="dsh", rounds=0,
-        model_selection=model_selection, status="waiting_user", events=events, snapshot=snapshot,
+def _expired_wait(provider: str, selection: dict[str, Any]) -> AgentStreamEvent:
+    message = "原 DeepSeek Harness 会话已失效，本次回复未执行。请重新发起原任务。"
+    return AgentStreamEvent(
+        type="error",
+        result=AgentRunResult(
+            content=message, provider=provider, platform="dsh", rounds=0,
+            model_selection=selection, status="failed",
+            error=ToolError(code="dsh_wait_expired", message=message),
+        ),
     )
 
 
@@ -159,15 +150,21 @@ class DshKernelRuntime:
         yield AgentStreamEvent(type="run_started")
         session: DshSession | None = None
         try:
-            session = self._manager.acquire(conversation_key, self._connection)
-            session.in_use = True
-            session.last_active = time.monotonic()
+            if resume is not None:
+                session = self._manager.resume(conversation_key, resume.dsh_wait_token)
+                if session is None:
+                    yield _expired_wait(provider, selection)
+                    return
+            else:
+                session = self._manager.acquire(conversation_key, self._connection)
+                session.in_use = True
+                session.last_active = time.monotonic()
             async for event in self._drive(
                 session,
                 conversation_key,
                 user_content,
                 history or [],
-                resume,
+                routing_content if routing_content is not None else user_content,
                 provider,
                 selection,
             ):
@@ -205,43 +202,40 @@ class DshKernelRuntime:
         conversation_id: int,
         user_content: str,
         history: list[AgentMessage],
-        resume: AgentRunSnapshot | None,
+        reply: str,
         provider: str,
         selection: dict[str, Any],
     ) -> AsyncIterator[AgentStreamEvent]:
         client = session.client
-        await client.start()
-        fresh = not session.initialized
-        if fresh:
-            model = str(self._connection.get("model_name") or "")
-            await client.initialize({
-                "cwd": str(Path.cwd()),
-                "provider": "deepseek-official",
-                "model": model,
-            })
-            session.initialized = True
-        pending_key = _conversation_key(conversation_id)
-        pending = _pending.get(pending_key)
-        if fresh and pending is not None:
-            # A fresh DSH process cannot answer a request owned by the previous
-            # process. Treat the user's reply as a new turn with SQL history.
-            _pending.pop(pending_key, None)
-            pending = None
-        if pending is not None and resume is not None:
-            reply = " ".join((user_content or "").split())
-            if pending["kind"] == "approval":
-                await client.respond(pending["request_id"], decision_from_reply(reply))
+        if (pending := session.pending) is not None:
+            # A resume is an answer to a server request, never a session/query.
+            if pending.request.method == "approval/request":
+                answer = decision_from_reply(reply)
             else:
-                await client.respond(pending["request_id"], answers_from_reply(pending["request"], reply))
-            _pending.pop(pending_key, None)
+                answer = answers_from_reply(pending.request, reply)
+            try:
+                await client.respond(pending.request_id, answer)
+            except (DshClientError, OSError):
+                self._manager.terminate(conversation_id)
+                yield _expired_wait(provider, selection)
+                return
+            session.pending = None
         else:
+            await client.start()
+            fresh = not session.initialized
             query_content = user_content
             if fresh:
+                model = str(self._connection.get("model_name") or "")
+                await client.initialize({
+                    "cwd": str(Path.cwd()),
+                    "provider": "deepseek-official",
+                    "model": model,
+                })
+                session.initialized = True
                 query_content = _history_rebuild_prompt(history, user_content)
-            blocks: list[dict[str, Any]] = [{"type": "text", "text": query_content}]
-            if fresh and self._tool_ready_grace > 0:
-                await asyncio.sleep(self._tool_ready_grace)
-            await client.session_query(f"session-{conversation_id}", blocks)
+                if self._tool_ready_grace > 0:
+                    await asyncio.sleep(self._tool_ready_grace)
+            await client.session_query(f"session-{conversation_id}", [{"type": "text", "text": query_content}])
             if fresh:
                 session.needs_history_rebuild = False
 
@@ -260,26 +254,35 @@ class DshKernelRuntime:
                 request = None
             if request is not None:
                 session.last_active = time.monotonic()
-                if request.method == "approval/request":
-                    clarification = approval_clarification(request)
-                    _pending[pending_key] = {
-                        "kind": "approval", "request_id": request.params.get("requestId"), "request": request,
-                    }
-                else:
-                    clarification = question_clarification(request)
-                    _pending[pending_key] = {
-                        "kind": "question", "request_id": request.params.get("requestId"), "request": request,
-                    }
+                request_id = request.rpc_id if request.rpc_id is not None else request.params.get("requestId")
+                if type(request_id) not in {str, int} or request_id == "":
+                    self._manager.terminate(conversation_id)
+                    raise DshClientError("DeepSeek Harness 等待请求缺少有效标识")
+                is_approval = request.method == "approval/request"
+                clarification = approval_clarification(request) if is_approval else question_clarification(request)
+                token = uuid4().hex
+                session.pending = DshPendingRequest(token, request_id, request)
                 snapshot = AgentRunSnapshot(
                     route_kind="dsh", needs_plan=False, clarification=clarification,
                     messages=[AgentMessage(role="user", content=user_content)],
-                    model_selection=selection,
+                    model_selection=selection, dsh_wait_token=token,
                 )
+                wait_event = ToolEvent(
+                    round=round_number, tool_call_id=f"dsh-wait-{uuid4().hex}",
+                    tool_name="dsh_approval" if is_approval else "dsh_clarification",
+                    status="waiting_approval" if is_approval else "waiting_user",
+                    message=clarification.question,
+                    data={"clarification": clarification.model_dump(mode="json")},
+                )
+                events.append(wait_event)
+                yield AgentStreamEvent(type="agent_event", event=wait_event)
                 yield AgentStreamEvent(
                     type="waiting_user",
-                    result=_waiting_result(
-                        conversation_id=conversation_id, provider=provider,
-                        model_selection=selection, snapshot=snapshot, events=events,
+                    result=AgentRunResult(
+                        content="".join(text_parts) or clarification.question,
+                        provider=provider, platform="dsh", rounds=round_number,
+                        model_selection=selection, status="waiting_user", events=events,
+                        snapshot=snapshot, started_at=started_at,
                     ),
                 )
                 return

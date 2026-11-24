@@ -188,6 +188,8 @@ class AgentRunSnapshot(BaseModel):
     approved_tool_fingerprints: list[str] = Field(default_factory=list)
     pending_tool_approval: PendingToolApproval | None = None
     requires_query_approval: bool = False
+    # Internal binding to a single request in a live DSH process, not an RPC ID.
+    dsh_wait_token: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AgentRunResult(BaseModel):

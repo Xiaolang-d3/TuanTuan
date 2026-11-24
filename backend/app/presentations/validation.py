@@ -9,15 +9,20 @@ import hashlib
 import posixpath
 import re
 import stat
+import unicodedata
 import warnings
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
 from ..execution.workspace_files import open_regular_file, reject_links
 from ..extensions.manifest import safe_resource_path
+
+if TYPE_CHECKING:
+    from .quick_plan import DeckPlan
 
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -230,14 +235,8 @@ _R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 
-def validate_delivery(project_root: Path, pptx_path: Path) -> dict:
-    """Additional host gate; the official delivery checker is still mandatory.
-
-    Verify bounded OOXML and native text against authoritative svg_output pages.
-    Never extract ZIP entries or count preview screenshots as editable slides.
-    """
-    root = project_root.absolute()
-    content = _read(pptx_path, root, 64 * 1024 * 1024)
+def _validated_slides(content: bytes) -> list[ET.Element]:
+    """Read bounded OOXML without extracting any package parts."""
     try:
         with zipfile.ZipFile(BytesIO(content)) as package:
             entries = package.infolist()
@@ -287,13 +286,10 @@ def validate_delivery(project_root: Path, pptx_path: Path) -> dict:
             relationships = {rel.get("Id"): rel for rel in xml["ppt/_rels/presentation.xml.rels"]}
             presentation = xml["ppt/presentation.xml"]
             pages = presentation.findall(f"{{{_P}}}sldIdLst/{{{_P}}}sldId")
-            source_dir = root / "svg_output"
-            reject_links(source_dir, root)
-            sources = sorted(source_dir.glob("*.svg"))
-            if not 1 <= len(pages) <= 20 or len(pages) != len(sources):
-                raise ValueError("PPTX 页数与 SVG 来源页数不一致")
-            referenced, native_shapes, text_nodes = set(), 0, 0
-            for page, source in zip(pages, sources):
+            if presentation.tag != f"{{{_P}}}presentation" or not 1 <= len(pages) <= 20:
+                raise ValueError("PPTX 页数或主文档结构无效")
+            referenced, slides = set(), []
+            for page in pages:
                 rel = relationships.get(page.get(f"{{{_R}}}id"))
                 if rel is None or rel.get("Type") != f"{_R}/slide":
                     raise ValueError("PPTX 页面关系不正确")
@@ -303,21 +299,58 @@ def validate_delivery(project_root: Path, pptx_path: Path) -> dict:
                     raise ValueError("PPTX 页面引用无效或重复")
                 referenced.add(name)
                 slide = xml[name]
-                source_report = validate_svg(source, root)
-                source_xml = parse_xml(_read(source, root, MAX_SVG_BYTES))
-                texts = ["".join(node.itertext()) for node in source_xml.iter(f"{{{SVG_NS}}}text")]
-                native = slide.findall(f".//{{{_P}}}sp")
-                actual = "".join(node.text or "" for node in slide.iter(f"{{{_A}}}t"))
-                normalize = lambda value: re.sub(r"\s+", "", value)
-                if source_report["native_text_nodes"] and not native:
-                    raise ValueError("PPTX 页面缺少原生可编辑文字，不能用截图替代")
-                if any(normalize(text) not in normalize(actual) for text in texts if text.strip()):
-                    raise ValueError("PPTX 原生文字与 SVG 来源不一致")
-                native_shapes += len(native)
-                text_nodes += len(list(slide.iter(f"{{{_A}}}t")))
+                if slide.tag != f"{{{_P}}}sld" or slide.find(f"{{{_P}}}cSld/{{{_P}}}spTree") is None:
+                    raise ValueError("PPTX 页面结构不正确")
+                slides.append(slide)
             packaged_pages = {name for name in xml if re.fullmatch(r"ppt/slides/slide[1-9][0-9]*\.xml", name)}
             if referenced != packaged_pages:
                 raise ValueError("PPTX 包含未登记的页面")
+            return slides
     except (zipfile.BadZipFile, RuntimeError, KeyError, OSError) as exc:
         raise ValueError("PPTX 文件损坏或结构不正确") from exc
-    return {"sha256": hashlib.sha256(content).hexdigest(), "slides": len(pages), "native_shapes": native_shapes, "native_text_nodes": text_nodes}
+
+
+def validate_delivery(project_root: Path, pptx_path: Path) -> dict:
+    """Check native text against the authoritative local SVG source pages."""
+    root = project_root.absolute()
+    content = _read(pptx_path, root, 64 * 1024 * 1024)
+    slides = _validated_slides(content)
+    source_dir = root / "svg_output"
+    reject_links(source_dir, root)
+    sources = sorted(source_dir.glob("*.svg"))
+    if len(slides) != len(sources):
+        raise ValueError("PPTX 页数与 SVG 来源页数不一致")
+    native_shapes, text_nodes = 0, 0
+    for slide, source in zip(slides, sources):
+        source_report = validate_svg(source, root)
+        source_xml = parse_xml(_read(source, root, MAX_SVG_BYTES))
+        texts = ["".join(node.itertext()) for node in source_xml.iter(f"{{{SVG_NS}}}text")]
+        native = slide.findall(f".//{{{_P}}}sp")
+        text = list(slide.iter(f"{{{_A}}}t"))
+        actual = re.sub(r"\s+", "", "".join(node.text or "" for node in text))
+        if source_report["native_text_nodes"] and not native:
+            raise ValueError("PPTX 页面缺少原生可编辑文字，不能用截图替代")
+        if any(re.sub(r"\s+", "", line) not in actual for line in texts if line.strip()):
+            raise ValueError("PPTX 原生文字与 SVG 来源不一致")
+        native_shapes += len(native)
+        text_nodes += len(text)
+    return {"sha256": hashlib.sha256(content).hexdigest(), "slides": len(slides), "native_shapes": native_shapes, "native_text_nodes": text_nodes}
+
+
+def validate_quick_delivery(pptx_path: Path, root: Path, plan: DeckPlan) -> str:
+    """Return a hash of the exact PPTX bytes whose editable text was verified."""
+    content = _read(pptx_path, root, 64 * 1024 * 1024)
+    slides = _validated_slides(content)
+    if len(slides) != len(plan.slides):
+        raise ValueError("PPTX 页数与制作计划不一致")
+
+    def compact(value: str) -> str:
+        return "".join(unicodedata.normalize("NFKC", value).split())
+
+    for slide, expected in zip(slides, plan.slides):
+        shapes = slide.findall(f".//{{{_P}}}sp/{{{_P}}}txBody")
+        editable = {compact("".join(node.text or "" for node in shape.iter(f"{{{_A}}}t"))) for shape in shapes}
+        expected_text = [expected.title, expected.takeaway, *(value for item in expected.items for value in (item.label, item.text))]
+        if not all(compact(value) in editable for value in expected_text):
+            raise ValueError("PPTX 缺少制作计划中的原生可编辑文字")
+    return hashlib.sha256(content).hexdigest()
