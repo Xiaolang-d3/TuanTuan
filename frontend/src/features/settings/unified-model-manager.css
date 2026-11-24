@@ -35,8 +35,44 @@
 .unified-service-copy small { color: var(--color-text-secondary); font-size: 12px; }
 .unified-actions { display: flex; gap: 7px; flex-wrap: wrap; }
 .unified-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.unified-tools > select { flex: 1 1 132px; max-width: 190px; }
+.unified-model-manager .unified-tools > .unified-service-filter { flex: 1 1 132px; justify-content: space-between; min-width: 0; max-width: 190px; min-height: 38px; padding: 8px 10px; border-color: var(--color-border); color: var(--color-text); background: var(--color-surface); font-size: 13px; }
+.unified-service-filter-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unified-service-filter > svg { flex-shrink: 0; }
 .unified-tools > button { flex: 0 0 auto; }
+.unified-service-filter-popup {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(max(var(--anchor-width), 14rem), var(--available-width));
+  max-height: var(--available-height);
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+}
+[data-slot="combobox-positioner"]:has(> .unified-service-filter-popup) { z-index: 1001; }
+.unified-service-filter-popup [data-slot="combobox-input"] {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: inherit;
+  background: var(--color-surface);
+  font: inherit;
+}
+.unified-service-filter-popup [data-slot="combobox-input"]:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.unified-service-filter-popup [data-slot="combobox-list"] { max-height: 15rem; overflow-y: auto; overscroll-behavior: contain; }
+.unified-service-filter-popup [data-slot="combobox-item"], .unified-service-filter-popup [data-slot="combobox-empty"]:not(:empty) { padding: 8px 10px; }
+.unified-service-filter-popup [data-slot="combobox-empty"] { color: var(--color-text-muted); }
+.unified-service-filter-popup [data-slot="combobox-item"] { display: flex; justify-content: space-between; align-items: center; gap: 6px; border-radius: 5px; overflow-wrap: anywhere; cursor: pointer; }
+.unified-service-filter-popup [data-slot="combobox-item"][data-highlighted] { background: var(--color-surface-emphasis); }
+.unified-service-filter-popup [data-slot="combobox-item-indicator"] { display: flex; flex-shrink: 0; color: var(--color-brand-strong); }
 .unified-filter-options { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .unified-filter-options label { display: grid; flex: 0 1 160px; gap: 5px; font-size: 12px; color: var(--color-text-secondary); }
 .unified-filter-summary { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-muted); }
@@ -148,7 +184,9 @@
   .unified-connection-fields { grid-template-columns: 1fr; }
   .unified-connection-editor,.unified-inspector { padding: 16px; }
   .unified-tools .unified-search { flex-basis: 100%; }
-  .unified-tools > select { max-width: none; }
+  .unified-model-manager .unified-tools > .unified-service-filter { max-width: none; font-size: 16px; }
+  .unified-service-filter-popup [data-slot="combobox-input"] { min-height: 44px; font-size: 16px; }
+  .unified-service-filter-popup [data-slot="combobox-item"] { box-sizing: border-box; min-height: 44px; }
 
   .unified-onboarding { padding: 24px 20px; }
   .unified-default-summary { gap: 8px; }

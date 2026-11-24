@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ChevronDown, Eye, Image, MessageCircle, Plus, RefreshCw, Search, Server, SlidersHorizontal, Video } from "lucide-react";
 import type { createApiClient } from "../../api/client";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger, ComboboxValue } from "../../components/ui/combobox";
 import type { ModelCatalog, ModelCatalogEntry, ModelConnection, ModelProfile } from "../../types";
 import { useComposerModelDiscovery } from "../chat/useComposerModelDiscovery";
 import { inferredOutputTypes, type ModelCategory } from "../chat/model-categories";
@@ -32,6 +33,8 @@ const categories = [{ id: "all", label: "全部" }, { id: "chat", label: "文本
 const modelKey = (row: Row) => JSON.stringify([row.connection.id, row.name]);
 const modelDisplayName = (row: Row) => row.entry?.display_name || row.name;
 const normalizedAddress = (value: string) => value.trim().replace(/\/+$/, "");
+type ModelServiceOption = { id: string | null; label: string };
+const allServices: ModelServiceOption = { id: null, label: "全部服务" };
 
 export function UnifiedModelManager({ catalog, loading, busy, error, secretWritable, fetchJson, onReload, onMutate, onEnsureProfile, onApplied, advanced }: UnifiedModelManagerProps) {
   const owner = useMemo(() => ({ active: true }), [fetchJson]);
@@ -133,6 +136,10 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
     changeTab("services", () => setEditor({ owner }));
   }
   const selectedService = catalog.connections.find(item => item.id === serviceId);
+  const serviceOptions = useMemo(() => [allServices, ...catalog.connections.map(connection => ({
+    id: connection.id, label: connection.name || connection.model_base_url
+  }))], [catalog.connections]);
+  const selectedServiceOption = serviceOptions.find(option => option.id === serviceId) ?? allServices;
   const inspectedProfile = inspector?.owner === owner ? catalog.profiles.find(item => item.id === inspector.id) ?? (inspector.preview ? { id: inspector.id, connection_id: inspector.preview.connection.id, model_name: inspector.preview.name, enabled: false, revision: 0, output_types: inspector.preview.types } : undefined) : undefined;
   const discoveryBusy = discovery.catalogs.some(item => item.busy && (!serviceId || item.connection_id === serviceId));
   function protectInspector(action: () => void) {
@@ -334,10 +341,18 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
         </div>
         <div className="unified-tools">
           <label className="unified-search"><Search size={15} aria-hidden="true" /><input aria-label="搜索模型" placeholder="搜索模型" value={query} onChange={event => setQuery(event.target.value)} /></label>
-          <select aria-label="按服务筛选" value={serviceId ?? ""} onChange={event => setServiceId(event.target.value || null)}>
-            <option value="">全部服务</option>
-            {catalog.connections.map(connection => <option key={connection.id} value={connection.id}>{connection.name || connection.model_base_url}</option>)}
-          </select>
+          <Combobox items={serviceOptions} value={selectedServiceOption} onValueChange={(option) => setServiceId(option?.id ?? null)} itemToStringLabel={(option) => option.label}>
+            <ComboboxTrigger className="unified-service-filter" aria-label="按服务筛选">
+              <span className="unified-service-filter-label"><ComboboxValue /></span>
+            </ComboboxTrigger>
+            <ComboboxContent className="unified-service-filter-popup" aria-label="按服务筛选">
+              <ComboboxInput aria-label="搜索服务" placeholder="搜索服务" />
+              <ComboboxEmpty>没有匹配的服务</ComboboxEmpty>
+              <ComboboxList>
+                {(option: ModelServiceOption) => <ComboboxItem key={option.id} value={option}><span>{option.label}</span></ComboboxItem>}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
           <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>筛选<ChevronDown size={14} aria-hidden="true" /></button>
         </div>
         {filtersOpen && <div className="unified-filter-options">

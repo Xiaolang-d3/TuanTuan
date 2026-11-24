@@ -90,7 +90,20 @@ for (const { width, theme } of [
     await expect(toolbar.getByRole("button", { name: "加入主题集合" })).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "移动", exact: true })).toBeVisible();
     await assertNoOverflow();
-    if (width === 375) await page.screenshot({ path: resolve(evidenceDir, "selection-mobile.png"), fullPage: true });
+    if (width === 375) {
+      await page.screenshot({ path: resolve(evidenceDir, "selection-mobile.png"), fullPage: true });
+      const joinCollection = toolbar.getByRole("button", { name: "加入主题集合" });
+      await joinCollection.click();
+      const dialog = page.getByRole("dialog", { name: "加入主题集合" });
+      await expect(dialog).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole("combobox", { name: "目标主题集合" })).toHaveValue("10");
+      await expect(page.getByRole("table", { name: "文件列表" })).toHaveCount(0);
+      await page.screenshot({ path: resolve(evidenceDir, "shadcn-library-dialog-mobile.png"), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(joinCollection).toBeFocused();
+      await expect(toolbar).toContainText("已选 2 个文件");
+    }
 
     await toolbar.getByRole("button", { name: "取消选择" }).click();
     await page.getByRole("button", { name: "文件库更多选项" }).click();

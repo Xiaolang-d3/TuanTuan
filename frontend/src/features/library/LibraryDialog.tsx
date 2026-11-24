@@ -1,50 +1,43 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { X } from "lucide-react";
+import { AlertDialog, Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/Dialog";
 
-export function LibraryDialog({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
-  const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement;
-    ref.current?.querySelector<HTMLElement>("input,textarea,select,button")?.focus();
-    return () => previous?.focus?.();
-  }, []);
+export { DialogDescription as LibraryDialogDescription };
+
+type LibraryDialogProps = {
+  title: string;
+  children: ReactNode;
+  close: () => void;
+  busy?: boolean;
+  alert?: boolean;
+  container?: RefObject<HTMLElement | null>;
+};
+
+export function LibraryDialog({ title, children, close, busy = false, alert = false, container }: LibraryDialogProps) {
+  const Root = alert ? AlertDialog : Dialog;
   return (
-    <div className="fl-dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section
-        ref={ref}
+    <Root
+      open
+      onOpenChange={(open, event) => {
+        if (open) return;
+        if (busy) event.cancel();
+        else close();
+      }}
+    >
+      <DialogContent
         className="fl-dialog"
-        role="dialog"
+        backdropClassName="fl-dialog-backdrop"
+        container={container}
         aria-modal="true"
-        aria-label={title}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            close();
-          }
-          if (event.key !== "Tab") return;
-          const fields = [...ref.current!.querySelectorAll<HTMLElement>("button,input,textarea,select")].filter(
-            (field) => !(field as HTMLButtonElement).disabled
-          );
-          const first = fields[0],
-            last = fields.at(-1);
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last?.focus();
-          }
-          if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first?.focus();
-          }
-        }}
       >
         <header>
-          <h2>{title}</h2>
-          <button type="button" aria-label="关闭弹窗" onClick={close}>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogClose type="button" aria-label="关闭弹窗" disabled={busy}>
             <X size={20} />
-          </button>
+          </DialogClose>
         </header>
         {children}
-      </section>
-    </div>
+      </DialogContent>
+    </Root>
   );
 }

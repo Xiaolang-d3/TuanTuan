@@ -592,7 +592,9 @@ describe("App model settings", () => {
     await screen.findByRole("heading", { name: "模型管理" });
     expect(screen.getByRole("button", { name: "添加服务" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
-    expect(within(screen.getByRole("combobox", { name: "按服务筛选" })).getByRole("option", { name: "历史图片连接" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "按服务筛选" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: "历史图片连接" })).toBeVisible());
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "搜索服务" }), { key: "Escape" });
     expect(screen.queryByRole("button", { name: "使用规则" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "场景默认模型" }));
     fireEvent.click(screen.getByRole("button", { name: "更换文本对话模型" }));

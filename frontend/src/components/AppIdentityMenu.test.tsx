@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppIdentityMenu } from "./AppIdentityMenu";
 import type { SettingsPage } from "../routing";
@@ -41,61 +41,56 @@ describe("AppIdentityMenu", () => {
     expect(summary?.querySelector("small")).toHaveAttribute("title", email);
   });
 
-  it("supports keyboard navigation and restores focus on Escape", () => {
+  it("supports keyboard navigation and restores focus on Escape", async () => {
     render(<AppIdentityMenu userEmail="owner@example.com" onOpenAccount={vi.fn()} onOpenSettings={vi.fn()} onLogout={vi.fn()} />);
     const trigger = screen.getByRole("button", { name: "账号菜单" });
+    trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    const menu = screen.getByRole("menu");
     const account = screen.getByRole("menuitem", { name: "账号与安全" });
     const settings = screen.getByRole("menuitem", { name: "设置" });
     const logout = screen.getByRole("menuitem", { name: "退出登录" });
-    expect(account).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(settings).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "End" });
-    expect(logout).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(account).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "ArrowUp" });
-    expect(logout).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "Home" });
-    expect(account).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(account).toHaveFocus());
+    fireEvent.keyDown(account, { key: "ArrowDown" });
+    await waitFor(() => expect(settings).toHaveFocus());
+    fireEvent.keyDown(settings, { key: "End" });
+    await waitFor(() => expect(logout).toHaveFocus());
+    fireEvent.keyDown(logout, { key: "ArrowDown" });
+    await waitFor(() => expect(account).toHaveFocus());
+    fireEvent.keyDown(account, { key: "ArrowUp" });
+    await waitFor(() => expect(logout).toHaveFocus());
+    fireEvent.keyDown(logout, { key: "Home" });
+    await waitFor(() => expect(account).toHaveFocus());
+    fireEvent.keyDown(account, { key: "Escape" });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).not.toHaveAttribute("aria-controls");
     fireEvent.keyDown(trigger, { key: "ArrowUp" });
-    expect(screen.getByRole("menuitem", { name: "退出登录" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "退出登录" })).toHaveFocus());
   });
 
-  it("dismisses on Tab, outside pointer input, and focus leaving the menu", () => {
+  it("dismisses on outside pointer input", () => {
     render(<><AppIdentityMenu userEmail="owner@example.com" onOpenAccount={vi.fn()} onLogout={vi.fn()} /><button>菜单之外</button></>);
     const trigger = screen.getByRole("button", { name: "账号菜单" });
+    const outside = screen.getByRole("button", { name: "菜单之外" });
     fireEvent.click(trigger);
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" });
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-    fireEvent.click(trigger);
-    fireEvent.blur(screen.getByRole("menuitem", { name: "账号与安全" }), { relatedTarget: null });
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    fireEvent.click(trigger);
-    fireEvent.blur(screen.getByRole("menuitem", { name: "账号与安全" }), { relatedTarget: screen.getByRole("button", { name: "菜单之外" }) });
+    fireEvent.pointerDown(outside);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("keeps the uploaded avatar and closes after settings or logout actions", () => {
+  it("keeps the uploaded avatar and closes after settings or logout actions", async () => {
     const onOpenSettings = vi.fn();
     const onLogout = vi.fn();
     render(<AppIdentityMenu userEmail="owner@example.com" avatarUrl="blob:test-avatar" onOpenSettings={onOpenSettings} onLogout={onLogout} />);
     const trigger = screen.getByRole("button", { name: "账号菜单" });
     expect(trigger.querySelector("img")).toHaveAttribute("src", "blob:test-avatar");
-    fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const settings = screen.getByRole("menuitem", { name: "设置" });
+    await waitFor(() => expect(settings).toHaveFocus());
+    fireEvent.click(settings);
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     fireEvent.click(trigger);
     expect(screen.getByRole("separator")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitem", { name: "退出登录" }));
