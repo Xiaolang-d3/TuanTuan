@@ -33,18 +33,51 @@ it("downloads the original format and uses the generated resource for archive", 
     expect(this.download).toBe("生成图片.webp");
   });
   render(<AssetOriginalContext.Provider value={load}><ResultActionsContext.Provider value={save}><GeneratedImageActions assets={[original]} messageId={12} /></ResultActionsContext.Provider></AssetOriginalContext.Provider>);
+  fireEvent.click(screen.getByLabelText("保存图片"));
   fireEvent.click(screen.getByRole("button", { name: "下载原图" }));
   await waitFor(() => expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledOnce());
   expect(load).toHaveBeenCalledWith(original, expect.any(AbortSignal));
   expect(URL.createObjectURL).toHaveBeenCalledWith(file);
-  fireEvent.click(screen.getByRole("button", { name: "保存 生成图片.webp 到文件库" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存到文件库" }));
   expect(save).toHaveBeenCalledWith(12, "asset:asset", true);
+});
+
+it("copies the image data to the clipboard", async () => {
+  const file = new Blob(["image"], { type: "image/png" });
+  const load = vi.fn().mockResolvedValue({ file });
+  const write = vi.fn().mockResolvedValue(undefined);
+  class FakeClipboardItem { constructor(public data: Record<string, Promise<Blob>>) {} }
+  vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+  vi.stubGlobal("navigator", { clipboard: { write } });
+  render(<AssetOriginalContext.Provider value={load}><GeneratedImageActions assets={[asset]} messageId={12} /></AssetOriginalContext.Provider>);
+  fireEvent.click(screen.getByRole("button", { name: "复制图片" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已复制图片"));
+  expect(load).toHaveBeenCalledWith(asset);
+  expect(await write.mock.calls[0][0][0].data["image/png"]).toBe(file);
+});
+
+it("closes the save menu on Escape and returns focus to its trigger", () => {
+  render(<AssetOriginalContext.Provider value={vi.fn()}><GeneratedImageActions assets={[asset]} messageId={12} /></AssetOriginalContext.Provider>);
+  const trigger = screen.getByLabelText("保存图片");
+  fireEvent.click(trigger);
+  expect(screen.getByRole("button", { name: "下载原图" })).toBeVisible();
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  expect(trigger.parentElement).not.toHaveAttribute("open");
+  expect(trigger).toHaveFocus();
+});
+
+it("explains when copying an image fails", async () => {
+  vi.stubGlobal("navigator", { clipboard: {} });
+  render(<AssetOriginalContext.Provider value={vi.fn()}><GeneratedImageActions assets={[asset]} messageId={12} /></AssetOriginalContext.Provider>);
+  fireEvent.click(screen.getByRole("button", { name: "复制图片" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("复制图片失败，请检查浏览器权限或下载原图");
 });
 
 it("aborts a pending private download on close without producing a late file", async () => {
   let resolve!: (value: { file: Blob }) => void;
   const load = vi.fn().mockImplementation(() => new Promise(r => { resolve = r; }));
   const view = render(<AssetOriginalContext.Provider value={load}><GeneratedImageActions assets={[asset]} messageId={12} /></AssetOriginalContext.Provider>);
+  fireEvent.click(screen.getByLabelText("保存图片"));
   fireEvent.click(screen.getByRole("button", { name: "下载原图" }));
   const signal = load.mock.calls[0][1] as AbortSignal;
   view.unmount(); resolve({ file: new Blob(["late"]) });
