@@ -308,6 +308,8 @@ test("long conversations keep one scroll viewport without blank space above the 
 
 test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
   const requests: Array<{ threadId: string; webSearch: boolean }> = [];
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  await page.setViewportSize({ width: 512, height: 850 });
   await page.route("**/ag-ui", async route => {
     const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
     requests.push({ threadId, webSearch: forwardedProps.webSearch });
@@ -330,11 +332,15 @@ test("web search consent is explicit and persists only for the selected conversa
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   }
   await expect(toggle).toBeEnabled();
+  await expect(toggle.locator(".composer-tool-label")).toBeHidden();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-off.png") });
   await send("请查看最新资讯", "1", false);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(toggle).toHaveCSS("box-shadow", "none");
+  await expect(toggle.locator("svg")).toHaveCSS("stroke-width", "2.75px");
   await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-on.png") });
   await send("查找公开研究资料", "1", true);
   await send("再核实另一条信息", "1", true);

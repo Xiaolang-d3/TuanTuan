@@ -700,18 +700,19 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                         <line x1="13.5" x2="13.5" y1="5.5" y2="10.5" />
                       </svg> : null}
                     </span>
-                    <span>语音</span>
+                    <span className="composer-tool-label">语音</span>
                   </button>
                   {!quickMode && props.onWebSearchChange ? <button
                     className={`composer-tool composer-web-search-tool${currentWebSearch(props) ? " active" : ""}`}
                     type="button"
+                    aria-label="联网搜索"
                     aria-pressed={currentWebSearch(props)}
                     disabled={!props.currentConversationId || props.webSearchAvailable === false}
                     title={props.webSearchAvailable === false ? "联网搜索服务未启用" : "允许当前对话接下来的回复按需联网搜索"}
                     onClick={() => props.onWebSearchChange?.(!currentWebSearch(props))}
                   >
                     <Globe size={16} aria-hidden="true" />
-                    <span>联网搜索</span>
+                    <span className="composer-tool-label">联网搜索</span>
                   </button> : null}
                   <ChatContextChips context={props.sessionContext} />
                 </div>

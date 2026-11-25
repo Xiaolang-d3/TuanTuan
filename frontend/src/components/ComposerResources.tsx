@@ -24,7 +24,7 @@ export function ComposerResources({ busy, documentsOnly, onUpload, onOpenLibrary
           disabled={busy}
         >
           {busy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
-          <span>添加资料</span>
+          <span className="composer-tool-label">添加资料</span>
           <ChevronDown className="composer-resources-chevron" size={12} aria-hidden="true" />
         </DropdownMenu.Trigger>
         <DropdownMenuContent className="composer-resources-panel" aria-label="资料选项" side="top" sideOffset={8}>

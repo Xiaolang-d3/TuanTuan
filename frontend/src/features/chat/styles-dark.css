@@ -61,7 +61,7 @@
 }
 :root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.web-search-toggle:not(.active), .composer-attachment-tool, .composer-voice-tool):is(:hover:not(:disabled), :focus-visible, .is-open) {
   color: var(--color-brand-strong);
-  background: var(--color-brand-soft);
+  background: var(--composer-tool-highlight, var(--color-brand-soft));
 }
 :root[data-theme="dark"] .chat-workspace .chat-composer .composer-input.composer-input--enhanced .model-pill:disabled {
   opacity: 1;

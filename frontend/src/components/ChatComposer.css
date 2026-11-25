@@ -38,7 +38,7 @@
 .chat-workspace .composer-input.composer-input--enhanced .send-button:disabled { opacity: .45; box-shadow: none; cursor: not-allowed; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; padding: 0 8px; border-radius: 8px; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool:hover,
-.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool.active { color: var(--color-brand-strong); background: var(--color-brand-soft); }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool.active { color: var(--color-brand-strong); background: var(--composer-tool-highlight, var(--color-brand-soft)); }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool { white-space: nowrap; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool:disabled { opacity: .5; cursor: not-allowed; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .composer-voice-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: none; color: inherit; }
@@ -52,10 +52,10 @@
   padding-inline: 9px;
   border-radius: 10px;
   color: var(--color-text);
-  background: var(--color-surface-subtle);
+  background: var(--composer-tool-background, var(--color-surface-subtle));
   white-space: nowrap;
 }
-.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:is(:hover, [data-popup-open]):not(:disabled) { color: var(--color-brand-strong); background: var(--color-brand-soft); }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:is(:hover, [data-popup-open]):not(:disabled) { color: var(--color-brand-strong); background: var(--composer-tool-highlight, var(--color-brand-soft)); }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:disabled { opacity: .5; cursor: not-allowed; }
 .chat-workspace .composer-attachment-tool > .composer-resources-chevron { width: 12px; height: 12px; }
 .composer-attachment-tool[data-popup-open] .composer-resources-chevron { transform: rotate(180deg); }
@@ -216,7 +216,6 @@
   padding-top: 6px;
 }
 @media (max-width: 600px) {
-  .assistant-page .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row { align-items: flex-end; }
   .assistant-page .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts { flex: 1 1 0; }
 }
 
@@ -249,23 +248,37 @@
 .assistant-page .chat-workspace.is-page.is-empty .send-button > svg { width: 18px; height: 18px; }
 .assistant-page .chat-workspace .composer-footer .composer-input-hint { position: static; inset: auto; padding: 0; }
 @media (max-width: 600px) {
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 148px !important; padding: 10px !important; }
+  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 116px !important; padding: 10px !important; }
   .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced textarea { min-height: 44px !important; font-size: 16px !important; }
-  .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .chat-workspace .composer-primary-actions { justify-content: space-between; }
-  .chat-workspace .composer-input.composer-input--enhanced .model-pill { max-width: min(220px, calc(100vw - 128px)); }
-  .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts { gap: 4px; }
-}
-@media (min-width: 360px) and (max-width: 600px) {
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 116px !important; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-bottom-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-shortcuts { gap: 2px; }
-  .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool { width: 40px; padding: 0; }
-  .chat-workspace .composer-attachment-tool > :is(span, .composer-resources-chevron) { display: none; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions { gap: 6px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-picker { max-width: 128px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-pill { min-width: 0; max-width: 128px; padding-inline: 6px; font-size: 12px; gap: 6px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-bottom-row:has(.composer-web-search.is-active) { grid-template-columns: minmax(0, 1fr); }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts {
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+  .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.composer-attachment-tool, .composer-voice-tool, .composer-web-search-tool) {
+    --composer-tool-background: transparent;
+    --composer-tool-highlight: transparent;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    box-shadow: none;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-tool > :is(.composer-tool-label, .composer-resources-chevron) { display: none; }
+  .chat-workspace .composer-web-search-tool.active > svg { stroke-width: 2.75; }
+  .chat-workspace .composer-primary-actions,
+  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions {
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .model-pill,
+  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-pill {
+    max-width: 100%;
+    padding-inline: 4px;
+    font-size: 12px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .assistant-page .chat-workspace.is-page.is-empty .send-button { transition: none; }
