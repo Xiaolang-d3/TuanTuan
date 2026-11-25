@@ -62,7 +62,7 @@ export function AppSidebar({
 
   const primaryItems: SidebarItem[] = [
     { key: "dashboard", label: "新建创作", mobileLabel: "创作", icon: <Plus size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
-    { key: "history", label: "创作记录", mobileLabel: "记录", icon: <History size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("history") },
+    { key: "history", label: "创作记录", mobileLabel: "记录", icon: <History size={18} />, active: isActive("history") || (isActive("chat") && !weixinActive), onClick: () => onSelectNav("history") },
     { key: "works", label: "我的作品", mobileLabel: "作品", icon: <GalleryThumbnails size={18} />, active: isActive("works"), onClick: () => onSelectNav("works") },
     { key: "library", label: "知识库", icon: <LibraryBig size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") },
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }

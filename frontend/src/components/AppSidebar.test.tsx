@@ -135,12 +135,14 @@ describe("AppSidebar", () => {
     expect(props.onSelectNav).toHaveBeenCalledTimes(5);
   });
 
-  it("prefetches the existing chat and settings modules on hover", () => {
+  it("prefetches library and settings without loading chat for creation records", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     fireEvent.mouseEnter(navigation.getByRole("button", { name: "创作记录" }));
+    fireEvent.mouseEnter(navigation.getByRole("button", { name: "知识库" }));
     fireEvent.mouseEnter(navigation.getByRole("button", { name: "设置" }));
-    expect(props.onPrefetchPage).toHaveBeenCalledWith("chat");
+    expect(props.onPrefetchPage).not.toHaveBeenCalledWith("chat");
+    expect(props.onPrefetchPage).toHaveBeenCalledWith("library");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("settings");
   });
 

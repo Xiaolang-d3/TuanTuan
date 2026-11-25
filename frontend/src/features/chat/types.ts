@@ -214,7 +214,6 @@ export type ChatWorkspaceProps = ResultServices & {
   composerDraft?: ChatComposerDraft | null;
   composerDrafts?: Map<number, string>;
   onComposerDraftConsumed?: () => void;
-  historyOpenRequest?: number;
   conversations: Conversation[];
   conversationBusy: boolean;
   waitingForUser: boolean;
