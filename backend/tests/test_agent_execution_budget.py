@@ -21,10 +21,6 @@ ANSWER = f"已整理有证据支持的项目。[来源]({URL})"
 def evidence_review():
     return ModelResponse(content='{"verified":true,"patches":[]}')
 
-def is_evidence_review(request):
-    return request.messages[0].content.startswith("本轮核对正文结论")
-
-
 class SearchTool(CountingTool):
     def __init__(self, *, fresh=False):
         super().__init__("search_public_web")
@@ -65,10 +61,10 @@ def run(model, tool, **options):
 
 def test_one_large_batch_cannot_exceed_search_budget_and_every_call_is_answered():
     tool = SearchTool(fresh=True)
-    model = ScriptedModel([calls(10), ModelResponse(content=f"项目资料。[来源]({URL}/1)"), evidence_review()])
+    model = ScriptedModel([calls(10), ModelResponse(content="项目资料。[[web:W1]]")])
     result, ctx = run(model, tool, limits=ExecutionLimits(max_web_search_calls=3))
     assert result.status == "done" and tool.calls == 3
-    request = model.requests[-2]
+    request = model.requests[-1]
     assert request.tools == [] and request.tool_choice == "none"
     responses = [message for message in request.messages if message.role == "tool"]
     assert [message.tool_call_id for message in responses] == [f"c{i}" for i in range(10)]
@@ -87,7 +83,7 @@ def test_non_web_tools_share_the_total_call_budget():
 
 def test_different_queries_with_no_new_evidence_stop_after_two_stale_results():
     tool = SearchTool()
-    model = ScriptedModel([calls(8), ModelResponse(content=ANSWER), evidence_review()])
+    model = ScriptedModel([calls(8), ModelResponse(content=ANSWER)])
     result, ctx = run(model, tool)
     assert result.status == "done" and tool.calls == 3
     assert ctx.budget.state.finalization_reason == "web_search_no_progress"
@@ -96,7 +92,7 @@ def test_different_queries_with_no_new_evidence_stop_after_two_stale_results():
 def test_normalized_repeated_queries_reuse_results_and_do_not_spend_more_calls():
     duplicate = ModelResponse(tool_calls=[ToolCall(id=f"c{i}", name="search_public_web", arguments={"query": query, "count": count})
         for i, (query, count) in enumerate([("Claude Skills", 6), ("  claude   skills ", 8), ("CLAUDE SKILLS", 10)])])
-    tool = SearchTool(); model = ScriptedModel([duplicate, ModelResponse(content=ANSWER), evidence_review()])
+    tool = SearchTool(); model = ScriptedModel([duplicate, ModelResponse(content=ANSWER)])
     result, ctx = run(model, tool)
     assert result.status == "done" and tool.calls == 1
     guards = [event for event in result.events if event.tool_name == "agent_loop_guard"]
@@ -108,7 +104,9 @@ def test_normalized_repeated_queries_reuse_results_and_do_not_spend_more_calls()
 def test_last_tool_round_has_a_separate_final_answer_and_citation_repair_slot():
     patch = {"verified": True, "patches": [{"action": "cite_after", "target": "已核对项目。", "source_id": "C1", "quote": QUOTE}]}
     tool = SearchTool(); model = ScriptedModel([calls(1), ModelResponse(content="已核对项目。"), ModelResponse(content=json.dumps(patch, ensure_ascii=False))])
-    result, _ = run(model, tool, max_rounds=1)
+    runtime, ctx = setup(model, tool, max_rounds=1)
+    ctx.verify_web_claims = True
+    result = asyncio.run(runtime._run_tool_loop(ctx, start_round=1))
     assert result.status == "done" and result.rounds == 3 and tool.calls == 1
     assert URL in result.content
     assert all(request.tools == [] and request.tool_choice == "none" for request in model.requests[1:])
@@ -137,7 +135,7 @@ def test_budget_survives_checkpoint_serialization_and_resume_without_new_searche
     ctx.messages.append(AgentMessage(role="tool", tool_call_id="old", payload={"tool_name": "search_public_web", "status": "done", "sources": [{"url": URL, "content": QUOTE}]}))
     snapshot = runtime._build_snapshot(ctx, rounds_used=1)
     restored = AgentRunSnapshot.model_validate_json(snapshot.model_dump_json())
-    final_model = ScriptedModel([ModelResponse(content=ANSWER), evidence_review()])
+    final_model = ScriptedModel([ModelResponse(content=ANSWER)])
     final_runtime, _ = setup(final_model, tool, limits=ExecutionLimits(max_web_search_calls=1))
     result = asyncio.run(final_runtime.run("查找适合的项目", resume=restored, web_search_options=WebSearchOptions(enabled=True)))
     assert result.status == "done" and tool.calls == 0
@@ -192,15 +190,14 @@ def test_continuing_research_stops_at_six_searches_with_new_evidence_each_time()
     class ResearchModel(ScriptedModel):
         async def generate(self, request):
             self.requests.append(request)
-            if is_evidence_review(request):
-                return evidence_review()
             if request.tool_choice == "none":
-                return ModelResponse(content=f"已整理可确认的项目，日期未核实。[来源]({URL}/1)")
+                return ModelResponse(content="已整理可确认的项目，日期未核实。[[web:W1]]")
             offset = 3 * (len(self.requests) - 1)
             return ModelResponse(tool_calls=[ToolCall(id=f"c{offset + i}", name="search_public_web", arguments={"query": f"补查项目 {offset + i}"}) for i in range(3)])
     model = ResearchModel([]); tool = SearchTool(fresh=True)
     result, ctx = run(model, tool)
-    assert result.status == "done" and tool.calls == 6 and len(model.requests) == 4
+    assert result.status == "done" and tool.calls == 6 and len(model.requests) == 3
+    assert f"{URL}/1" in result.content
     assert ctx.budget.state.finalization_reason == "web_search_budget"
 
 
@@ -211,7 +208,7 @@ def test_time_budget_stops_new_calls_but_still_allows_final_synthesis(monkeypatc
         async def execute(self, arguments, context):
             now[0] += 6
             return await super().execute(arguments, context)
-    model = ScriptedModel([calls(3), ModelResponse(content=ANSWER), evidence_review()]); tool = SlowSearch()
+    model = ScriptedModel([calls(3), ModelResponse(content=ANSWER)]); tool = SlowSearch()
     result, ctx = run(model, tool, limits=ExecutionLimits(max_active_seconds=5))
     assert result.status == "done" and tool.calls == 1
     assert ctx.budget.state.finalization_reason == "execution_time_budget"
@@ -222,8 +219,6 @@ def test_expired_model_request_is_cancelled_before_reserved_synthesis():
         cancelled = False
         async def generate(self, request):
             self.requests.append(request)
-            if is_evidence_review(request):
-                return evidence_review()
             if request.tool_choice == "none":
                 return ModelResponse(content=ANSWER)
             if len(self.requests) == 1:
@@ -281,6 +276,7 @@ def test_budget_summary_draft_correction_still_gets_an_evidence_review_slot():
     tool = SearchTool()
     runtime, ctx = setup(model, tool, max_rounds=1)
     ctx.expects_draft = True
+    ctx.verify_web_claims = True
     result = asyncio.run(runtime._run_tool_loop(ctx, start_round=1))
     assert result.status == "done" and result.content == ANSWER
     assert result.rounds == 4 and tool.calls == 1

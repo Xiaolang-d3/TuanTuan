@@ -174,6 +174,7 @@ class AgentRunSnapshot(BaseModel):
     citation_draft: str = ""
     citation_sources: list[dict[str, Any]] = Field(default_factory=list)
     citation_allowed_urls: list[str] = Field(default_factory=list)
+    verify_web_claims: bool = False
     expects_draft: bool = False
     delivery_retry_used: bool = False
     degraded_tools: dict[str, ToolError] = Field(default_factory=dict)
