@@ -64,7 +64,6 @@
   outline: 2px solid var(--fl-brand);
   outline-offset: 2px;
 }
-.fl-filter-disclosure { position: relative; min-width: 0; }
 .fl-collection-scope { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .fl-collection-scope summary { list-style: none; cursor: pointer; }
 .fl-collection-scope summary::-webkit-details-marker { display: none; }
@@ -113,10 +112,6 @@
 .file-library .fl-selection-actions .fl-menu .fl-button:hover { background: var(--fl-soft); }
 .file-library .fl-selection-actions .fl-button span { display: inline; }
 .fl-filters {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 26;
   display: flex;
   flex-direction: column;
   gap: 12px;

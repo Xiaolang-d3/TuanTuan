@@ -92,7 +92,7 @@ test.beforeEach(async ({ page }) => {
   await mockCurrentProduct(page);
 });
 
-for (const theme of ["light", "dark"] as const) {
+for (const theme of ["light", "dark", "blue"] as const) {
   test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
     await page.setViewportSize({ width: 874, height: 770 });
@@ -112,7 +112,7 @@ for (const theme of ["light", "dark"] as const) {
         const toggle = page.getByRole("button", { name: collapsed ? "展开侧边栏" : "收起侧边栏", exact: true });
         await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
         await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(collapsed ? 72 : 232);
-        const themeShortcut = sidebar.getByRole("button", { name: /切换到[浅深]色主题/ });
+        const themeShortcut = sidebar.getByRole("button", { name: /点击切换到/ });
         await expect(themeShortcut).toBeInViewport();
         const [sideBox, identityBox, accountBox, themeBox, toggleBox, brandBox] = await Promise.all([
           sidebar.boundingBox(), sidebar.locator(".sidebar-identity-slot").boundingBox(),
@@ -244,7 +244,8 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
   }
 });
 
-test("long conversations keep one scroll viewport without blank space above the composer", async ({ page }) => {
+test("long conversations keep one scroll viewport without blank space above the composer", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
   const source = { title: "参考资料", url: "https://example.com/reference", domain: "example.com" };
   const messages = Array.from({ length: 6 }, (_, index) => [
     { id: index * 2 + 1, role: "user", content: `问题 ${index + 1}`, created_at: conversation.updated_at },
@@ -257,7 +258,28 @@ test("long conversations keep one scroll viewport without blank space above the 
       } }
     }
   ]).flat();
-  await page.route("**/chat/messages?*", route => route.fulfill({ json: messages }));
+  let currentMessages = messages;
+  await page.route("**/chat/messages?*", route => route.fulfill({ json: currentMessages }));
+  await page.route("**/chat/messages/11/tail?*", route => {
+    currentMessages = messages.slice(0, -2);
+    return route.fulfill({ json: { messages: messages.slice(-2) } });
+  });
+  await page.route("**/chat/messages/restore", route => {
+    currentMessages = messages;
+    return route.fulfill({ json: {} });
+  });
+  await page.route("**/ag-ui", route => {
+    const { threadId, runId } = route.request().postDataJSON();
+    const [userMessage, originalAnswer] = messages.slice(-2);
+    const assistantMessage = { ...originalAnswer, content: `重新生成的回答。\n\n${originalAnswer.content}` };
+    currentMessages = [...currentMessages, userMessage, assistantMessage];
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
   await page.setViewportSize({ width: 1088, height: 770 });
   await page.goto("/#/chat/1");
   await expect(page.locator(".message.assistant")).toHaveCount(6);
@@ -296,6 +318,30 @@ test("long conversations keep one scroll viewport without blank space above the 
   for (const width of [777, 390, 1088]) {
     await page.setViewportSize({ width, height: 770 });
     await viewport.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    const jump = page.getByRole("button", { name: /回到最新/ });
+    await expect(jump).toBeHidden();
+    const [viewportBefore, composerBefore] = await Promise.all([viewport.boundingBox(), composer.boundingBox()]);
+    const scrollHeight = await viewport.evaluate(el => el.scrollHeight);
+    await viewport.evaluate(el => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event("scroll"));
+    });
+    await expect(jump).toBeVisible();
+    await assertSingleViewport();
+    const [viewportAfter, composerAfter, jumpBox] = await Promise.all([viewport.boundingBox(), composer.boundingBox(), jump.boundingBox()]);
+    expect(viewportAfter!.height).toBeCloseTo(viewportBefore!.height, 0);
+    expect(composerAfter!.y).toBeCloseTo(composerBefore!.y, 0);
+    expect(await viewport.evaluate(el => el.scrollHeight)).toBe(scrollHeight);
+    expect(jumpBox!.y + jumpBox!.height).toBeLessThan(composerAfter!.y);
+    expect(jumpBox!.y + jumpBox!.height).toBeGreaterThan(composerAfter!.y - 24);
+    const overlayBox = await page.locator(".chat-main > .chat-thread-overlay").boundingBox();
+    expect(overlayBox!.width).toBeCloseTo(jumpBox!.width, 0);
+    await expect.poll(() => viewport.evaluate((el, y) => {
+      const hit = document.elementFromPoint(el.getBoundingClientRect().left + 24, y);
+      return el.contains(hit);
+    }, jumpBox!.y + jumpBox!.height / 2)).toBe(true);
+    await jump.click();
+    await expect(jump).toBeHidden();
     await assertSingleViewport();
     const [viewportBox, lastMessageBox] = await Promise.all([
       viewport.boundingBox(), page.locator(".message.assistant").last().boundingBox()
@@ -304,10 +350,33 @@ test("long conversations keep one scroll viewport without blank space above the 
     expect(bottomGap).toBeGreaterThanOrEqual(0);
     expect(bottomGap).toBeLessThanOrEqual(64);
   }
+
+  await page.setViewportSize({ width: 390, height: 640 });
+  const sessionHeader = page.locator(".chat-session-header");
+  expect((await sessionHeader.boundingBox())!.height).toBe(44);
+  expect((await composer.locator(".composer-input").boundingBox())!.height).toBeLessThanOrEqual(110);
+  const regenerate = viewport.getByRole("button", { name: "重新生成回答", exact: true }).last();
+  await regenerate.focus();
+  await regenerate.press("Enter");
+  const undo = page.getByRole("status", { name: "撤销替换" });
+  await expect(undo).toContainText("生成的图片无法恢复");
+  expect((await undo.boundingBox())!.height).toBeLessThanOrEqual(56);
+  expect((await viewport.boundingBox())!.height).toBeGreaterThan(300);
+  const latest = page.getByRole("button", { name: /回到最新/ });
+  await viewport.evaluate(el => { el.scrollTop = 0; });
+  await expect(latest).toBeVisible();
+  await expect(latest.locator(".chat-jump-latest-label")).toBeHidden();
+  expect((await latest.boundingBox())!.width).toBe(44);
+  await page.screenshot({ path: testInfo.outputPath("mobile-reading-space.png"), animations: "disabled" });
+  await undo.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(undo).toBeHidden();
+  await expect(viewport.getByText("重新生成的回答。", { exact: true })).toBeHidden();
 });
 
 test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
   const requests: Array<{ threadId: string; webSearch: boolean }> = [];
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  await page.setViewportSize({ width: 512, height: 850 });
   await page.route("**/ag-ui", async route => {
     const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
     requests.push({ threadId, webSearch: forwardedProps.webSearch });
@@ -330,11 +399,15 @@ test("web search consent is explicit and persists only for the selected conversa
     await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
   }
   await expect(toggle).toBeEnabled();
+  await expect(toggle.locator(".composer-tool-label")).toBeHidden();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-off.png") });
   await send("请查看最新资讯", "1", false);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(toggle).toHaveCSS("box-shadow", "none");
+  await expect(toggle.locator("svg")).toHaveCSS("stroke-width", "2.75px");
   await page.locator(".chat-composer").screenshot({ path: testInfo.outputPath("web-search-on.png") });
   await send("查找公开研究资料", "1", true);
   await send("再核实另一条信息", "1", true);
@@ -406,6 +479,77 @@ test("AI workspace keeps one reading axis and switches history rail by breakpoin
   }
 });
 
+test("keyboard leaves the account menu and returns focus after closing history dialogs", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 800 });
+  await page.goto("/#/chat/1");
+  const account = page.getByRole("button", { name: "账号菜单" });
+  const accountMenu = page.getByRole("menu", { name: "账号菜单" });
+  await expect(page.getByRole("textbox", { name: "输入消息" })).toBeFocused();
+  await account.press("ArrowDown");
+  await expect(accountMenu.getByRole("menuitem", { name: "账号与安全" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(accountMenu).toBeHidden();
+  await expect(account).toHaveAttribute("aria-expanded", "false");
+
+  await page.getByRole("button", { name: "对话记录", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "对话记录" });
+  const trigger = panel.getByRole("button", { name: "资料研究 的更多操作" });
+  const menu = panel.getByRole("menu", { name: "资料研究 的操作" });
+  await trigger.press("ArrowDown");
+  const rename = menu.getByRole("menuitem", { name: "重命名" });
+  await expect(rename).toBeFocused();
+  const [panelBox, menuBox] = await Promise.all([panel.boundingBox(), menu.boundingBox()]);
+  expect(menuBox!.x).toBeGreaterThanOrEqual(panelBox!.x);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.press("ArrowDown");
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "重命名对话" });
+  const title = dialog.getByRole("textbox", { name: "对话名称" });
+  await expect(title).toBeFocused();
+  await expect(title).toHaveValue("资料研究");
+  const evidenceDir = process.env.CI ? resolve("..", "..", "output", "playwright") : resolve("..", "tmp", "playwright");
+  await mkdir(evidenceDir, { recursive: true });
+  await page.screenshot({ path: resolve(evidenceDir, "shadcn-history-rename.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(panel).toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await menu.getByRole("menuitem", { name: "删除" }).click();
+  const alert = page.getByRole("alertdialog", { name: "删除对话" });
+  const cancel = alert.getByRole("button", { name: "取消" });
+  await expect(cancel).toBeFocused();
+  await cancel.click();
+  await expect(alert).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("scrolling a conversation out of the history list closes its menu", async ({ page }) => {
+  await page.route("http://127.0.0.1:4173/conversations", (route) => route.fulfill({
+    json: [conversation, ...Array.from({ length: 30 }, (_, index) => ({
+      ...conversation, id: index + 2, title: `历史对话 ${index + 2}`
+    }))]
+  }));
+  await page.setViewportSize({ width: 960, height: 600 });
+  await page.goto("/#/chat/1");
+  await page.getByRole("button", { name: "对话记录", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "对话记录" });
+  const trigger = panel.getByRole("button", { name: "资料研究 的更多操作" });
+  const list = panel.locator(".conversation-history-list");
+  await trigger.click();
+  await expect(panel.getByRole("menu")).toBeVisible();
+  await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(panel.getByRole("menu")).toBeHidden();
+});
+
 test("retired career routes are not recognized and open home", async ({ page }) => {
   for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/projects", "/#/knowledge"]) {
     await page.goto(legacyRoute);
@@ -421,7 +565,11 @@ test("home and library use current sources and stay usable on narrow screens", a
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/#/dashboard");
     await expect(page.getByRole("heading", { name: /测试用户/ })).toBeVisible();
+    const aiTab = page.getByRole("tab", { name: /AI 动态/ });
+    await aiTab.click();
     await expect(page.getByRole("heading", { name: "模型动态", exact: true })).toBeVisible();
+    await aiTab.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "技术热榜" })).toBeFocused();
     await expect(page.getByRole("heading", { name: "GitHub 热榜", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.goto("/#/library");

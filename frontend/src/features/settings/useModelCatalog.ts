@@ -5,7 +5,7 @@ import type { ModelCatalog } from "../../types";
 type Client = ReturnType<typeof createApiClient>;
 function publicCatalog(catalog: ModelCatalog): ModelCatalog {
   return {
-    connections: catalog.connections.map(({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, credential_status, enabled, revision }) => ({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, api_key_configured, credential_status, enabled, revision })),
+    connections: catalog.connections.map(({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, auth_kind, api_key_configured, credential_status, enabled, revision }) => ({ id, name, model_base_url, model_protocol, detected_protocol, protocol_label, auth_kind, api_key_configured, credential_status, enabled, revision })),
     profiles: catalog.profiles.map(({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes, discovery }) => ({ id, connection_id, model_name, enabled, revision, parameters, capabilities, context_limit, reasoning_effort, output_types, output_types_source, supported_purposes, discovery })),
     default_profile_id: catalog.default_profile_id,
     effective_execution_profile_id: catalog.effective_execution_profile_id,
@@ -38,16 +38,22 @@ export function useModelCatalog({ fetchJson, scope, enabled, refreshKey }: { fet
     for (const controller of owner.controllers) controller.abort();
     owner.controllers.clear();
   }
-  async function reload() {
-    if (!enabled || owner.writing) return;
+  async function reload({ strict = false }: { strict?: boolean } = {}) {
+    if (!enabled || owner.writing) {
+      if (strict) throw new Error("当前无法刷新模型连接");
+      return;
+    }
     const task = request();
     setLoading(true);
     setError("");
     try {
-      const catalog = await fetchJson<ModelCatalog>("/agent/model-connections", { signal: task.signal });
+      const catalog = await fetchJson<ModelCatalog>("/agent/model-connections", { signal: task.signal, ...(strict ? { cache: "no-store" as const } : {}) });
       if (task.current()) setSnapshot({ owner, catalog: publicCatalog(catalog) });
     } catch (reason) {
-      if (task.current()) setError(reason instanceof Error ? reason.message : "读取模型连接失败");
+      if (task.current()) {
+        if (strict) throw reason;
+        setError(reason instanceof Error ? reason.message : "读取模型连接失败");
+      }
     } finally {
       if (task.current()) setLoading(false);
       task.finish();
@@ -100,5 +106,6 @@ export function useModelCatalog({ fetchJson, scope, enabled, refreshKey }: { fet
     return () => { owner.active = false; owner.writing = false; invalidate(); };
   }, [owner, enabled, refreshKey]);
 
-  return { catalog: snapshot?.owner === owner ? snapshot.catalog : emptyCatalog, loading, busy, error, reload, mutate, ensureProfile };
+  const current = snapshot?.owner === owner ? snapshot : null;
+  return { catalog: current?.catalog ?? emptyCatalog, loaded: current !== null, loading, busy, error, reload, mutate, ensureProfile };
 }

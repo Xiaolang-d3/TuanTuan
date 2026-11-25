@@ -40,7 +40,7 @@ import { DocumentReviewPanel } from "../chat/DocumentReviewPanel";
 import type { DocumentReviewService } from "../chat/document-review-service";
 import { AttachmentPreviewDialog } from "../chat/AttachmentPreviewDialog";
 import { LibraryImageThumbnail } from "./LibraryImageThumbnail";
-import { LibraryDialog } from "./LibraryDialog";
+import { LibraryDialog, LibraryDialogDescription } from "./LibraryDialog";
 import { LibraryFilters } from "./LibraryFilters";
 import { LibraryKnowledgePanel } from "./LibraryKnowledgePanel";
 import { LibraryCollections } from "./LibraryCollections";
@@ -213,6 +213,7 @@ export function LibraryPage(props: Props) {
   const lock = useRef(false),
     request = useRef(0),
     input = useRef<HTMLInputElement>(null),
+    libraryRef = useRef<HTMLElement>(null),
     search = useRef(props.onSearchSources);
   search.current = props.onSearchSources;
   const folder = folders.find((item) => item.id === folderId);
@@ -621,6 +622,7 @@ export function LibraryPage(props: Props) {
   );
   return (
     <section
+      ref={libraryRef}
       className={`file-library ${full ? "fl-full" : ""}`}
       onClick={() => setMenu(null)}
       onKeyDown={(event) => {
@@ -747,7 +749,7 @@ export function LibraryPage(props: Props) {
                   <LibraryCollections collections={collections} selectedId={collectionId} busy={working}
                     onSelect={(id) => { setCollectionId(id); setSelected([]); closePreview(); }}
                     onRename={(id) => show("renameCollection", [id])} onDelete={(id) => show("deleteCollection", [id])} />
-                  <LibraryFilters filters={filters} showKnowledge={!mediaLibrary} onChange={(next) => { setFilters(next); setSelected([]); }} />
+                  <LibraryFilters container={libraryRef} filters={filters} showKnowledge={!mediaLibrary} onChange={(next) => { setFilters(next); setSelected([]); }} />
                   <div className="fl-view-controls">
                     <button type="button" className="fl-sort" aria-pressed={ascending} aria-label={ascending ? "按时间从新到旧" : "按时间从旧到新"}
                       title={ascending ? "当前从旧到新，点击切换" : "当前从新到旧，点击切换"} onClick={() => setAscending(!ascending)}>
@@ -998,7 +1000,13 @@ export function LibraryPage(props: Props) {
         onClose={closePreview}
       />}
       {dialog && (
-        <LibraryDialog title={titles[dialog.kind]} close={() => !working && setDialog(null)}>
+        <LibraryDialog
+          title={titles[dialog.kind]}
+          close={() => setDialog(null)}
+          busy={working}
+          alert={dialog.kind === "permanent" || dialog.kind === "deleteCollection"}
+          container={libraryRef}
+        >
           {error && (
             <p className="fl-dialog-error" role="alert">
               {error}
@@ -1060,7 +1068,7 @@ export function LibraryPage(props: Props) {
                 </label>}
                 <p className="fl-settings-hint">加入集合只整理文件，不会开启长期使用，也不会移动原件。</p>
               </>}
-              {dialog.kind === "deleteCollection" && <p>删除“{collections.find((item) => item.id === dialog.ids[0])?.name}”集合？其中的文件和长期使用设置都会保留。</p>}
+              {dialog.kind === "deleteCollection" && <LibraryDialogDescription>删除“{collections.find((item) => item.id === dialog.ids[0])?.name}”集合？其中的文件和长期使用设置都会保留。</LibraryDialogDescription>}
               {dialog.kind === "chat" && <>
                 <p>将 {dialog.ids.length} 个文件带入新对话，填写问题后发送。</p>
                 <ul className="fl-chat-files">{dialog.ids.map((id) => <li key={id}>{sources.find((item) => item.id === id)?.title}</li>)}</ul>
@@ -1094,7 +1102,7 @@ export function LibraryPage(props: Props) {
               {dialog.kind === "trash" && (
                 <p>将 {dialog.ids.length} 个文件移入回收站，可以恢复。回收站文件不再作为资料依据。</p>
               )}
-              {dialog.kind === "permanent" && <p>永久删除 {dialog.ids.length} 个文件及原件？此操作无法恢复。</p>}
+              {dialog.kind === "permanent" && <LibraryDialogDescription>永久删除 {dialog.ids.length} 个文件及原件？此操作无法恢复。</LibraryDialogDescription>}
               <footer>
                 <Button label="取消" disabled={working} action={() => setDialog(null)} />
                 <button

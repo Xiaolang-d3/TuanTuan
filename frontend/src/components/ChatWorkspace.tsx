@@ -21,6 +21,7 @@ import { useVoiceAnswer } from "../hooks/useVoiceAnswer";
 import { VoiceDraftEditor } from "../features/chat/voiceDraft";
 import type { VoiceTranscript } from "../features/chat/voiceInput";
 
+import { ComposerResources } from "./ComposerResources";
 import { ConversationHistoryPanel } from "./ConversationHistoryPanel";
 
 import "./ChatWorkspace.css";
@@ -32,7 +33,7 @@ import { AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, type Thre
 import { flushTapSync } from "@assistant-ui/tap";
 import { useAui, useAuiState } from "@assistant-ui/store";
 
-import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Paperclip, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
 const MAX_ATTACHMENTS = 8;
 
@@ -277,7 +278,6 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const [conversationListOpen, setConversationListOpen] = useState(false);
   const [researchPanelOpen, setResearchPanelOpen] = useState(false);
   const scrolling = useConversationScroll(props.currentConversationId, props.messages, researchPanelOpen);
-  useEffect(() => { if (props.modelSelectionFeedback) scrolling.jumpToLatest(); }, [props.modelSelectionFeedback, scrolling.jumpToLatest]);
   const researchReturn = useRef<{ top: number; element: HTMLElement | null } | null>(null);
   const [researchSelection, setResearchSelection] = useState<{
     agent?: AgentRunResult;
@@ -450,6 +450,14 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
     void selectAttachments(supported);
   }
 
+  const modelFeedback = props.modelSelectionFeedback ? (
+    <div className={`composer-model-feedback ${props.modelSelectionFeedback.kind}`} role={props.modelSelectionFeedback.kind === "error" ? "alert" : "status"}>
+      {props.modelSelectionFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
+      <span>{props.modelSelectionFeedback.text}</span>
+      <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
+    </div>
+  ) : null;
+
   return (
     <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.focused ? "is-focused" : ""} ${hasConversationContent ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
       <ResearchPanelActionsContext.Provider value={{ openDetails: openResearchDetails }}>
@@ -522,18 +530,29 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <div className="message assistant"><div className="message-content"><RunProcess streaming stopping={props.taskCancelBusy} /></div></div>
           ) : null}
 
-          {props.modelSelectionFeedback && <div className={`composer-model-feedback ${props.modelSelectionFeedback.kind}`} role={props.modelSelectionFeedback.kind === "error" ? "alert" : "status"}>
-            {props.modelSelectionFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
-            <span>{props.modelSelectionFeedback.text}</span>
-            <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
-          </div>}
           {presentationService && conversationId ? <PresentationChat service={presentationService} conversationId={conversationId} request={pptSelected && !quickMode ? 1 : 0} hideStoredForm={quickMode} modelScope={modelScope} disabled={Boolean(props.modelSelectionBusy)} submittedJob={submittedJob} onReuseQuick={reuseQuickPpt} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
             {props.documentReviewService && props.currentConversationId ? <DocumentReviewPanel service={props.documentReviewService} conversationId={props.currentConversationId} attachments={[...props.messages.flatMap(message => message.payload?.attachments ?? []), ...props.pendingAttachments]} onContentChange={handleReviewContentChange} /> : null}
           <div ref={props.chatEndRef} />
           </div>
         </ThreadPrimitive.Viewport>
-        {scrolling.away ? <button type="button" className="chat-jump-latest" onClick={scrolling.jumpToLatest}>{scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}<ArrowDown size={14} aria-hidden="true" /></button> : null}
         </div>
+        {scrolling.away || (hasConversationContent && modelFeedback) ? (
+          <div className="chat-thread-overlay">
+            {hasConversationContent ? modelFeedback : null}
+            {scrolling.away ? (
+              <button
+                type="button"
+                className="chat-jump-latest"
+                data-unread={scrolling.unread || undefined}
+                aria-label={scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}
+                onClick={scrolling.jumpToLatest}
+              >
+                <span className="chat-jump-latest-label">{scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}</span>
+                <ArrowDown size={16} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="chat-composer">
           {!hasConversationContent && props.density !== "dock" ? (
@@ -542,6 +561,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               <p>提问、查资料，或描述你想生成的图片。</p>
             </div>
           ) : null}
+          {!hasConversationContent ? modelFeedback : null}
           {clarification && !props.chatBusy ? (
             <ComposerClarification
               clarification={clarification}
@@ -569,8 +589,8 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
           ) : null}
 
           {props.replacementUndo?.conversationId === props.currentConversationId && !props.chatBusy ? (
-            <section className="chat-retry-prompt" role="status" aria-label="撤销替换">
-              <RefreshCw size={14} />
+            <section className="chat-retry-prompt chat-replacement-undo" role="status" aria-label="撤销替换">
+              <RefreshCw size={14} aria-hidden="true" />
               <span>已替换本轮及后续消息。生成的图片无法恢复。</span>
               <button type="button" onClick={() => void props.onUndoReplacement?.()}>撤销</button>
             </section>
@@ -683,10 +703,13 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               />
               <div className="composer-bottom-row">
                 <div className="composer-shortcuts" role="group" aria-label="输入选项">
-                  <button className="composer-tool composer-attachment-tool" type="button" aria-label={props.attachmentBusy ? "附件处理中" : "添加附件"} onClick={() => attachmentInputRef.current?.click()} disabled={props.attachmentBusy} title={props.attachmentBusy ? "正在处理附件" : quickMode ? "添加 Word、文字版 PDF 或文本资料" : "添加图片或文档，也可粘贴图片或拖入文件"}>
-                    {props.attachmentBusy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Paperclip size={16} aria-hidden="true" />}
-                    <span>添加资料</span>
-                  </button>
+                  <ComposerResources
+                    key={conversationId}
+                    busy={props.attachmentBusy}
+                    documentsOnly={quickMode}
+                    onUpload={() => attachmentInputRef.current?.click()}
+                    onOpenLibrary={props.onOpenLibrary}
+                  />
                   <button className={`composer-tool composer-voice-tool${voice.listening ? " is-recording" : ""}`} type="button" aria-pressed={voice.listening} aria-label={voice.listening ? "停止语音输入" : "语音输入"} aria-description={voice.error || undefined} disabled={props.chatBusy} onClick={() => { if (voice.listening) voice.stopListening(); else { voiceDraftRef.current = new VoiceDraftEditor(); void voice.startListening(); } }}>
                     <span className="composer-voice-icon" ref={voiceIconRef} aria-hidden="true">
                       <Mic size={16} />
@@ -696,18 +719,19 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                         <line x1="13.5" x2="13.5" y1="5.5" y2="10.5" />
                       </svg> : null}
                     </span>
-                    <span>语音</span>
+                    <span className="composer-tool-label">语音</span>
                   </button>
                   {!quickMode && props.onWebSearchChange ? <button
                     className={`composer-tool composer-web-search-tool${currentWebSearch(props) ? " active" : ""}`}
                     type="button"
+                    aria-label="联网搜索"
                     aria-pressed={currentWebSearch(props)}
                     disabled={!props.currentConversationId || props.webSearchAvailable === false}
                     title={props.webSearchAvailable === false ? "联网搜索服务未启用" : "允许当前对话接下来的回复按需联网搜索"}
                     onClick={() => props.onWebSearchChange?.(!currentWebSearch(props))}
                   >
                     <Globe size={16} aria-hidden="true" />
-                    <span>联网搜索</span>
+                    <span className="composer-tool-label">联网搜索</span>
                   </button> : null}
                   <ChatContextChips context={props.sessionContext} />
                 </div>

@@ -17,6 +17,7 @@ from app.agent.memory import context, service
 from app.agent.settings import save_agent_settings
 from app.chat.conversations import create_conversation, reset_conversation_context
 from app.db import DB_SCHEMA_VERSION, connect, init_db
+from app.domain import AgentRunResult
 from app.knowledge import reset_embedder
 
 
@@ -34,10 +35,21 @@ def _insert_messages(
 ) -> None:
     with connect(db_path) as conn:
         for role, content in messages:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)",
                 (conversation_id, role, content),
             )
+        if messages[-1][0] != "assistant":
+            cursor = conn.execute(
+                "INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, 'assistant', '收到。')",
+                (conversation_id,),
+            )
+        result = AgentRunResult(content="收到。", provider="test", platform="manual", rounds=1)
+        conn.execute(
+            "INSERT INTO agent_execution_runs (run_id, conversation_id, assistant_message_id, status, stop_reason, result_json) "
+            "VALUES (?, ?, ?, 'completed', 'completed', ?)",
+            (f"test-{cursor.lastrowid}", conversation_id, cursor.lastrowid, result.model_dump_json()),
+        )
 
 
 def test_add_list_update_delete_item() -> None:
@@ -139,10 +151,11 @@ def test_clear_all_memory_preserves_watermark() -> None:
         service.add_memory_item("preference", "用户偏好深夜工作", db_path=path)
         service.add_memory_rule("规则一", db_path=path)
         service.add_memory_rule("规则二", db_path=path)
+        conversation_id = create_conversation(db_path=path)["id"]
         with connect(path) as conn:
             conn.execute(
-                "INSERT INTO memory_state (id, last_extracted_message_id) VALUES (1, 42) "
-                "ON CONFLICT(id) DO UPDATE SET last_extracted_message_id = 42"
+                "INSERT INTO memory_conversation_state (conversation_id, last_extracted_message_id) VALUES (?, 42)",
+                (conversation_id,),
             )
 
         cleared = service.clear_all_memory(path)
@@ -151,7 +164,8 @@ def test_clear_all_memory_preserves_watermark() -> None:
         assert service.list_memory_rules(path) == []
         with connect(path) as conn:
             row = conn.execute(
-                "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
+                "SELECT last_extracted_message_id FROM memory_conversation_state WHERE conversation_id = ?",
+                (conversation_id,),
             ).fetchone()
         assert row is not None and row["last_extracted_message_id"] == 42
 
@@ -206,9 +220,10 @@ def test_extraction_stores_items_and_advances_watermark() -> None:
 
         with connect(path) as conn:
             row = conn.execute(
-                "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
+                "SELECT last_extracted_message_id FROM memory_conversation_state WHERE conversation_id = ?",
+                (conversation_id,),
             ).fetchone()
-        assert row is not None and row["last_extracted_message_id"] == 7
+        assert row is not None and row["last_extracted_message_id"] == 8
 
         # 水位推进后没有新消息，不应再次调用模型。
         assert (
@@ -255,7 +270,7 @@ def test_extraction_respects_switch_and_threshold() -> None:
         )
         assert calls == []
 
-        # ② 开关打开且全局增量 7-0 ≥ 6：触发一次抽取；无新条目但水位推进到 7。
+        # 开关打开且本会话增量达到阈值：合法空数组仍推进游标。
         save_agent_settings({"user_memory_enabled": True}, path)
         assert (
             service.extract_from_conversation(
@@ -266,23 +281,14 @@ def test_extraction_respects_switch_and_threshold() -> None:
         assert len(calls) == 1
         with connect(path) as conn:
             row = conn.execute(
-                "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
+                "SELECT last_extracted_message_id FROM memory_conversation_state WHERE conversation_id = ?",
+                (conversation_id,),
             ).fetchone()
-        assert row is not None and row["last_extracted_message_id"] == 7
+        assert row is not None and row["last_extracted_message_id"] == 8
 
-        # ③ 全局增量不足阈值：会话二 5 条（全局 id 8-12），12-7=5 < 6 → 拦截。
+        # 即使全局 ID 已很大，另一个会话仅有 4 条消息，仍未到阈值。
         other = create_conversation(db_path=path)
-        _insert_messages(
-            path,
-            other["id"],
-            [
-                ("user", "a"),
-                ("assistant", "b"),
-                ("user", "c"),
-                ("assistant", "d"),
-                ("user", "e"),
-            ],
-        )
+        _insert_messages(path, other["id"], [("user", "a"), ("assistant", "b")] * 2)
         assert (
             service.extract_from_conversation(
                 other["id"], db_path=path, generate=fake_generate
@@ -357,9 +363,21 @@ def test_extraction_model_failure_is_silent() -> None:
         assert service.list_memory_items(path) == []
         with connect(path) as conn:
             row = conn.execute(
-                "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
+                "SELECT last_extracted_message_id FROM memory_conversation_state WHERE conversation_id = ?",
+                (conversation_id,),
             ).fetchone()
-        assert row is not None and row["last_extracted_message_id"] == 0
+        assert row is None
+        assert service.extract_from_conversation(
+            conversation_id, db_path=path, generate=lambda request: {"content": "not JSON"}
+        ) == 0
+        assert service.list_memory_items(path) == []
+        assert service.extract_from_conversation(
+            conversation_id, db_path=path,
+            generate=lambda request: {"content": '[{"kind":"fact","summary":"retry succeeds"}]'},
+        ) == 1
+        assert service.extract_from_conversation(
+            conversation_id, db_path=path, generate=broken_generate
+        ) == 0
 
 
 def test_extraction_redacts_pii_and_skips_redacted_context_messages() -> None:
@@ -497,21 +515,29 @@ def test_reset_conversation_context_schedules_extraction(
             scheduled.append(((target, name, args), kwargs or {}))
 
         monkeypatch.setattr("app.workspace.spawn_thread", fake_spawn)
-        result = reset_conversation_context(conversation["id"], db_path=path)
-        assert result is not None
-        assert result["context_cutoff_message_id"] == 0
-        assert len(scheduled) == 1
-        (target, name, args), kwargs = scheduled[0]
-        assert target is service.extract_from_conversation
-        assert name == f"memory-extract-reset-{conversation['id']}"
-        assert args == (conversation["id"],)
-        assert kwargs == {"db_path": path}
+        monkeypatch.setattr(service, "get_model_connection", lambda *args, **kwargs: {"model_name": "test"})
+        cid = conversation["id"]
+        result = reset_conversation_context(cid, db_path=path)
+        assert result is not None and result["context_cutoff_message_id"] == 0
+        assert not scheduled
 
-        # 开关关闭时不再调度后台抽取。
+        _insert_messages(path, cid, [("user", "user request"), ("assistant", "reply")] * 3)
+        result = reset_conversation_context(cid, db_path=path)
+        assert result is not None and result["context_cutoff_message_id"] == 6
+        assert scheduled == [((service.extract_from_conversation, f"memory-extract-{cid}", (cid,)),
+                              {"db_path": path, "through_message_id": 6})]
+
         scheduled.clear()
         save_agent_settings({"user_memory_enabled": False}, path)
-        assert reset_conversation_context(conversation["id"], db_path=path) is not None
-        assert scheduled == []
+        assert reset_conversation_context(cid, db_path=path) is not None
+        assert not scheduled
+
+        save_agent_settings({"user_memory_enabled": True}, path)
+        with connect(path) as conn:
+            conn.execute("INSERT INTO agent_execution_runs (run_id, conversation_id, status) VALUES (?, ?, ?)",
+                         ("waiting", cid, "waiting_user"))
+        assert reset_conversation_context(cid, db_path=path) is not None
+        assert not scheduled
 
 
 def test_migration_adds_memory_tables_and_column_from_v41() -> None:
@@ -523,12 +549,9 @@ def test_migration_adds_memory_tables_and_column_from_v41() -> None:
         with closing(sqlite3.connect(path)) as conn, conn:
             conn.execute("DROP TABLE memory_summaries")
             conn.execute("DROP TABLE memory_rules")
-            conn.execute("DROP TABLE memory_state")
+            conn.execute("DROP TABLE memory_conversation_state")
             conn.execute("ALTER TABLE agent_settings DROP COLUMN user_memory_enabled")
-            conn.execute(
-                "UPDATE schema_migrations SET version = ?, name = 'versioned_document_exports' WHERE version = ?",
-                (DB_SCHEMA_VERSION - 1, DB_SCHEMA_VERSION),
-            )
+            conn.execute("UPDATE schema_migrations SET version = 41, name = 'versioned_document_exports'")
 
         upgraded = initialize_or_report(path)
         assert upgraded["status"] == "ready"
@@ -540,7 +563,7 @@ def test_migration_adds_memory_tables_and_column_from_v41() -> None:
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )
             }
-            assert {"memory_summaries", "memory_rules", "memory_state"} <= tables
+            assert {"memory_summaries", "memory_rules", "memory_conversation_state"} <= tables
             columns = {
                 row[1] for row in conn.execute("PRAGMA table_info(agent_settings)")
             }
@@ -548,3 +571,54 @@ def test_migration_adds_memory_tables_and_column_from_v41() -> None:
 
         # 重复升级幂等。
         assert initialize_or_report(path)["status"] == "ready"
+
+
+def test_interleaved_conversations_extract_independently(tmp_path: Path) -> None:
+    path = tmp_path / "memory.db"
+    init_db(path)
+    first = create_conversation(db_path=path)["id"]
+    second = create_conversation(db_path=path)["id"]
+    _insert_messages(path, first, [("user", "first initial message"), ("assistant", "first reply")])
+    _insert_messages(path, second, [("user", "second message"), ("assistant", "second reply")] * 3)
+    prompts = []
+
+    def generate(request):
+        prompts.append(request.messages[0].content)
+        return {"content": "[]"}
+
+    service.extract_from_conversation(second, db_path=path, generate=generate)
+    _insert_messages(path, first, [("user", "first continuation"), ("assistant", "first reply")] * 2)
+    service.extract_from_conversation(first, db_path=path, generate=generate)
+    assert len(prompts) == 2
+    assert "second message" in prompts[0] and "first initial message" not in prompts[0]
+    assert "first initial message" in prompts[1] and "second message" not in prompts[1]
+    with connect(path) as conn:
+        assert dict(conn.execute(
+            "SELECT conversation_id, last_extracted_message_id FROM memory_conversation_state"
+        ).fetchall()) == {first: 12, second: 8}
+
+
+def test_v45_upgrade_preserves_legacy_watermark_per_conversation(tmp_path: Path) -> None:
+    path = tmp_path / "memory.db"
+    init_db(path)
+    first = create_conversation(db_path=path)["id"]
+    second = create_conversation(db_path=path)["id"]
+    _insert_messages(path, first, [("user", "old first message"), ("assistant", "old first reply")])
+    _insert_messages(path, second, [("user", "old second message"), ("assistant", "old second reply")])
+    _insert_messages(path, first, [("user", "unread message"), ("assistant", "unread reply")])
+    item = service.add_memory_item("fact", "preserved memory item", db_path=path)
+    with connect(path) as conn:
+        conn.execute("DROP TABLE memory_conversation_state")
+        conn.execute("CREATE TABLE memory_state (id INTEGER PRIMARY KEY CHECK(id = 1), "
+                     "last_extracted_message_id INTEGER NOT NULL DEFAULT 0, last_extraction_at TEXT NOT NULL DEFAULT '')")
+        conn.execute("INSERT INTO memory_state VALUES (1, 4, '2026-01-01 12:00:00')")
+        conn.execute("UPDATE schema_migrations SET version = 45, name = 'image_studio_history_and_works'")
+    init_db(path)
+    init_db(path)
+    with connect(path) as conn:
+        assert [tuple(row) for row in conn.execute(
+            "SELECT conversation_id, last_extracted_message_id, last_extraction_at "
+            "FROM memory_conversation_state ORDER BY conversation_id"
+        )] == [(first, 2, "2026-01-01 12:00:00"), (second, 4, "2026-01-01 12:00:00")]
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert service.list_memory_items(path)[0]["id"] == item["id"]

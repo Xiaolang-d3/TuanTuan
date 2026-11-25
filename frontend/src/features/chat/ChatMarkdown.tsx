@@ -1,8 +1,9 @@
-import { Children, createContext, isValidElement, useContext, useEffect, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Children, createContext, isValidElement, useContext, useEffect, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronUp, Code2, Copy, Download, GitCompareArrows } from "lucide-react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { remarkLocalCitations } from "./remark-local-citations";
-import { LocalCitation, LocalCitationActionsContext } from "./LocalCitation";
+import { LocalCitation, LocalCitationContext } from "./LocalCitation";
 import type { LocalEvidence } from "./local-evidence";
 import { ChatWorkspaceMermaid } from "../../components/ChatWorkspaceMermaid";
 import { ChatWorkspaceMindmap } from "../../components/ChatWorkspaceMindmap";
@@ -88,6 +89,9 @@ function CitationLink({
     return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
   }
   const index = sources.findIndex((source) => canonicalCitationUrl(source.url) === canonicalCitationUrl(href));
+  if (sources.length && index < 0) {
+    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+  }
   const source = index >= 0 ? sources[index] : undefined;
   const title = source?.title || label || href;
   const domain = sourceDomain(source ?? { title, url: href });
@@ -132,11 +136,11 @@ function MarkdownLinkRenderer({ children, href }: { children?: ReactNode; href?:
 
 function MarkdownSpanRenderer({ node, children, ...props }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
   const { localEvidence, streaming } = useContext(MarkdownRenderContext);
-  const open = useContext(LocalCitationActionsContext);
+  const citationLoaders = useContext(LocalCitationContext);
   const citationId = node?.properties?.["data-local-citation"];
   if (typeof citationId !== "string") return <span {...props}>{children}</span>;
   const evidence = localEvidence.find(item => item.citation_id === citationId);
-  if (evidence && open) return <LocalCitation evidence={evidence} onOpen={open} />;
+  if (evidence && citationLoaders) return <LocalCitation key={evidence.citation_id} evidence={evidence} loaders={citationLoaders} />;
   return <span className="md-local-citation-unverified" title={evidence ? "当前页面暂不支持原文预览" : "没有与此标记对应的已核验证据"}>{evidence ? "本地来源" : streaming ? "核对来源中…" : "引用未核对"}</span>;
 }
 
@@ -156,6 +160,41 @@ function MarkdownCodeRenderer({
   return <code className={className} {...props}>{children}</code>;
 }
 
+type DiffLineKind = "addition" | "deletion" | "metadata";
+
+function diffLineKinds(lines: string[], language: string): (DiffLineKind | undefined)[] {
+  const explicit = /^(?:diff|patch)$/i.test(language);
+  const hasFileHeaders = lines.some((line, index) => /^---\s+\S/.test(line) && /^\+\+\+\s+\S/.test(lines[index + 1] ?? ""));
+  const hunkPattern = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+  const hasHunk = lines.some(line => hunkPattern.test(line));
+  if (!explicit && !(language === "代码" && hasFileHeaders && hasHunk)) return [];
+
+  let oldRemaining = 0;
+  let newRemaining = 0;
+  return lines.map((line, index) => {
+    const hunk = hunkPattern.exec(line);
+    if (hunk) {
+      oldRemaining = Number(hunk[1] ?? 1);
+      newRemaining = Number(hunk[2] ?? 1);
+      return "metadata";
+    }
+    if (line === "\\ No newline at end of file") return "metadata";
+    if (hasHunk && (oldRemaining > 0 || newRemaining > 0)) {
+      if (line.startsWith("+") && newRemaining > 0) { newRemaining--; return "addition"; }
+      if (line.startsWith("-") && oldRemaining > 0) { oldRemaining--; return "deletion"; }
+      if (line.startsWith(" ")) { oldRemaining--; newRemaining--; }
+      return;
+    }
+    if ((/^---\s+\S/.test(line) && /^\+\+\+\s+\S/.test(lines[index + 1] ?? "")) ||
+        (/^\+\+\+\s+\S/.test(line) && /^---\s+\S/.test(lines[index - 1] ?? "")) ||
+        /^(?:diff --git |index [0-9a-f]+\.\.[0-9a-f]+|(?:new|deleted) file mode |(?:old|new) mode |(?:rename|copy) (?:from|to) )/.test(line)) return "metadata";
+    if (!hasHunk && line.length > 1) {
+      if (line.startsWith("+")) return "addition";
+      if (line.startsWith("-")) return "deletion";
+    }
+  });
+}
+
 function MarkdownPreRenderer({
   children,
   node: _node,
@@ -167,21 +206,41 @@ function MarkdownPreRenderer({
     : null;
   const containsMermaid = child?.props.className?.split(/\s+/).includes("language-mermaid");
   const source = childrenToText(child?.props.children ?? children);
-  const language = child?.props.className?.match(/language-([\w+-]+)/)?.[1] ?? "代码";
+  const language = child?.props.className?.match(/language-([^\s]+)/)?.[1] ?? "代码";
   const [expanded, setExpanded] = useState(false);
-  const [copyState, setCopyState] = useState("复制");
-  useEffect(() => { setCopyState("复制"); }, [source]);
+  const [copyFeedback, setCopyFeedback] = useState("");
+  const copyRequest = useRef(0);
+  useEffect(() => {
+    setCopyFeedback("");
+    return () => { copyRequest.current++; };
+  }, [source]);
   const { streaming } = useContext(MarkdownRenderContext);
-  const long = source.trimEnd().split("\n").length > 24;
+  if (containsMermaid) return children;
+
+  // Markdown adds a final LF to nonempty blocks. Remove only that separator for display numbering.
+  const lines = source ? source.replace(/\n$/, "").split("\n") : [];
+  const kinds = diffLineKinds(lines, language);
+  const long = lines.length > 24;
   async function copyCode() {
-    try { await navigator.clipboard.writeText(source); setCopyState("已复制"); }
-    catch { setCopyState("复制失败，请重试"); }
+    const request = ++copyRequest.current;
+    let feedback = "已复制";
+    try { await navigator.clipboard.writeText(source); }
+    catch { feedback = "复制失败，请重试"; }
+    if (copyRequest.current === request) setCopyFeedback(feedback);
   }
-  return containsMermaid ? children : <div className="chat-code-block">
-    <div className="chat-code-toolbar"><span>{language}</span><div><button type="button" disabled={streaming} onClick={() => downloadText(source, codeFilename(language), "text/plain")}>下载代码</button><button type="button" onClick={() => void copyCode()}>{copyState}</button></div></div>
-    <pre {...props} className={long && !expanded && !streaming ? "is-collapsed" : undefined}>{children}</pre>
-    {long && !streaming ? <button className="chat-code-expand" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "收起代码" : `展开完整代码（${source.trimEnd().split("\n").length} 行）`}</button> : null}
-    <span className="sr-only" role="status">{copyState === "复制" ? "" : copyState}</span>
+  return <div className="chat-code-block">
+    <div className="chat-code-toolbar">
+      <span className="chat-code-language">{kinds.length ? <GitCompareArrows size={15} aria-hidden="true" /> : <Code2 size={15} aria-hidden="true" />}{language === "代码" && kinds.length ? "diff" : language}</span>
+      <div className="chat-code-actions">
+        <button type="button" disabled={streaming} onClick={() => downloadText(source, codeFilename(language), "text/plain")}><Download size={14} aria-hidden="true" />下载代码</button>
+        <button type="button" onClick={() => void copyCode()}>{copyFeedback === "已复制" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}{copyFeedback || "复制"}</button>
+      </div>
+    </div>
+    <pre {...props} tabIndex={0} aria-label="代码内容" className={long && !expanded && !streaming ? "chat-code-scroll is-collapsed" : "chat-code-scroll"}>
+      <code className={child?.props.className}>{lines.map((line, index) => <span key={index} className="chat-code-line" data-diff-kind={kinds[index]}><span className="chat-code-line-number" data-line-number={index + 1} aria-hidden="true" /><span className="chat-code-line-content">{line}{index < lines.length - 1 || source.endsWith("\n") ? "\n" : ""}</span></span>)}</code>
+    </pre>
+    {long && !streaming ? <button className="chat-code-expand" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}{expanded ? "收起代码" : `展开完整代码（${lines.length} 行）`}</button> : null}
+    <span className="sr-only" role="status">{copyFeedback}</span>
   </div>;
 }
 

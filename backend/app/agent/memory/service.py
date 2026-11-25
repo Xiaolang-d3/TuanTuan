@@ -1,7 +1,7 @@
 """跨会话用户记忆的存储、抽取与去重合并。
 
-抽取由 chat 层在流式结果落库与"新话题"重置后经后台线程触发；
-所有模型调用可通过注入 generate 替换（测试用），失败一律静默。
+正常完成的聊天轮次落库后调度后台抽取；重置可重试仍未处理的会话消息。
+所有模型调用可通过注入 generate 替换（测试用），失败不影响主对话。
 """
 from __future__ import annotations
 
@@ -10,18 +10,19 @@ import json
 import re
 import sqlite3
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Any, Callable
+from weakref import WeakValueDictionary
 
 from ...config import get_settings
 from ...db import connect, json_dump, row_to_dict, rows_to_dicts
-from ...domain import AgentMessage, ModelRequest
+from ...domain import AgentMessage, AgentRunResult, ModelRequest
 from ...knowledge.embeddings import embed_text, get_embedder
-from ...models.base import ModelProviderError
 from ...observability.model_context import model_call_scope
 from ...observability.model_monitor import record_model_service_event
 from ...privacy.service import scan_and_redact
-from ...workspace import current_user_id
+from ...workspace import current_user_id, resolve_db_path
 from ..model_binding import internal_model_selection
 from ..settings import get_agent_settings, get_model_connection
 
@@ -38,6 +39,8 @@ DEDUP_FASTEMBED_THRESHOLD = 0.85
 DEDUP_LEXICAL_SHARED_TERMS = 2
 
 _REDACTED_MARKER = "\n[脱敏资料："
+_extraction_locks: WeakValueDictionary[tuple[Path, int], Any] = WeakValueDictionary()
+_extraction_locks_guard = Lock()
 
 EXTRACTION_PROMPT = """你是用户记忆抽取助手。请阅读下面的对话片段，提取关于用户的长期事实与偏好，供后续会话个性化使用。
 
@@ -64,9 +67,14 @@ class MemoryLimitError(ValueError):
 
 
 def parse_extraction(text: str) -> list[dict[str, str]]:
-    """宽容解析抽取输出：剥代码围栏、取首个 [...] 窗口，失败返回 []。"""
+    """宽容解析抽取输出；无可用结果时返回 []。"""
+    return _parse_extraction(text) or []
+
+
+def _parse_extraction(text: str) -> list[dict[str, str]] | None:
+    """区分合法空数组与不可用响应，只有前者可推进游标。"""
     if not text:
-        return []
+        return None
     content = str(text).strip()
     if content.startswith("```"):
         content = re.sub(r"^```[a-zA-Z]*\s*", "", content)
@@ -76,34 +84,31 @@ def parse_extraction(text: str) -> list[dict[str, str]]:
     if start >= 0:
         end = content.rfind("]")
         if end <= start:
-            return []
+            return None
         try:
             items = json.loads(content[start : end + 1])
         except (ValueError, TypeError):
-            return []
+            return None
     else:
         try:
             payload = json.loads(content)
         except (ValueError, TypeError):
-            return []
-        if isinstance(payload, dict):
-            items = payload.get("items", [])
-        else:
-            items = payload
+            return None
+        items = payload.get("items") if isinstance(payload, dict) else payload
     if not isinstance(items, list):
-        return []
+        return None
     result: list[dict[str, str]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
         kind = item.get("kind")
         summary = item.get("summary")
-        if kind not in {"fact", "preference"} or not isinstance(summary, str) or not summary.strip():
+        if kind not in ("fact", "preference") or not isinstance(summary, str) or not summary.strip():
             continue
         result.append({"kind": kind, "summary": summary.strip()[:MAX_MEMORY_SUMMARY_CHARS]})
         if len(result) >= MAX_EXTRACTION_ITEMS:
             break
-    return result
+    return result if result or not items else None
 
 
 def _embedder_key() -> str:
@@ -182,9 +187,12 @@ def _enforce_item_limits(conn: sqlite3.Connection) -> None:
         )
 
 
-def _memory_state(conn: sqlite3.Connection) -> sqlite3.Row:
-    conn.execute("INSERT OR IGNORE INTO memory_state (id) VALUES (1)")
-    return conn.execute("SELECT * FROM memory_state WHERE id = 1").fetchone()
+def _memory_cursor(conn: sqlite3.Connection, conversation_id: int) -> int:
+    row = conn.execute(
+        "SELECT last_extracted_message_id FROM memory_conversation_state WHERE conversation_id = ?",
+        (conversation_id,),
+    ).fetchone()
+    return int(row["last_extracted_message_id"]) if row is not None else 0
 
 
 def list_memory_items(db_path: str | Path | None = None) -> list[dict[str, Any]]:
@@ -329,7 +337,37 @@ def clear_all_memory(db_path: str | Path | None = None) -> dict[str, int]:
     return {"cleared_items": items, "cleared_rules": rules}
 
 
+def _uses_chatgpt_subscription(connection: dict[str, Any]) -> bool:
+    return (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription")
+
+
+def _subscription_selected(conn: sqlite3.Connection, conversation_id: int) -> bool:
+    # The extraction model is the workspace default, which may differ from the
+    # conversation's pick. Check both without touching the credential store.
+    return conn.execute(
+        """SELECT 1 FROM model_profiles p JOIN model_connections c ON p.connection_id = c.id
+           WHERE c.secret_ref = 'chatgpt_subscription' AND p.id IN (
+             SELECT model_profile_id FROM conversations WHERE id = ?
+             UNION ALL SELECT default_model_profile_id FROM agent_settings WHERE id = 1
+           ) LIMIT 1""",
+        (conversation_id,),
+    ).fetchone() is not None
+
+
+def _run_used_subscription(run: sqlite3.Row | None) -> bool:
+    if run is None:
+        return False
+    try:
+        selection = json.loads(run["model_selection_json"])
+    except (TypeError, ValueError):
+        return False
+    return isinstance(selection, dict) and _uses_chatgpt_subscription(selection)
+
+
 def _build_provider(connection: dict[str, Any]) -> Any:
+    if _uses_chatgpt_subscription(connection):
+        raise ValueError("ChatGPT 订阅不可用于后台记忆抽取")
     from ...models.configured import configure_model_provider
     from ...models.factory import build_model_provider
 
@@ -402,81 +440,134 @@ def _record_failure(connection: dict[str, Any], started_at: float, error: BaseEx
         pass
 
 
+def _completed_result(result: AgentRunResult) -> bool:
+    return result.status == "done" and result.stop_reason == "completed" and result.error is None
+
+
+def _extraction_window(
+    conn: sqlite3.Connection, conversation_id: int, through_message_id: int | None,
+) -> tuple[int, int] | None:
+    if _subscription_selected(conn, conversation_id):
+        return None
+    if through_message_id is None:
+        # Reset may retry the most recent turn, but never a waiting/failed/in-progress one.
+        run = conn.execute(
+            "SELECT assistant_message_id, status, stop_reason, result_json, model_selection_json FROM agent_execution_runs "
+            "WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+    else:
+        run = conn.execute(
+            "SELECT assistant_message_id, status, stop_reason, result_json, model_selection_json FROM agent_execution_runs "
+            "WHERE conversation_id = ? AND assistant_message_id = ?",
+            (conversation_id, through_message_id),
+        ).fetchone()
+    if run is None or run["status"] != "completed" or not run["assistant_message_id"] or _run_used_subscription(run):
+        return None
+    if run["stop_reason"] != "completed" or not _completed_result(AgentRunResult.model_validate_json(run["result_json"])):
+        return None
+    end = int(run["assistant_message_id"])
+    start = _memory_cursor(conn, conversation_id)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM chat_messages WHERE conversation_id = ? "
+        "AND id > ? AND id <= ? AND role IN ('user', 'assistant') LIMIT ?)",
+        (conversation_id, start, end, EXTRACT_EVERY_MESSAGES),
+    ).fetchone()[0]
+    return (start, end) if count >= EXTRACT_EVERY_MESSAGES else None
+
+
+def _due_window(
+    conversation_id: int, db_path: str | Path | None, through_message_id: int | None,
+) -> tuple[int, int] | None:
+    if not get_agent_settings(db_path).get("user_memory_enabled", True):
+        return None
+    with connect(db_path) as conn:
+        window = _extraction_window(conn, conversation_id, through_message_id)
+    if window is not None:
+        connection = get_model_connection(db_path, resolve_credentials=False)
+        if connection.get("model_name") and not _uses_chatgpt_subscription(connection):
+            return window
+    return None
+
+
 def memory_extraction_due(
-    conversation_id: int, *, db_path: str | Path | None = None
+    conversation_id: int, *, db_path: str | Path | None = None,
 ) -> bool:
-    """轻量预检：开关开启、模型已配置且消息增量达到阈值时才值得后台抽取。"""
+    """预检最近轮次是否正常完成，且有足够的本会话增量可抽取。"""
     try:
-        if not get_agent_settings(db_path).get("user_memory_enabled", True):
-            return False
-        connection = get_model_connection(db_path)
-        if not connection.get("model_name"):
-            return False
-        with connect(db_path) as conn:
-            if conn.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone() is None:
-                return False
-            state_row = conn.execute(
-                "SELECT last_extracted_message_id FROM memory_state WHERE id = 1"
-            ).fetchone()
-            last_extracted = int(state_row["last_extracted_message_id"]) if state_row else 0
-            latest_message_id = conn.execute(
-                "SELECT COALESCE(MAX(id), 0) AS id FROM chat_messages WHERE conversation_id = ?",
-                (conversation_id,),
-            ).fetchone()["id"]
-        return latest_message_id - last_extracted >= EXTRACT_EVERY_MESSAGES
+        return _due_window(conversation_id, db_path, None) is not None
     except Exception:
         return False
+
+
+def schedule_memory_extraction(
+    conversation_id: int,
+    *,
+    db_path: str | Path | None = None,
+    through_message_id: int | None = None,
+) -> None:
+    """在持久化完成后触发；不允许预检或启动线程的失败影响主对话。"""
+    from ...workspace import spawn_thread
+
+    try:
+        window = _due_window(conversation_id, db_path, through_message_id)
+        if window is not None:
+            spawn_thread(
+                extract_from_conversation,
+                name=f"memory-extract-{conversation_id}",
+                args=(conversation_id,),
+                kwargs={"db_path": db_path, "through_message_id": window[1]},
+            )
+    except Exception:
+        return
 
 
 def extract_from_conversation(
     conversation_id: int,
     *,
     db_path: str | Path | None = None,
+    through_message_id: int | None = None,
     generate: Callable[[ModelRequest], Any] | None = None,
 ) -> int:
-    """从指定会话抽取用户记忆并落库，返回本次落库/合并的条目数。
+    """串行处理同一工作区同一会话的抽取，不阻塞其他会话或主对话。"""
+    try:
+        path = resolve_db_path(db_path).resolve()
+        key = (path, conversation_id)
+        with _extraction_locks_guard:
+            lock = _extraction_locks.get(key)
+            if lock is None:
+                lock = Lock()
+                _extraction_locks[key] = lock
+        with lock:
+            return _extract_from_conversation(conversation_id, path, through_message_id, generate)
+    except Exception:
+        return 0
 
-    开关关闭、节流未到、会话不存在、最近一次 run 未正常完成或模型未配置时
-    直接返回 0；模型调用失败静默（审计事件照常记录），不推进抽取水位。
-    """
-    try:
-        settings = get_agent_settings(db_path)
-    except (ValueError, OSError, sqlite3.Error):
+
+def _extract_from_conversation(
+    conversation_id: int,
+    db_path: Path,
+    through_message_id: int | None,
+    generate: Callable[[ModelRequest], Any] | None,
+) -> int:
+    if not get_agent_settings(db_path).get("user_memory_enabled", True):
         return 0
-    if not settings.get("user_memory_enabled", True):
-        return 0
-    try:
-        with connect(db_path) as conn:
-            if conn.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone() is None:
-                return 0
-            latest_run = conn.execute(
-                "SELECT status FROM agent_execution_runs WHERE conversation_id = ? ORDER BY updated_at DESC LIMIT 1",
-                (conversation_id,),
-            ).fetchone()
-            if latest_run is not None and latest_run["status"] != "completed":
-                return 0
-            state = _memory_state(conn)
-            latest_message_id = conn.execute(
-                "SELECT COALESCE(MAX(id), 0) AS id FROM chat_messages WHERE conversation_id = ?",
-                (conversation_id,),
-            ).fetchone()["id"]
-            if latest_message_id - int(state["last_extracted_message_id"]) < EXTRACT_EVERY_MESSAGES:
-                return 0
-            message_rows = conn.execute(
-                "SELECT role, content FROM chat_messages WHERE conversation_id = ? AND id > ? "
-                "AND role IN ('user', 'assistant') ORDER BY id DESC LIMIT ?",
-                (conversation_id, state["last_extracted_message_id"], EXTRACTION_CONTEXT_MESSAGES),
-            ).fetchall()
-            existing_rows = conn.execute(
-                "SELECT kind, summary FROM memory_summaries ORDER BY updated_at DESC, id DESC LIMIT ?",
-                (EXTRACTION_MAX_EXISTING,),
-            ).fetchall()
-    except sqlite3.Error:
-        return 0
-    if not message_rows:
-        return 0
+    with connect(db_path) as conn:
+        window = _extraction_window(conn, conversation_id, through_message_id)
+        if window is None:
+            return 0
+        start, end = window
+        message_rows = conn.execute(
+            "SELECT id, role, content FROM chat_messages WHERE conversation_id = ? AND id > ? AND id <= ? "
+            "AND role IN ('user', 'assistant') ORDER BY id LIMIT ?",
+            (conversation_id, start, end, EXTRACTION_CONTEXT_MESSAGES),
+        ).fetchall()
+        existing_rows = conn.execute(
+            "SELECT kind, summary FROM memory_summaries ORDER BY updated_at DESC, id DESC LIMIT ?",
+            (EXTRACTION_MAX_EXISTING,),
+        ).fetchall()
     fragments: list[str] = []
-    for row in reversed(message_rows):
+    for row in message_rows:
         content = row["content"] or ""
         if _REDACTED_MARKER in content:
             continue
@@ -484,6 +575,7 @@ def extract_from_conversation(
         fragments.append(f"{row['role']}: {redacted[:EXTRACTION_MESSAGE_CHARS]}")
     if not fragments:
         return 0
+    last_message_id = int(message_rows[-1]["id"])
     existing_text = "\n".join(
         f"- [{row['kind']}] {row['summary']}" for row in existing_rows
     ) or "（暂无）"
@@ -511,7 +603,7 @@ def extract_from_conversation(
             connection = get_model_connection(db_path)
         except Exception:
             return 0
-        if not connection.get("model_name"):
+        if not connection.get("model_name") or _uses_chatgpt_subscription(connection):
             return 0
         try:
             provider = _build_provider(connection)
@@ -530,29 +622,30 @@ def extract_from_conversation(
                 _record_failure(connection, started_at, error)
                 return 0
             _record_success(connection, started_at, response)
-    items = parse_extraction(_response_content(response))
-    user_id = current_user_id() or 0
-    stored = 0
-    try:
-        with connect(db_path) as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            for item in items:
-                _, redacted = scan_and_redact(item["summary"])
-                redacted = redacted.strip()
-                if not redacted:
-                    continue
-                embedding, backend = _embed_summary(redacted)
-                _dedupe_merge(
-                    conn, item["kind"], redacted, user_id=user_id,
-                    source_conversation_id=conversation_id, embedding=embedding, backend=backend,
-                )
-                stored += 1
-            _enforce_item_limits(conn)
-            # 抽取调用成功即推进水位（含空数组）；失败路径已在前面返回。
-            conn.execute(
-                "UPDATE memory_state SET last_extracted_message_id = ?, last_extraction_at = CURRENT_TIMESTAMP WHERE id = 1",
-                (latest_message_id,),
-            )
-    except sqlite3.Error:
+    items = _parse_extraction(_response_content(response))
+    if items is None:
         return 0
-    return stored
+    prepared = []
+    for item in items:
+        _, redacted = scan_and_redact(item["summary"])
+        if redacted.strip():
+            redacted = redacted.strip()
+            prepared.append((item["kind"], redacted, *_embed_summary(redacted)))
+    with connect(db_path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        # Compare again under the write lock if another process already handled this window.
+        if _memory_cursor(conn, conversation_id) != start:
+            return 0
+        for kind, summary, embedding, backend in prepared:
+            _dedupe_merge(
+                conn, kind, summary, user_id=current_user_id() or 0,
+                source_conversation_id=conversation_id, embedding=embedding, backend=backend,
+            )
+        _enforce_item_limits(conn)
+        conn.execute(
+            "INSERT INTO memory_conversation_state (conversation_id, last_extracted_message_id) VALUES (?, ?) "
+            "ON CONFLICT(conversation_id) DO UPDATE SET last_extracted_message_id = excluded.last_extracted_message_id, "
+            "last_extraction_at = CURRENT_TIMESTAMP",
+            (conversation_id, last_message_id),
+        )
+    return len(prepared)

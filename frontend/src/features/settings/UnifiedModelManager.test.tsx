@@ -20,6 +20,15 @@ function props(overrides = {}) {
   return { catalog, loading: false, busy: false, error: "", fetchJson: vi.fn().mockResolvedValue({ models: ["gpt-4.1", "gateway/custom-id"] }), onReload: vi.fn(), onMutate: vi.fn().mockResolvedValue(true), onEnsureProfile: vi.fn().mockResolvedValue("new"), onApplied: vi.fn().mockResolvedValue(undefined), ...overrides };
 }
 
+function serviceFilter() {
+  return screen.getByRole("combobox", { name: "按服务筛选" });
+}
+
+function selectService(name: string) {
+  fireEvent.click(serviceFilter());
+  fireEvent.click(screen.getByRole("option", { name }));
+}
+
 function manageModel(optionName: string | RegExp) {
   const advanced = screen.queryByRole("button", { name: "高级设置" });
   if (advanced) fireEvent.click(advanced);
@@ -164,16 +173,74 @@ describe("UnifiedModelManager", () => {
   it("recovers from combined filters without losing the selected service", () => {
     render(<UnifiedModelManager {...props()} />);
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "按服务筛选" }), { target: { value: "two" } });
+    selectService("服务乙");
     fireEvent.change(screen.getByRole("textbox", { name: "搜索模型" }), { target: { value: "missing-model" } });
     fireEvent.click(screen.getByRole("button", { name: /^筛选$/ }));
-    fireEvent.change(screen.getByRole("combobox", { name: "输出类型" }), { target: { value: "image" } });
+    const outputType = screen.getByRole("combobox", { name: "输出类型" });
+    const status = screen.getByRole("combobox", { name: "启用状态" });
+    fireEvent.change(outputType, { target: { value: "image" } });
+    fireEvent.change(status, { target: { value: "disabled" } });
     expect(screen.queryByRole("list", { name: "模型目录" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "没有符合条件的模型" })).toBeVisible();
     fireEvent.click(screen.getAllByRole("button", { name: "清除筛选" })[0]);
     expect(within(screen.getByRole("list", { name: "模型目录" })).getByText("gpt-image-2", { exact: true })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "搜索模型" })).toHaveValue("");
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("two");
+    expect(outputType).toHaveValue("all");
+    expect(status).toHaveValue("all");
+    expect(serviceFilter()).toHaveTextContent("服务乙");
+  });
+  it("searches the dynamic service list without changing the filter until an option is chosen", async () => {
+    const services = Array.from({ length: 18 }, (_, index) => ({ ...catalog.connections[0], id: `service-${index}`, name: `Service ${index}`, model_base_url: `https://service-${index}.test/v1` }));
+    const unnamed = { ...catalog.connections[1], name: "", model_base_url: "https://special.test/v1" };
+    const p = props({ catalog: { ...catalog, connections: [catalog.connections[0], ...services, unnamed] } });
+    const view = render(<UnifiedModelManager {...p} />);
+    fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
+    const trigger = serviceFilter();
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const search = screen.getByRole("combobox", { name: "搜索服务" });
+    await waitFor(() => expect(search).toHaveFocus());
+    fireEvent.change(search, { target: { value: "SPECIAL.TEST" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: unnamed.model_base_url })).toBeInTheDocument();
+    expect(trigger).toHaveTextContent("全部服务");
+    const directory = within(screen.getByRole("list", { name: "模型目录" }));
+    expect(directory.getAllByText("gpt-4.1", { exact: true })).toHaveLength(2);
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveTextContent(unnamed.model_base_url);
+    expect(directory.getAllByText("gpt-4.1", { exact: true })).toHaveLength(1);
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, connections: [catalog.connections[0], ...services, { ...unnamed, name: "Renamed service" }] }} />);
+    expect(trigger).toHaveTextContent("Renamed service");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("option", { name: "Renamed service", selected: true })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "搜索服务" }), { target: { value: "not-a-service" } });
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(screen.getByText("没有匹配的服务")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "搜索服务" }), { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveTextContent("Renamed service");
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    fireEvent.click(trigger);
+    const reopenedSearch = screen.getByRole("combobox", { name: "搜索服务" });
+    expect(reopenedSearch).toHaveValue("");
+    fireEvent.change(reopenedSearch, { target: { value: "Service 1" } });
+    const modelSearch = screen.getByRole("textbox", { name: "搜索模型" });
+    fireEvent.pointerDown(modelSearch);
+    fireEvent.mouseDown(modelSearch);
+    fireEvent.mouseUp(modelSearch);
+    fireEvent.click(modelSearch);
+    await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+    expect(trigger).toHaveTextContent("Renamed service");
+    expect(modelSearch).toHaveValue("");
+
+    selectService("全部服务");
+    expect(trigger).toHaveTextContent("全部服务");
+    expect(directory.getAllByText("gpt-4.1", { exact: true })).toHaveLength(2);
   });
   it("only reveals the credential typed in the connection form when requested", () => {
     render(<UnifiedModelManager {...props()} />);
@@ -187,7 +254,7 @@ describe("UnifiedModelManager", () => {
   it("offers ordinary service removal with confirmation and resets the selected service", async () => {
     const p = props(); const view = render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "按服务筛选" }), { target: { value: "two" } });
+    selectService("服务乙");
     fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
     fireEvent.click(screen.getByRole("button", { name: "删除服务乙" }));
     expect(p.onMutate).not.toHaveBeenCalled();
@@ -197,7 +264,7 @@ describe("UnifiedModelManager", () => {
     view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, connections: [catalog.connections[0]], profiles: [catalog.profiles[0]] }} />);
     fireEvent.click(screen.getByRole("button", { name: "模型配置" }));
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("");
+    expect(serviceFilter()).toHaveTextContent("全部服务");
     expect(within(screen.getByRole("list", { name: "模型目录" })).queryByText("gpt-image-2", { exact: true })).not.toBeInTheDocument();
   });
   it("explains default protection and allows cancelling removal without a request", () => {
@@ -227,7 +294,7 @@ describe("UnifiedModelManager", () => {
     fireEvent.click(list.getAllByRole("listitem")[0]);
     expect(list.queryByRole("group")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "管理单个模型" })).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("");
+    expect(serviceFilter()).toHaveTextContent("全部服务");
   });
   it("keeps service maintenance out of the model list and opens a service's models on demand", () => {
     render(<UnifiedModelManager {...props()} />);
@@ -239,7 +306,7 @@ describe("UnifiedModelManager", () => {
     const services = screen.getByRole("region", { name: "已连接服务" });
     expect(services).toHaveTextContent("API Key 已配置");
     fireEvent.click(within(services).getAllByRole("button", { name: "查看模型" })[1]);
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("two");
+    expect(serviceFilter()).toHaveTextContent("服务乙");
     expect(within(screen.getByRole("list", { name: "模型目录" })).getAllByText("gpt-4.1", { exact: true })).toHaveLength(1);
   });
   it("opens a two-field ordinary connection form with optional details collapsed", () => {
@@ -357,11 +424,11 @@ describe("UnifiedModelManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存并获取模型" }));
     await waitFor(() => expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument());
     expect(p.fetchJson).not.toHaveBeenCalled();
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("");
+    expect(serviceFilter()).toHaveTextContent("全部服务");
     view.rerender(<UnifiedModelManager {...p} catalog={{ ...catalog, connections: [...catalog.connections, { ...catalog.connections[0], id: "three", name: "第三服务", model_base_url: "https://third.test/v1" }] }} />);
     await waitFor(() => expect(p.fetchJson).toHaveBeenCalledWith("/agent/model-connections/three/discover", expect.anything()));
     expect(p.fetchJson).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("combobox", { name: "按服务筛选" })).toHaveValue("three");
+    expect(serviceFilter()).toHaveTextContent("第三服务");
   });
   it("reports invalid addresses without sending secrets and preserves the key for correction", () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
@@ -445,7 +512,7 @@ describe("UnifiedModelManager", () => {
   it("refreshes only the selected service", async () => {
     const p = props(); render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "模型列表" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "按服务筛选" }), { target: { value: "two" } });
+    selectService("服务乙");
     fireEvent.click(screen.getByRole("button", { name: "刷新此服务模型" }));
     await screen.findByText("gateway/custom-id");
     expect(p.fetchJson).toHaveBeenCalledTimes(1);

@@ -237,15 +237,14 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} />);
     await preview();
     const trigger = screen.getByRole("button", { name: "筛选" });
+    trigger.focus();
     fireEvent.click(trigger);
-    const origin = screen.getByLabelText("筛选来源");
-    fireEvent.keyDown(origin, { key: "Escape" });
-    expect(screen.queryByLabelText("筛选来源")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    const panel = screen.getByRole("dialog", { name: "文件筛选" });
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "关闭筛选" })).toHaveFocus());
+    fireEvent.keyDown(within(panel).getByRole("combobox", { name: "筛选来源" }), { key: "Escape" });
+    expect(panel).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(screen.getByRole("complementary", { name: "文件快速预览" })).toBeInTheDocument();
-    fireEvent.click(trigger);
-    fireEvent.pointerDown(screen.getByRole("heading", { name: "文件库" }));
-    expect(screen.queryByLabelText("筛选来源")).not.toBeInTheDocument();
   });
   it("opens a saved result directly and consumes the initial source once", async () => {
     const p = props(), consumed = vi.fn();
@@ -289,12 +288,17 @@ describe("file library", () => {
     renderWithTools(<LibraryPage {...props()} sources={[source, image]} />);
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     fireEvent.change(screen.getByLabelText("筛选 AI 使用"), { target: { value: "ready" } });
+    fireEvent.click(screen.getByRole("button", { name: "关闭筛选" }));
     fireEvent.click(screen.getByRole("button", { name: "图像" }));
     expect(screen.queryByRole("columnheader", { name: "AI 使用" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("筛选 AI 使用")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "预览 照片" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
+    expect(screen.getByRole("combobox", { name: "筛选来源" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("筛选 AI 使用")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭筛选" }));
     fireEvent.click(screen.getByRole("button", { name: "文档" }));
     expect(screen.getByRole("columnheader", { name: "AI 使用" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("筛选 AI 使用")).toHaveValue("ready");
   });
   it("preserves search and directory when changing file type and clears empty results", () => {
@@ -342,8 +346,10 @@ describe("file library", () => {
     fireEvent.click(screen.getByRole("button", { name: "创建笔记" }));
     await waitFor(() => expect(p.onCreateText).toHaveBeenCalledWith("会议纪要", "检索评测", "redacted", 3, null));
   });
-  it("trashes reversibly and confirms permanent deletion", async () => {
+  it("trashes reversibly and leaves the permanent deletion confirmation open until success", async () => {
     const p = props();
+    let failDeletion!: (error: Error) => void;
+    p.onDeleteSource.mockReturnValueOnce(new Promise<void>((_resolve, reject) => { failDeletion = reject; }));
     const view = renderWithTools(<LibraryPage {...p} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "选择 读书笔记" }));
     fireEvent.click(screen.getByRole("button", { name: "更多文件操作" }));
@@ -361,8 +367,23 @@ describe("file library", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "选择 读书笔记" }));
     fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
     expect(p.onDeleteSource).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "永久删除" }));
-    await waitFor(() => expect(p.onDeleteSource).toHaveBeenCalledWith(7));
+    const confirmation = screen.getByRole("alertdialog", { name: "永久删除" });
+    expect(confirmation).toHaveAccessibleDescription("永久删除 1 个文件及原件？此操作无法恢复。");
+    const close = within(confirmation).getByRole("button", { name: "关闭弹窗" });
+    await waitFor(() => expect(close).toHaveFocus());
+    fireEvent.click(within(confirmation).getByRole("button", { name: "永久删除" }));
+    expect(p.onDeleteSource).toHaveBeenCalledExactlyOnceWith(7);
+    expect(close).toBeDisabled();
+    expect(within(confirmation).getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(confirmation, { key: "Escape" });
+    expect(confirmation).toBeInTheDocument();
+
+    failDeletion(new Error("永久删除失败"));
+    expect(await within(confirmation).findByRole("alert")).toHaveTextContent("永久删除失败");
+    expect(close).toBeEnabled();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "永久删除" }));
+    await waitFor(() => expect(confirmation).not.toBeInTheDocument());
+    expect(p.onDeleteSource.mock.calls).toEqual([[7], [7]]);
   });
   it("moves selected files and uses selected IDs for chat", async () => {
     const p = props();
@@ -544,7 +565,10 @@ describe("file library", () => {
     fireEvent.click(screen.getByRole("button", { name: "加入主题集合" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "加入主题集合" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("集合保存失败");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "加入主题集合" });
+    expect(screen.queryByRole("checkbox", { name: "选择 读书笔记" })).not.toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "选择 读书笔记" })).toBeChecked();
   });
 
@@ -567,9 +591,10 @@ describe("file library", () => {
     fireEvent.change(screen.getByLabelText("选择主题集合"), { target: { value: "10" } });
     fireEvent.click(screen.getByLabelText("主题集合操作"));
     fireEvent.click(screen.getByRole("button", { name: "删除集合" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("文件和长期使用设置都会保留");
+    const confirmation = screen.getByRole("alertdialog", { name: "删除主题集合" });
+    expect(confirmation).toHaveAccessibleDescription("删除“阅读”集合？其中的文件和长期使用设置都会保留。");
     expect(p.onDeleteCollection).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "删除主题集合" }));
+    fireEvent.click(within(confirmation).getByRole("button", { name: "删除主题集合" }));
     await waitFor(() => expect(p.onDeleteCollection).toHaveBeenCalledWith(10));
     expect(p.onDeleteSource).not.toHaveBeenCalled();
     expect(p.onUpdateSource).not.toHaveBeenCalled();

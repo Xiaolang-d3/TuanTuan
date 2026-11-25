@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    46: "conversation_memory_cursors",
     45: "image_studio_history_and_works",
     44: "ppt_definite_failure_retry",
     43: "conversation_kernel_forks",
@@ -187,6 +188,20 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
             if tables and version < 45:
                 from .studio_migration import backfill_image_studio
                 backfill_image_studio(conn)
+            if version < 46 and "memory_state" in tables:
+                # The legacy cursor was global: preserve the old cutoff without
+                # guessing which older conversations were already extracted.
+                conn.execute("""
+                    INSERT OR IGNORE INTO memory_conversation_state
+                        (conversation_id, last_extracted_message_id, last_extraction_at)
+                    SELECT messages.conversation_id, MAX(messages.id), state.last_extraction_at
+                    FROM memory_state AS state
+                    JOIN chat_messages AS messages ON messages.id <= state.last_extracted_message_id
+                    JOIN conversations ON conversations.id = messages.conversation_id
+                    WHERE state.id = 1 AND messages.role IN ('user', 'assistant')
+                    GROUP BY messages.conversation_id
+                    """)
+                conn.execute("DROP TABLE memory_state")
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (?, ?)",
                 (DB_SCHEMA_VERSION, migration_name(DB_SCHEMA_VERSION)),

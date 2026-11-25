@@ -174,6 +174,7 @@ class AgentRunSnapshot(BaseModel):
     citation_draft: str = ""
     citation_sources: list[dict[str, Any]] = Field(default_factory=list)
     citation_allowed_urls: list[str] = Field(default_factory=list)
+    verify_web_claims: bool = False
     expects_draft: bool = False
     delivery_retry_used: bool = False
     degraded_tools: dict[str, ToolError] = Field(default_factory=dict)
@@ -188,6 +189,8 @@ class AgentRunSnapshot(BaseModel):
     approved_tool_fingerprints: list[str] = Field(default_factory=list)
     pending_tool_approval: PendingToolApproval | None = None
     requires_query_approval: bool = False
+    # Internal binding to a single request in a live DSH process, not an RPC ID.
+    dsh_wait_token: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AgentRunResult(BaseModel):

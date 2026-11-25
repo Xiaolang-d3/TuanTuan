@@ -5,7 +5,7 @@ import json
 from functools import lru_cache
 
 from ..model_protocol import model_protocol_for_profile, resolve_model_protocol
-from ..models.selection import model_output_types, supported_purposes, purpose_exclusion, select_model_for_purpose
+from ..models.selection import is_chatgpt_subscription, model_output_types, supported_purposes, purpose_exclusion, select_model_for_purpose
 from . import settings
 from .model_capabilities import infer_vision
 
@@ -34,6 +34,9 @@ def _litellm_vision_status(protocol, model_name):
 
 
 def profile_with_vision_status(profile, source, records, *, load_model_metadata=False):
+    if is_chatgpt_subscription(source):
+        return {**profile, "vision_status": "unsupported"}
+
     from ..models.factory import model_backend
     from ..models.litellm_core import litellm_loaded
 
@@ -49,6 +52,13 @@ def profile_with_vision_status(profile, source, records, *, load_model_metadata=
         protocol = source.get("detected_protocol") or resolve_model_protocol(name, protocol, base_url)
         status = _litellm_vision_status(protocol, name)
     return {**profile, "vision_status": status or infer_vision(name)["status"]}
+
+
+def _subscription_credential_status(source, db_path):
+    from ..chatgpt_subscription import binding
+    from ..workspace import resolve_db_path
+
+    return "available" if binding(resolve_db_path(db_path), source["id"]) else "unavailable"
 
 
 def selection_catalog(db_path=None, *, include_vision=False):
@@ -72,6 +82,9 @@ def selection_catalog(db_path=None, *, include_vision=False):
         payload = json.loads(policy[0]) if policy else {}
         for source in sources:
             reference = source.pop("secret_ref", "none")
+            if is_chatgpt_subscription(source):
+                source.update(api_key_configured=False, credential_status=_subscription_credential_status(source, db_path))
+                continue
             alias = conn.execute("SELECT secret_ref FROM model_credential_aliases WHERE reference=?", (reference,)).fetchone()
             reference = alias[0] if alias else reference
             configured = bool(reference and reference != "none")
@@ -110,7 +123,7 @@ def resolve_purpose_connection(purpose, profile_id=None, *, action=None, preferr
         if not result["eligible"]:
             raise ValueError(result["error"])
         connection = get_profile_connection(result["profile_id"])
-        source = {"protocol": connection["model_protocol"], "model_base_url": connection["model_base_url"], "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
+        source = {**connection, "protocol": connection["model_protocol"], "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
         rejection = purpose_exclusion(connection, source, purpose, action=action, strict_capabilities=catalog["strict_capabilities"])
         if rejection:
             raise ValueError(rejection)
@@ -150,10 +163,14 @@ def save_purpose_default(kind, values, db_path=None):
                 raise ValueError("模型或连接已停用")
             if kind == "vision":
                 profile = profile_with_vision_status(profile, source, catalog_vision_statuses(conn, profile_id).get(profile_id, {}), load_model_metadata=True)
-            rejection = purpose_exclusion(profile, {**source, "api_key_configured": bool(source["secret_ref"] and source["secret_ref"] != "none")}, kind)
+            subscription = is_chatgpt_subscription(source)
+            credentials = {"credential_status": _subscription_credential_status(source, db_path)} if subscription else {
+                "api_key_configured": bool(source["secret_ref"] and source["secret_ref"] != "none")}
+            rejection = purpose_exclusion(profile, {**source, **credentials}, kind)
             if rejection:
                 raise ValueError(rejection)
-            if kind == "chat" or (kind == "image" and not conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0]):
+            mirror_legacy = kind == "chat" or (kind == "image" and not conn.execute("SELECT default_model_profile_id FROM agent_settings WHERE id=1").fetchone()[0])
+            if mirror_legacy and not subscription:
                 conn.execute("UPDATE agent_settings SET default_model_profile_id=? WHERE id=1", (profile_id,))
         defaults[kind] = profile_id
         row = conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()

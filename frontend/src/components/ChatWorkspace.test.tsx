@@ -267,17 +267,27 @@ describe("ChatWorkspace", () => {
     expect(within(tools).getByRole("link", { name: "外部连接" })).toHaveAttribute("href", "#/settings/extensions");
     const skill = within(tools).getByRole("button", { name: "技能" });
     fireEvent.click(skill);
-    expect(screen.getByRole("region", { name: "可用技能" })).toBeInTheDocument();
-    fireEvent.keyDown(skill, { key: "Escape" });
-    expect(screen.queryByRole("region", { name: "可用技能" })).not.toBeInTheDocument();
+    const picker = screen.getByRole("dialog", { name: "可用技能" });
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "可用技能" })).not.toBeInTheDocument();
     expect(input).toHaveValue("整理这周的资料");
     expect(props.onSend).not.toHaveBeenCalled();
   });
 
-  it("shows dismissible model selection feedback in the composer", () => {
+  it("shows dismissible model selection feedback without moving the transcript", () => {
     const dismiss = vi.fn();
-    const { view, ...props } = renderChat([message], { modelSelectionFeedback: { kind: "success", text: "已切换至图片模型" }, onDismissModelSelectionFeedback: dismiss });
-    expect(within(screen.getByRole("log")).getByText("已切换至图片模型").closest("[role=status]")).toBeInTheDocument();
+    const { view, ...props } = renderChat([message], { onDismissModelSelectionFeedback: dismiss });
+    const viewport = screen.getByRole("log");
+    Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1500 });
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 300 });
+    viewport.scrollTop = 217;
+    fireEvent.scroll(viewport);
+    view.rerender(<ChatWorkspace {...props} modelSelectionFeedback={{ kind: "success", text: "已切换至图片模型" }} />);
+    const feedback = screen.getByText("已切换至图片模型").closest("[role=status]");
+    expect(feedback?.closest(".chat-thread-overlay")).toBeInTheDocument();
+    expect(viewport.contains(feedback)).toBe(false);
+    expect(viewport.scrollTop).toBe(217);
+    expect(screen.getByRole("button", { name: "回到最新" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭模型切换提示" }));
     expect(dismiss).toHaveBeenCalledOnce();
     view.rerender(<ChatWorkspace {...props} modelSelectionFeedback={{ kind: "error", text: "未能确认切换" }} />);
@@ -486,8 +496,9 @@ describe("ChatWorkspace", () => {
     fireEvent.scroll(viewport);
     const jump = screen.getByRole("button", { name: "回到最新" });
     expect(jump.querySelector(".lucide-arrow-down")).toHaveAttribute("aria-hidden", "true");
-    expect(jump.closest(".chat-composer")).toBeNull();
-    expect(viewport.contains(jump)).toBe(false);
+    const surface = viewport.closest(".chat-thread-surface");
+    expect(jump.closest(".chat-thread-overlay")?.parentElement).toBe(surface?.parentElement);
+    expect(surface?.contains(jump)).toBe(false);
     p.view.rerender(<ChatWorkspace {...p} messages={[message, assistantMessage("已有回答，追加内容")]} />);
     expect(viewport.scrollTop).toBe(217);
     fireEvent.click(screen.getByRole("button", { name: "有新内容 · 回到最新" }));
@@ -602,12 +613,17 @@ describe("ChatWorkspace", () => {
     selection?.removeAllRanges();
     selection?.addRange(range);
     fireEvent.mouseUp(passage);
-    fireEvent.click(screen.getByRole("button", { name: "针对这段提问" }));
+    const quote = screen.getByRole("button", { name: "针对这段提问" });
+    expect(quote.closest(".message-footer")).toBeInTheDocument();
+    fireEvent.click(quote);
     expect(screen.getByRole("textbox", { name: "输入消息" })).toHaveValue("> 可以核对的句子\n\n针对这段：");
     fireEvent.click(screen.getByRole("button", { name: "导出对话" }));
     expect(onExportConversation).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "删除这轮问答" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除这轮问答" }));
+    const confirmation = within(screen.getByRole("dialog", { name: "删除这轮问答" })).getByRole("button", { name: "确认删除这轮问答" });
+    expect(screen.getByRole("log").contains(confirmation)).toBe(false);
+    expect(onDeleteTurn).not.toHaveBeenCalled();
+    fireEvent.click(confirmation);
     expect(onDeleteTurn).toHaveBeenCalledWith(message.id);
   });
 
@@ -750,8 +766,8 @@ describe("ChatWorkspace", () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "保留正在编辑的内容" } });
     expect(hint).toHaveAttribute("aria-hidden", "false");
-    const attachment = screen.getByRole("button", { name: "添加附件" });
-    expect(within(screen.getByRole("group", { name: "输入选项" })).getByRole("button", { name: "添加附件" })).toBe(attachment);
+    const attachment = screen.getByRole("button", { name: "添加资料" });
+    expect(within(screen.getByRole("group", { name: "输入选项" })).getByRole("button", { name: "添加资料" })).toBe(attachment);
     expect(attachment).toHaveTextContent("添加资料");
     fireEvent.blur(input, { relatedTarget: attachment });
     fireEvent.focus(attachment);
@@ -770,14 +786,46 @@ describe("ChatWorkspace", () => {
     expect(input).toHaveAttribute("maxlength", "200000");
   });
 
-  it("opens file selection from the compact attachment button", () => {
+  it("opens the real upload and library actions without changing or sending the draft", async () => {
     const props = renderChat();
+    const input = screen.getByRole("textbox", { name: "输入消息" });
+    const trigger = screen.getByRole("button", { name: "添加资料" });
     const fileInput = props.view.container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const choose = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
-    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    fireEvent.change(input, { target: { value: "已有草稿" } });
+
+    act(() => trigger.focus());
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(choose).not.toHaveBeenCalled();
+    const options = within(screen.getByRole("menu", { name: "资料选项" }));
+    const upload = options.getByRole("menuitem", { name: "上传文件" });
+    const library = options.getByRole("menuitem", { name: "打开文件库" });
+    await waitFor(() => expect(upload).toHaveFocus());
+    fireEvent.keyDown(upload, { key: "ArrowDown" });
+    await waitFor(() => expect(library).toHaveFocus());
+    fireEvent.keyDown(library, { key: "Escape" });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "上传文件" }));
     expect(choose).toHaveBeenCalledOnce();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "打开文件库" }));
+    expect(props.onOpenLibrary).toHaveBeenCalledOnce();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(input);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(input).toHaveValue("已有草稿");
+    expect(props.onSend).not.toHaveBeenCalled();
+
+    fireEvent.click(trigger);
     props.view.rerender(<ChatWorkspace {...props} attachmentBusy />);
     expect(screen.getByRole("button", { name: "附件处理中" })).toBeDisabled();
+    expect(screen.queryByRole("menu", { name: "资料选项" })).not.toBeInTheDocument();
   });
 
   it.each(["page", "dock"] as const)("keeps the model picker and send button but no kernel control in the %s composer", (density) => {
@@ -1355,7 +1403,7 @@ describe("ChatWorkspace", () => {
   it("keeps the opening hint visible and separates supporting tools from model and send actions", () => {
     const props = renderChat([]);
     const tools = screen.getByRole("group", { name: "输入选项" });
-    expect(within(tools).getByRole("button", { name: "添加附件" })).toHaveTextContent("添加资料");
+    expect(within(tools).getByRole("button", { name: "添加资料" })).toHaveTextContent("添加资料");
     expect(within(tools).getByRole("button", { name: "联网搜索" })).toHaveAttribute("aria-pressed", "false");
     expect(within(tools).queryByRole("button", { name: /切换模型/ })).not.toBeInTheDocument();
     const actions = props.view.container.querySelector(".composer-primary-actions") as HTMLElement;
@@ -1382,7 +1430,7 @@ describe("ChatWorkspace", () => {
     await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("帮我润色这句话", [], [], false));
   });
 
-  it("keeps saved-material access out of the composer while retaining analysis context", () => {
+  it("keeps saved-material navigation inside the closed resource disclosure while retaining analysis context", () => {
     const onOpenLibrary = vi.fn();
     const onSend = vi.fn();
     render(
@@ -1423,7 +1471,7 @@ describe("ChatWorkspace", () => {
       />
     );
 
-    expect(screen.queryByRole("button", { name: "查看已保存资料" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "打开文件库" })).not.toBeInTheDocument();
     expect(screen.queryByText("已保存资料", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByText("示例公司 · 后端")).toBeInTheDocument();
     expect(screen.queryByText("分析")).not.toBeInTheDocument();
@@ -1537,7 +1585,11 @@ describe("ChatWorkspace", () => {
     expect(document.querySelector(".message-run-result")).not.toBeInTheDocument();
     expect(screen.getByLabelText("输出结果")).toHaveTextContent("你指的是哪家公司？");
 
-    fireEvent.click(screen.getByRole("button", { name: "字节跳动" }));
+    const proceed = within(clarifier).getByRole("button", { name: "继续" });
+    expect(proceed).toBeDisabled();
+    fireEvent.click(within(clarifier).getByRole("radio", { name: "字节跳动" }));
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.click(proceed);
     expect(onSend).toHaveBeenCalledWith("按字节跳动继续", [], [], false);
     expect(onSuggestedAction).not.toHaveBeenCalled();
   });

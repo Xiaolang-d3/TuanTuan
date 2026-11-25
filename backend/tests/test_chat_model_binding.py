@@ -91,7 +91,7 @@ class ChatModelBindingTest(unittest.TestCase):
         with patch.object(execution, "get_agent_runtime", return_value=runtime) as resolve:
             response = self.stream("public-binding")
         self.assertEqual(response.status_code, 200)
-        resolve.assert_called_once_with(None, user_content="你好")
+        resolve.assert_called_once_with(None, selection=None, user_content="你好", has_image_input=False, allow_chatgpt_subscription=True)
         self.assertNotIn("secret_ref", response.text)
         messages = self.client.get(f"/chat/messages?conversation_id={self.conversation['id']}").json()
         agent = messages[-1]["payload"]["agent"]
@@ -105,7 +105,7 @@ class ChatModelBindingTest(unittest.TestCase):
         with patch.object(execution, "get_agent_runtime", return_value=runtime) as resolve:
             response = self.stream("auto-image", {"modelProfileId": "chat-model"}, content=prompt)
         self.assertEqual(response.status_code, 200)
-        resolve.assert_called_once_with("chat-model", user_content=prompt)
+        resolve.assert_called_once_with("chat-model", selection=None, user_content=prompt, has_image_input=False, allow_chatgpt_subscription=True)
         self.assertEqual(runtime.calls[0]["model_selection"]["selection_reason"], "image_intent")
         self.assertEqual(runtime.calls[0]["model_selection"]["profile_id"], "image-model")
 
@@ -117,7 +117,7 @@ class ChatModelBindingTest(unittest.TestCase):
             response = self.stream("repeat-image", content="再生成一张")
             self.assertEqual(response.status_code, 200)
             followup.assert_called_once_with("再生成一张", self.conversation["id"])
-            resolve.assert_called_once_with(None, user_content=prompt)
+            resolve.assert_called_once_with(None, selection=None, user_content=prompt, has_image_input=False, allow_chatgpt_subscription=True)
             replay = self.stream("repeat-image", content="改成其他内容")
             self.assertEqual(replay.status_code, 200)
             self.assertEqual(followup.call_count, 1)
@@ -137,7 +137,7 @@ class ChatModelBindingTest(unittest.TestCase):
         with patch.object(execution, "load_run_snapshot", return_value=snapshot), patch.object(execution, "get_agent_runtime", return_value=BoundRuntime(binding)) as resolve:
             response = self.stream("resume-waiting", {"modelProfileId": "new-model"}, content="继续")
         self.assertEqual(response.status_code, 200)
-        resolve.assert_called_once_with(selection=binding)
+        resolve.assert_called_once_with(None, selection=binding, user_content=None, has_image_input=False, allow_chatgpt_subscription=True)
 
     def test_removed_historical_version_fails_before_saving_a_user_turn(self):
         snapshot = AgentRunSnapshot(route_kind="conversation", needs_plan=False, model_selection=selection(), resume_mode="checkpoint")

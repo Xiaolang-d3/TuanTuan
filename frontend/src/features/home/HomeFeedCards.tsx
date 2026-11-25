@@ -1,5 +1,6 @@
-import { useState, type CSSProperties } from "react";
-import { Bookmark, ExternalLink, GitFork, Github, MoreHorizontal, Newspaper, Package, Star, TrendingUp, TriangleAlert } from "lucide-react";
+import { useRef, useState, type CSSProperties } from "react";
+import { Bookmark, Copy, ExternalLink, EyeOff, FolderPlus, GitFork, Github, MoreHorizontal, Newspaper, Package, Sparkles, Star, TrendingUp, TriangleAlert } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent } from "../../components/ui/DropdownMenu";
 import type { HomeArticle, HomeReadableItem, HomeRelease, HomeRepository } from "./types";
 
 export const TOPIC_LABELS: Record<string, string> = {
@@ -35,20 +36,47 @@ export function releaseReadable(item: HomeRelease): HomeReadableItem {
   return { kind: "release", id: item.id, title: `${item.name} ${item.version}`, summary: item.changes.join("\n"), url: item.url, source: item.repo, published_at: item.published_at };
 }
 
+export type FeedMenuAction = "bookmark" | "save" | "analyze" | "copy" | "hide";
+export type OnFeedMenuAction = (action: FeedMenuAction, item: HomeReadableItem, trigger: HTMLButtonElement) => void;
+
 type ActionsProps = {
   item: HomeReadableItem;
   bookmarked: boolean;
   busy: boolean;
   onBookmark: () => void;
-  onMore: (item: HomeReadableItem, anchor: HTMLButtonElement) => void;
-  openItemId: string | null;
+  onMenuAction: OnFeedMenuAction;
 };
 
-export function FeedActions({ item, bookmarked, busy, onBookmark, onMore, openItemId }: ActionsProps) {
+export function FeedActions({ item, bookmarked, busy, onBookmark, onMenuAction }: ActionsProps) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const openingSaveDialog = useRef(false);
+  const actions = [
+    { id: "bookmark", label: bookmarked ? "取消收藏" : "收藏", icon: Bookmark },
+    { id: "save", label: "存入文件库", icon: FolderPlus },
+    { id: "analyze", label: "交给 AI 分析", icon: Sparkles },
+    { id: "copy", label: "复制链接", icon: Copy },
+    { id: "hide", label: "隐藏此条", icon: EyeOff }
+  ] as const;
+
   return <div className="home-actions">
     {validWebUrl(item.url) && <a className="home-act home-primary" href={item.url} target="_blank" rel="noreferrer" title="打开原文" aria-label={`打开原文：${item.title}`}><ExternalLink size={14} /><span className="home-action-label">打开原文</span></a>}
     <button className={`home-act home-bookmark${bookmarked ? " on" : ""}`} type="button" disabled={busy} aria-pressed={bookmarked} aria-label={`${bookmarked ? "取消收藏" : "收藏"}：${item.title}`} title={bookmarked ? "取消收藏" : "收藏"} onClick={onBookmark}><Bookmark size={14} /><span className="home-action-label">{bookmarked ? "已收藏" : "收藏"}</span></button>
-    <button className={`home-act${openItemId === item.id ? " open" : ""}`} type="button" aria-label={`更多：${item.title}`} title="更多" aria-haspopup="menu" aria-expanded={openItemId === item.id} onClick={(event) => onMore(item, event.currentTarget)}><MoreHorizontal size={16} /></button>
+    <DropdownMenu.Root modal={false} onOpenChange={(open) => { if (open) openingSaveDialog.current = false; }}>
+      <DropdownMenu.Trigger ref={trigger} className="home-act" aria-label={`更多：${item.title}`} title="更多"><MoreHorizontal size={16} aria-hidden="true" /></DropdownMenu.Trigger>
+      <DropdownMenuContent className="home-menu" aria-label={`更多操作：${item.title}`} align="end" sideOffset={6} finalFocus={() => !openingSaveDialog.current}>
+        {actions.map(({ id, label, icon: Icon }) => <DropdownMenu.Item
+          key={id}
+          render={<button type="button" />}
+          nativeButton
+          onClick={() => {
+            if (trigger.current) {
+              openingSaveDialog.current = id === "save";
+              onMenuAction(id, item, trigger.current);
+            }
+          }}
+        ><Icon size={16} aria-hidden="true" />{label}</DropdownMenu.Item>)}
+      </DropdownMenuContent>
+    </DropdownMenu.Root>
   </div>;
 }
 

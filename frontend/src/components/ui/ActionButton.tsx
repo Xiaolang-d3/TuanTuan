@@ -1,6 +1,7 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Button } from "@base-ui/react/button";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
-type ActionButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type ActionButtonProps = ComponentPropsWithRef<"button"> & {
   variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "sm" | "md";
   icon?: ReactNode;
@@ -16,13 +17,13 @@ export function ActionButton({
   ...props
 }: ActionButtonProps) {
   return (
-    <button
+    <Button
       type={type}
       className={`ui-button ui-button-${variant} ui-button-${size} ${className}`.trim()}
       {...props}
     >
       {icon}
       <span>{children}</span>
-    </button>
+    </Button>
   );
 }

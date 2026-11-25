@@ -47,7 +47,7 @@
 :root[data-theme="dark"] .app-topbar { background: var(--color-bg); border-color: var(--color-border); }
 :root[data-theme="dark"] :is(.app-topbar-context h1, .sidebar.shell-light .brand strong, .app-identity-name) { color: var(--color-text); }
 :root[data-theme="dark"] :is(.app-identity-menu, .sidebar-identity-menu, .conversation-dialog, .ui-panel-emphasis, .account-card, .library-foundation-card, .library-source-workspace, .auth-form-panel) { background: var(--color-surface); border-color: var(--color-border); color: var(--color-text); }
-:root[data-theme="dark"] :is(.app-identity-menu button, .sidebar-identity-menu button, .sidebar-identity, .account-avatar-actions button) { color: var(--color-text-secondary); }
+:root[data-theme="dark"] :is(.sidebar-identity, .account-avatar-actions button) { color: var(--color-text-secondary); }
 :root[data-theme="dark"] :is(.account-settings-page, .model-settings-page, .settings-workspace, .conversation-dialog, .auth-form-panel) :is(input:not([type="radio"]):not([type="checkbox"]), textarea, select) { color: var(--color-text); background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
 :root[data-theme="dark"] :is(.sidebar .sidebar-toggle, .account-avatar-actions button, .model-settings-card, .model-monitor-card, .agent-window-switch button.active) { background: var(--color-surface); border-color: var(--color-border); }
 :root[data-theme="dark"] :is(.ui-button-primary, .account-primary-button, .file-library .fl-button.primary) { color: var(--color-on-brand); background: var(--color-brand); border-color: var(--color-brand); }
@@ -71,7 +71,7 @@
 :root[data-theme="dark"] .chat-workspace .research-source-list em.is-high { background: var(--color-success-soft); color: var(--color-success); }
 :root[data-theme="dark"] .chat-workspace .research-source-list em.is-review { background: var(--color-warning-soft); color: var(--color-warning); }
 :root[data-theme="dark"] .chat-workspace .conversation-history-item.active { background: var(--color-brand-soft); }
-:root[data-theme="dark"] .chat-workspace :is(.conversation-history-item:hover, .conversation-history-menu button:hover) { background: var(--color-surface-subtle); }
+:root[data-theme="dark"] .chat-workspace :is(.conversation-history-item:hover, .conversation-history-menu [data-highlighted]) { background: var(--color-surface-subtle); }
 :root[data-theme="dark"] .chat-workspace :is(.chat-retry-prompt, .task-prompt.attention) { background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning); }
 :root[data-theme="dark"] .chat-workspace .chat-retry-prompt button { background: var(--color-surface); color: var(--color-warning); border-color: var(--color-warning); }
 :root[data-theme="dark"] .chat-workspace .chat-composer .composer-input { background: var(--color-surface) !important; border-color: var(--color-border) !important; }
@@ -98,11 +98,10 @@
   --fl-danger: var(--color-danger);
   --fl-danger-bg: var(--color-danger-soft);
 }
-:root[data-theme="dark"] :is(.action-dialog, .auth-email-suggestions) { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
-:root[data-theme="dark"] :is(.action-dialog input, .auth-email-suggestions button) { color: var(--color-text-secondary); }
+:root[data-theme="dark"] .action-dialog { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
+:root[data-theme="dark"] :is(.action-dialog input, .auth-email-suggestions [role="option"]) { color: var(--color-text-secondary); }
 :root[data-theme="dark"] .action-dialog input { background: var(--color-surface-subtle); border-color: var(--color-border-strong); }
-:root[data-theme="dark"] .app-identity-menu button:hover,
-:root[data-theme="dark"] .auth-email-suggestions button:hover { background: var(--color-surface-subtle); color: var(--color-text); }
+:root[data-theme="dark"] .auth-email-suggestions [data-highlighted] { background: var(--color-surface-subtle); color: var(--color-text); }
 :root[data-theme="dark"] .chat-workspace .message-markdown :is(h1, h2, h3, h4, h5, h6) { color: var(--color-text); }
 :root[data-theme="dark"] .chat-workspace .message-markdown a { color: var(--color-brand-strong); }
 :root[data-theme="dark"] .chat-workspace .message-markdown blockquote { color: var(--color-text-secondary); border-color: var(--color-brand); }

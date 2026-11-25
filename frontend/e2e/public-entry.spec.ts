@@ -1,41 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, test, type Page } from "./test-fixtures";
+import { expect, test } from "./test-fixtures";
+import { icpNumber, icpUrl, mockHostedSite } from "./hosted-site";
 import { tokenStorageKey } from "../src/features/auth/session";
 
-const icpNumber = "鄂ICP备2026067631号-1";
-const icpUrl = "https://beian.miit.gov.cn/";
 const fallbackIcpLink = `body > a[href="${icpUrl}"]`;
 
-async function mockHostedSite(page: Page, baseURL: string | undefined, responses: Record<string, unknown> = {}) {
-  // Serve only local fixtures, even while exercising the production hostname.
-  await page.route("https://xiaocheng.online/**", async (route) => {
-    const url = new URL(route.request().url());
-    const path = url.pathname.replace(/^\/api\//, "/");
-    if (path === "/auth/config") {
-      await route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } });
-      return;
-    }
-    if (path in responses) {
-      await route.fulfill({ json: responses[path] });
-      return;
-    }
-    if (path !== "/" && !path.startsWith("/assets/") && !/\.[a-z0-9]+$/i.test(path)) {
-      await route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } });
-      return;
-    }
-    const local = new URL(url.pathname + url.search, baseURL);
-    const response = await route.fetch({ url: local.href, maxRedirects: 0 });
-    if (path !== "/") {
-      await route.fulfill({ response });
-      return;
-    }
-    const legacy = `<a href="${icpUrl}" style="position:fixed;bottom:2px;right:8px">${icpNumber}</a>`;
-    await route.fulfill({ response, body: (await response.text()).replace("</body>", `${legacy}</body>`) });
-  });
-}
-
-test("the sign-in page shows the mascot on desktop and links to the product page at both sizes", async ({ page }) => {
+test("the sign-in page links to the product page across viewport sizes", async ({ page }) => {
   await page.route("**/auth/config", (route) => route.fulfill({ json: { enabled: true, setup_required: false, registration_open: true } }));
   const evidenceDir = resolve(import.meta.dirname, "../../output/playwright");
   await mkdir(evidenceDir, { recursive: true });
@@ -46,28 +17,11 @@ test("the sign-in page shows the mascot on desktop and links to the product page
     const signIn = page.getByRole("form", { name: "欢迎登录" });
     await expect(signIn).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("heading", { name: "团团", exact: true })).toBeVisible();
-    const cardMascot = signIn.locator('img[src="/tuantuan-favicon.png"]');
-    if (viewport.width <= 480) {
-      await expect(cardMascot).toBeVisible();
-      await expect(cardMascot).toHaveJSProperty("naturalWidth", 64);
-    } else {
-      await expect(cardMascot).toBeHidden();
-    }
+    await expect(page.locator('.auth-header img[src="/tuantuan-mark.svg"]')).toBeVisible();
+    await expect(signIn.locator('img[src="/tuantuan-mark.svg"], img[src="/tuantuan-favicon.png"]')).toHaveCount(0);
+    await expect(page.locator(".auth-hero").getByRole("heading", { level: 2 })).toBeInViewport();
     await expect(page.getByRole("heading", { name: /理解你的想法/ })).toHaveCount(0);
     const card = (await signIn.boundingBox())!;
-    const mascot = page.locator(".auth-artwork img");
-    if (viewport.width > 860) {
-      await expect(mascot).toBeInViewport({ ratio: 1 });
-      await expect(mascot).toHaveJSProperty("naturalWidth", 1448);
-      const image = (await mascot.boundingBox())!;
-      expect(image.x + image.width).toBeLessThan(card.x);
-      expect(image.y + image.height / 2).toBeCloseTo(card.y + card.height / 2, 0);
-    } else {
-      await expect(mascot).toBeHidden();
-      expect(card.x + card.width / 2).toBeCloseTo(viewport.width / 2, 0);
-    }
-    expect(card.width).toBeLessThanOrEqual(432);
-    await page.screenshot({ path: resolve(evidenceDir, `login-only-${viewport.width}.png`), animations: "disabled" });
     const aboutLink = page.getByRole("link", { name: "关于 团团" });
     const aboutBounds = await aboutLink.boundingBox();
     expect(aboutBounds).not.toBeNull();

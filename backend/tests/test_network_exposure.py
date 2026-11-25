@@ -175,13 +175,12 @@ def test_public_brand_asset_path_bypasses_login() -> None:
     response = client.get("/tuantuan-legacy-mark-v2.png")
     expected_status = 200 if (FRONTEND_DIST_DIR / "tuantuan-legacy-mark-v2.png").is_file() else 404
     assert response.status_code == expected_status
-    # tuantuan-mark.svg 已随品牌切换移除；白名单不应再放行不存在的文件。
-    assert client.get("/tuantuan-mark.svg").status_code == 401
 
 
 @pytest.mark.parametrize("filename", [
     "tuantuan-logo.png",
     "tuantuan-favicon.png",
+    "tuantuan-mark.svg",
     "tuantuan-legacy-icon-v1.png",
     "tuantuan-legacy-mark-v1.png",
     "tuantuan-legacy-favicon-v1.png",
@@ -191,9 +190,10 @@ def test_public_brand_asset_path_bypasses_login() -> None:
 def test_current_public_images_load_without_authorization(tmp_path, filename: str) -> None:
     # Exercise the production middleware and a real static mount even when CI
     # has not built frontend/dist. Browsers do not attach bearer tokens to img.
-    asset_content = b"public image fixture"
+    asset_content = (FRONTEND_DIST_DIR.parent / "public" / filename).read_bytes()
     (tmp_path / filename).write_bytes(asset_content)
     (tmp_path / "private.png").write_bytes(b"not a public asset")
+    (tmp_path / "private.svg").write_text("<svg/>", encoding="utf-8")
     static_app = FastAPI()
     static_app.middleware("http")(require_login)
     static_app.mount("/", StaticFiles(directory=tmp_path), name="frontend")
@@ -206,6 +206,7 @@ def test_current_public_images_load_without_authorization(tmp_path, filename: st
     assert response.headers["content-type"].startswith("image/")
     assert "immutable" not in response.headers.get("cache-control", "")
     assert client.get("/private.png").status_code == 401
+    assert client.get("/private.svg").status_code == 401
     assert client.get("/library").status_code == 401
 
 

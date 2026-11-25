@@ -39,6 +39,7 @@ class DshLaunch:
 class Notification:
     method: str
     params: dict[str, Any]
+    rpc_id: str | int | None = None
 
 
 class DshJsonRpcClient:
@@ -72,7 +73,10 @@ class DshJsonRpcClient:
 
     @property
     def running(self) -> bool:
-        return self._process is not None and self._process.returncode is None
+        return (
+            not self._closed and self._process is not None and self._process.returncode is None
+            and self._reader_task is not None and not self._reader_task.done()
+        )
 
     async def start(self) -> None:
         if self._process is not None:
@@ -107,7 +111,7 @@ class DshJsonRpcClient:
             if not isinstance(message, dict):
                 continue
             if "method" in message:
-                notification = Notification(str(message["method"]), message.get("params") or {})
+                notification = Notification(str(message["method"]), message.get("params") or {}, message.get("id"))
                 if message["method"] in {"approval/request", "user-question/ask"}:
                     self._requests.put_nowait(notification)
                 else:

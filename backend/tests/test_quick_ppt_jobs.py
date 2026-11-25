@@ -2,6 +2,8 @@ import json
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from xml.sax.saxutils import escape
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +32,8 @@ def hosted(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "default.db")
     monkeypatch.setenv("TUANTUAN_DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("TUANTUAN_QUICK_PPT_IMAGE", IMAGE)
+    # Tests advance jobs explicitly; never race the API's background worker.
+    monkeypatch.setattr("app.jobs.worker.JobWorkerManager.start", lambda self: None)
     db.init_db()
     jobs = JobService()
     quick_worker.register_quick_handler(jobs)
@@ -111,10 +115,31 @@ def test_word_and_text_pdf_use_existing_attachment_parsing(hosted):
     assert rejected.status_code == 422 and "部分页面无法读取" in rejected.text
 
 
+def editable_deck_bytes(plan):
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    rel = "http://schemas.openxmlformats.org/package/2006/relationships"
+    ct = "http://schemas.openxmlformats.org/package/2006/content-types"
+    buffer = BytesIO()
+    page_ids, links = [], []
+    with ZipFile(buffer, "w") as package:
+        for number, slide in enumerate(plan["slides"], 1):
+            page_ids.append(f'<p:sldId id="{255 + number}" r:id="rId{number}"/>')
+            links.append(f'<Relationship Id="rId{number}" Type="{r}/slide" Target="slides/slide{number}.xml"/>')
+            values = [slide["title"], slide["takeaway"], *(item[key] for item in slide["items"] for key in ("label", "text"))]
+            shapes = "".join(f'<p:sp><p:txBody><a:p><a:r><a:t>{escape(value)}</a:t></a:r></a:p></p:txBody></p:sp>' for value in values)
+            package.writestr(f"ppt/slides/slide{number}.xml", f'<p:sld xmlns:p="{p}" xmlns:a="{a}"><p:cSld><p:spTree>{shapes}</p:spTree></p:cSld></p:sld>')
+        package.writestr("[Content_Types].xml", f'<Types xmlns="{ct}"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>')
+        package.writestr("ppt/presentation.xml", f'<p:presentation xmlns:p="{p}" xmlns:r="{r}"><p:sldIdLst>{"".join(page_ids)}</p:sldIdLst></p:presentation>')
+        package.writestr("ppt/_rels/presentation.xml.rels", f'<Relationships xmlns="{rel}">{"".join(links)}</Relationships>')
+    return buffer.getvalue()
+
+
 @pytest.mark.anyio
-@pytest.mark.parametrize("preview_ok", [True, False])
-async def test_worker_publishes_editable_result_even_if_preview_fails(hosted, monkeypatch, preview_ok):
-    owner, _, conversation, user_id, jobs = hosted
+@pytest.mark.parametrize("preview_ok,deck_mode", [(True, "correct"), (False, "correct"), (True, "corrupt"), (True, "wrong_content")])
+async def test_worker_verifies_editable_deck_before_publishing(hosted, monkeypatch, preview_ok, deck_mode):
+    owner, other, conversation, user_id, jobs = hosted
     attachment_id = upload(owner, conversation, "资料.txt", "任务拆解；联系邮箱：private@example.test".encode())
     submission = owner.post("/presentations/quick", json={"topic": "智能体架构", "conversation_id": conversation, "attachment_ids": [attachment_id], "idempotency_key": "generate"})
     assert submission.status_code == 201, submission.text
@@ -143,9 +168,13 @@ async def test_worker_publishes_editable_result_even_if_preview_fails(hosted, mo
         async def exec(self, argv, timeout):
             assert argv[:3] == ["python3", "-I", "/opt/quick-ppt/run.py"]
             files = WorkspaceFiles(root / "jobs" / job_id / self.directory)
-            assert json.loads(files.read("plan.json"))["title"] == "智能体架构"
+            plan = json.loads(files.read("plan.json"))
+            assert plan["title"] == "智能体架构"
             if argv[-1] == "export":
-                files.write("deck.pptx", b"mock editable deck")
+                if deck_mode == "wrong_content":
+                    plan["slides"][1]["items"][0]["text"] = "模型未确认的内容"
+                self.deck_bytes = b"not a zip" if deck_mode == "corrupt" else editable_deck_bytes(plan)
+                files.write("deck.pptx", self.deck_bytes)
             elif preview_ok:
                 for page in range(1, 4):
                     files.write(f"previews/{page:02}.png", b"mock page preview")
@@ -167,8 +196,14 @@ async def test_worker_publishes_editable_result_even_if_preview_fails(hosted, mo
 
     monkeypatch.setattr(quick_worker.ContainerBackend, "prepare", prepare)
     job = await JobWorker(jobs).run_once(user_id, root)
-    assert job["status"] == "succeeded", job["error"]
     assert calls == ["quick_plan"] and runner.stopped
+    if deck_mode != "correct":
+        assert job["status"] == "failed", job
+        assert "未通过交付校验" in str(job["error"])
+        listing = owner.get(f"/jobs/{job_id}/artifacts")
+        assert listing.status_code == 200 and listing.json()["artifacts"] == []
+        return
+    assert job["status"] == "succeeded", job["error"]
     with use_workspace(user_id, root):
         context = ExtensionContext.current()
         result = public_presentation(job)
@@ -177,4 +212,13 @@ async def test_worker_publishes_editable_result_even_if_preview_fails(hosted, mo
         assert len(artifacts) == (4 if preview_ok else 1)
         deck = artifacts[0]
         assert Path(deck["filename"]).suffix == ".pptx"
-        assert ArtifactService(jobs.repository).resolve(deck["id"], deck["version"], context).read_bytes() == b"mock editable deck"
+        assert ArtifactService(jobs.repository).resolve(deck["id"], deck["version"], context).read_bytes() == runner.deck_bytes
+    route = f"/artifacts/{deck['id']}/versions/{deck['version']}/file"
+    response = owner.get(route)
+    assert response.status_code == 200
+    assert response.content == runner.deck_bytes
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    with ZipFile(BytesIO(response.content)) as downloaded:
+        assert downloaded.testzip() is None
+        assert "检查结果".encode() in downloaded.read("ppt/slides/slide2.xml")
+    assert other.get(route).status_code == 404

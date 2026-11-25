@@ -13,6 +13,11 @@ from ..domain import AgentMessage, ModelResponse
 # Inline Markdown destinations, including one balanced pair of parentheses.
 _LINK = re.compile(r"\[(?:\\.|[^\]\\])*\]\(\s*(?P<url><?https?://(?:\\.|[^\s()<>\\]|\([^\s()]*\))+>?)\s*\)")
 _PERCENT = re.compile(r"%[0-9a-fA-F]{2}")
+_WEB_REFERENCE = re.compile(r"\[\[web:(W[0-9]+)\]\]")
+_FACT_CHECK_REQUEST = re.compile(
+    r"核实|核查|查证|事实核对|验证真假|辨别真假|fact[- ]check|verify\b|check whether",
+    re.IGNORECASE,
+)
 MAX_REPAIR_CONTEXT_CHARS = 24000
 
 
@@ -48,6 +53,23 @@ def canonical_url(value: str) -> str:
 
 def cited_urls(content: str) -> set[str]:
     return {canonical_url(match.group("url")) for match in _LINK.finditer(content)}
+
+
+def requests_web_fact_check(content: str) -> bool:
+    content = re.sub(r"(?:不必|不用|不要|无需|不需要)(?:逐条|逐项)?(?:核实|核查|查证|事实核对)", "", content)
+    content = re.sub(r"\b(?:do not|don't|no need to)\s+(?:fact[- ]check|verify|check whether)", "", content, flags=re.IGNORECASE)
+    return bool(_FACT_CHECK_REQUEST.search(content))
+
+
+def render_web_references(content: str, sources: dict[str, str]) -> str:
+    def render(match: re.Match[str]) -> str:
+        url = sources.get(match.group(1))
+        if url is None:
+            return "（来源未匹配）"
+        destination = quote(url, safe=":/?#[]@!$&'()*+,;=%").replace("&", "&amp;")
+        return f"[来源](<{destination}>)"
+
+    return _WEB_REFERENCE.sub(render, content)
 
 
 def evidence_cards(messages: list[AgentMessage], draft: str) -> list[dict]:

@@ -209,13 +209,17 @@ describe("developer HomePage", () => {
   it("supports menu keyboard navigation, Escape, focus return, hide and undo", async () => {
     const page = setup(); page.render(); await load();
     const opener = screen.getByRole("button", { name: "更多：测试 Agent 更新 1" });
-    fireEvent.click(opener);
+    opener.focus();
+    fireEvent.keyDown(opener, { key: "ArrowDown" });
     const menu = screen.getByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: "收藏" })).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
-    expect(within(menu).getByRole("menuitem", { name: "存入文件库" })).toHaveFocus();
-    fireEvent.keyDown(menu, { key: "Escape" });
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument(); expect(opener).toHaveFocus();
+    const bookmark = within(menu).getByRole("menuitem", { name: "收藏" });
+    const save = within(menu).getByRole("menuitem", { name: "存入文件库" });
+    await waitFor(() => expect(bookmark).toHaveFocus());
+    fireEvent.keyDown(bookmark, { key: "ArrowDown" });
+    expect(save).toHaveFocus();
+    fireEvent.keyDown(save, { key: "Escape" });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await waitFor(() => expect(opener).toHaveFocus());
     fireEvent.click(opener); fireEvent.click(screen.getByRole("menuitem", { name: "隐藏此条" }));
     await waitFor(() => expect(screen.queryByRole("link", { name: "测试 Agent 更新 1" })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "撤销" }));
@@ -236,6 +240,49 @@ describe("developer HomePage", () => {
     expect(JSON.parse(String(saved[1]?.body))).toEqual(expect.objectContaining({ title: "编辑后的资讯标题", privacy_mode: "redacted", content: expect.stringContaining("https://example.test/news/1") }));
     expect(page.onAnalyze).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog", { name: "存入文件库" })).not.toBeInTheDocument();
+  });
+
+  it("hands off from favorites to save and retains the dialog while the request is pending", async () => {
+    const initial = fixtureFeed();
+    initial.bookmarks = [{ kind: "news", item: initial.news[0] }];
+    initial.item_states[initial.news[0].id] = { bookmarked: true, hidden: false };
+    const page = setup(initial);
+    let finishSave!: () => void;
+    const pendingSave = new Promise<void>((resolve) => { finishSave = resolve; });
+    const fetchJson: FetchJson = async (path, options) => {
+      if (path === "/library/sources") await pendingSave;
+      return page.fetchJson(path, options);
+    };
+    render(<HomePage {...page} fetchJson={fetchJson} />); await load();
+    const favoritesTrigger = screen.getByRole("button", { name: "查看收藏" });
+    fireEvent.click(favoritesTrigger);
+    const favorites = screen.getByRole("dialog", { name: "我的收藏" });
+    await waitFor(() => expect(within(favorites).getByRole("button", { name: "关闭" })).toHaveFocus());
+    const more = within(favorites).getByRole("button", { name: "更多：测试 Agent 更新 1" });
+    more.focus();
+    fireEvent.keyDown(more, { key: "ArrowDown" });
+    const unbookmark = screen.getByRole("menuitem", { name: "取消收藏" });
+    await waitFor(() => expect(unbookmark).toHaveFocus());
+    fireEvent.keyDown(unbookmark, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "我的收藏" })).toBe(favorites);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    await waitFor(() => expect(more).toHaveFocus());
+
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "存入文件库" }));
+    expect(screen.queryByRole("dialog", { name: "我的收藏" })).not.toBeInTheDocument();
+    const save = screen.getByRole("dialog", { name: "存入文件库" });
+    const close = within(save).getByRole("button", { name: "关闭" });
+    await waitFor(() => expect(close).toHaveFocus());
+    fireEvent.click(within(save).getByRole("button", { name: "确认存入" }));
+    expect(save).toHaveAttribute("aria-busy", "true");
+    expect(close).toBeDisabled();
+    expect(within(save).getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(save, { key: "Escape" });
+    expect(save).toBeInTheDocument();
+    finishSave();
+    await waitFor(() => expect(save).not.toBeInTheDocument());
+    await waitFor(() => expect(favoritesTrigger).toHaveFocus());
   });
 
   it("keeps the library preview open with an error when saving fails", async () => {

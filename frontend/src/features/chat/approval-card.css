@@ -1,0 +1,15 @@
+.chat-workspace .composer-clarification { gap: 10px; padding: 12px; border-color: var(--color-border); background: var(--color-surface-subtle); }
+.chat-workspace .composer-clarification-head { grid-template-columns: auto minmax(0, 1fr); }
+.chat-workspace .composer-clarification-icon { color: var(--color-brand); background: var(--color-surface); }
+.chat-workspace .composer-clarification-copy strong { color: var(--color-text); overflow-wrap: anywhere; }
+.chat-workspace .composer-clarification-copy > span, .chat-workspace .composer-clarification-hint { color: var(--color-text-secondary); }
+.chat-workspace .composer-clarification-options { display: grid; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.composer-clarification-options legend { padding: 0 0 6px; color: var(--color-text-secondary); font-size: 12px; }
+.composer-clarification-options label { box-sizing: border-box; display: flex; align-items: center; gap: 9px; min-height: 37px; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
+.composer-clarification-options label:has(:checked) { border-color: var(--color-brand); }
+.composer-clarification-options input { flex: none; margin: 0; accent-color: var(--color-brand); }
+.composer-clarification-options:disabled label { cursor: wait; opacity: .6; }
+.approval-custom { box-sizing: border-box; width: 100%; resize: vertical; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: var(--color-text); font: inherit; }
+.approval-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.approval-actions button:disabled { opacity: .55; cursor: not-allowed; }
+@media (pointer: coarse) { .composer-clarification-options label, .approval-actions button { min-height: 44px; } }

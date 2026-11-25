@@ -40,6 +40,41 @@ async function mockWorkspace(page: Page, theme: "light" | "dark", signedIn = tru
   });
 }
 
+test("registration email suggestions support keyboard selection and native Tab at 320px", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await mockWorkspace(page, "dark", false);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "没有账号？创建账号", exact: true }).click();
+  const email = page.getByRole("combobox", { name: "邮箱" });
+  const suggestions = page.getByRole("listbox", { name: "常见邮箱建议" });
+  await email.fill("reader@");
+  await expect(suggestions).toBeInViewport({ ratio: 1 });
+  await email.press("Home");
+  await email.press("End");
+  await email.press("ArrowDown");
+  await email.press("ArrowDown");
+  const choice = suggestions.getByRole("option", { name: "reader@163.com" });
+  await expect(email).toHaveAttribute("aria-activedescendant", (await choice.getAttribute("id"))!);
+  await email.press("Enter");
+  await expect(email).toHaveValue("reader@163.com");
+  await expect(email).toBeFocused();
+  await expect(email).toHaveAttribute("aria-invalid", "false");
+  await expect(suggestions).toBeHidden();
+
+  await email.fill("reader@q");
+  await expect(suggestions).toBeVisible();
+  await email.press("Tab");
+  await expect(page.getByLabel("密码", { exact: true })).toBeFocused();
+  await expect(suggestions).toBeHidden();
+  await expect(email).toHaveValue("reader@q");
+  await email.fill("reader@company.test");
+  await email.press("Escape");
+  await expect(email).toHaveValue("reader@company.test");
+  expect(errors).toEqual([]);
+});
+
 for (const theme of ["light", "dark"] as const) {
   test(`${theme} validation keeps filled fields readable`, async ({ page }) => {
     await mockWorkspace(page, theme, false);
@@ -48,7 +83,7 @@ for (const theme of ["light", "dark"] as const) {
     const email = page.getByLabel("邮箱", { exact: true });
     await email.fill("not-an-email");
     await expect(page.getByRole("listbox", { name: "常见邮箱建议" })).toBeVisible();
-    await page.getByRole("button", { name: "创建账号", exact: true }).click();
+    await page.locator('button[type="submit"]').filter({ hasText: /^创建账号$/ }).click();
     await expect(email).toHaveAttribute("aria-invalid", "true");
     const contrast = await email.evaluate(element => {
       const style = getComputedStyle(element);

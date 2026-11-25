@@ -36,7 +36,14 @@ def resolve_connection(profile_id=None, *, selection=None):
     return get_profile_connection(profile_id, selection=selection)
 
 
+def _require_review_model(connection, *, error_type=ValueError):
+    if (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription"):
+        raise error_type("ChatGPT 订阅仅支持团团对话，不可用于全文审阅")
+
+
 def _text_protocol(connection):
+    _require_review_model(connection)
     configured = connection.get("model_protocol", "auto")
     protocol = (connection.get("detected_protocol") or connection.get("resolved_model_protocol")) if configured == "auto" else configured
     if protocol not in {"openai", "responses", "anthropic", "gemini", "ollama"}:
@@ -131,10 +138,13 @@ class DocumentReviewHandler:
         if frozen_original and not original:
             raise JobExecutionError("原文使用权限已收回，不能继续原任务")
         selection = job["snapshot"]["model_selection"]
+        _require_review_model(selection, error_type=JobExecutionError)
         current = self.resolver(selection.get("profile_id"))
+        _require_review_model(current, error_type=JobExecutionError)
         if not is_bound_selection(selection) or selection_identity(current) != selection_identity(selection):
             raise JobExecutionError("任务绑定的模型版本已变化，不能自动切换模型继续")
         bound = self.resolver(selection=selection)
+        _require_review_model(bound, error_type=JobExecutionError)
         for field in ("credential_fingerprint", "model_name", "model_base_url", "model_protocol", "resolved_model_protocol"):
             if field in selection and bound.get(field) != selection[field]:
                 raise JobExecutionError("任务绑定的模型或凭证已变化，请核对后按当前配置新建任务")

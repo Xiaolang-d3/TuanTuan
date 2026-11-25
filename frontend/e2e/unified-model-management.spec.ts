@@ -66,6 +66,7 @@ test("manages services and cross-service model defaults through the real setting
     if (path === "/channels/weixin/events") return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": mocked local events\n\n" });
     const send = (json: unknown) => route.fulfill({ json });
     if (path === "/agent/settings") return send(savedSettings());
+    if (path === "/agent/chatgpt-subscription") return send({ show_entry: false, available: false, configured: false, plan_enabled: false, status: "unavailable", accounts: [] });
     if (path === "/agent/model-monitor") return send(monitor());
     if (path === "/agent/models/capabilities") return send({ model_name: savedSettings().model_name, provider: "openai", provider_label: "OpenAI", protocol: "openai", protocol_label: "OpenAI", vision: capFlag, streaming: capFlag, tools: capFlag, probed: false, probe_error: null });
     if (path === "/agent/model-connections") {
@@ -196,7 +197,20 @@ test("manages services and cross-service model defaults through the real setting
     await page.getByRole("button", { name: "刷新此服务模型", exact: true }).click();
     await expect.poll(() => requests.filter(item => item.endsWith("/gateway/discover")).length).toBe(gatewayDiscoveries + 1);
     expect(requests.filter(item => item.endsWith("/primary/discover"))).toHaveLength(0);
-    await page.getByRole("combobox", { name: "按服务筛选" }).selectOption("");
+    const serviceFilter = page.getByRole("combobox", { name: "按服务筛选" });
+    const serviceSearch = page.getByRole("combobox", { name: "搜索服务" });
+    const modelSearch = page.getByRole("textbox", { name: "搜索模型" });
+    await serviceFilter.click();
+    await serviceSearch.fill("全部");
+    await modelSearch.click();
+    await expect(serviceFilter).toHaveAttribute("aria-expanded", "false");
+    await expect(modelSearch).toBeFocused();
+    await expect(model(/^gpt[- ]4\.1$/i)).toHaveCount(1);
+    await serviceFilter.click();
+    await expect(serviceSearch).toHaveValue("");
+    await serviceSearch.fill("全部");
+    await page.getByRole("option", { name: "全部服务" }).click();
+    await expect(serviceFilter).toHaveAttribute("aria-expanded", "false");
     await expect(model(/^gpt[- ]4\.1$/i)).toHaveCount(2);
     await manageModel("GPT 4.1 · gateway.example.test · gpt-4.1");
     await management.getByRole("button", { name: "设为文本默认", exact: true }).click();

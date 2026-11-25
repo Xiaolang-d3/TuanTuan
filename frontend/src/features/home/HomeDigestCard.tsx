@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEventHandler } from "react";
 import { ChevronDown, ChevronUp, Newspaper, RefreshCw, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { formatPublished } from "./HomeFeedCards";
 import type { HomeDigest } from "./types";
@@ -8,7 +8,7 @@ type HomeDigestCardProps = {
   loading: boolean;
   now: Date;
   onRegenerate: () => void;
-  onOpenInterest: () => void;
+  onOpenInterest: MouseEventHandler<HTMLButtonElement>;
 };
 
 function DigestSkeleton({ lines = 3 }: { lines?: number }) {

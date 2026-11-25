@@ -7,6 +7,7 @@ from .model_router import ModelRouter, bind_image_model, bind_model_stages, bind
 from ..observability.model_context import public_model_selection
 from ..config import get_settings
 from ..models import ModelProviderRegistry, build_model_provider
+from ..models.selection import is_chatgpt_subscription
 from ..model_protocol import protocol_requires_api_key
 from ..research.search import public_search_capabilities
 from ..tools import AskUserTool, SearchPublicWebTool, ToolRegistry
@@ -20,6 +21,7 @@ from ..workspace import current_user_id
 _components: dict[tuple[Any, ...], tuple[AgentRuntime, dict[str, Any]]] = {}
 
 SETUP_MESSAGE = "必须先在设置中配置模型服务 API Key 后才能使用对话 Agent"
+_SUBSCRIPTION_REAUTHORIZE = "ChatGPT 订阅授权不可用，请在模型设置中重新登录或切回该账号"
 
 
 def get_profile_connection(profile_id: str | None = None, *, selection: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -43,20 +45,23 @@ def _routing_revision() -> int:
 def _runtime_cache_key(connection: dict[str, Any]) -> tuple[Any, ...]:
     from ..models.factory import model_backend
 
+    backend, routing_revision = ("chatgpt_subscription", -1) if is_chatgpt_subscription(connection) else (model_backend(), _routing_revision())
     return (
         current_user_id(), connection.get("profile_id"), connection.get("profile_revision"),
         connection.get("connection_id"), connection.get("connection_revision"),
         connection["model_name"], connection["model_base_url"], connection.get("model_protocol", "auto"),
-        connection.get("credential_fingerprint"),
+        connection.get("credential_fingerprint"), connection.get("credential_status"), connection.get("subscription_db_path"),
         connection.get("policy_version"), connection.get("strict_capabilities", False),
         tuple((stage, value.get("profile_id"), value.get("profile_revision"),
                value.get("connection_id"), value.get("connection_revision"), value.get("credential_fingerprint"), value.get("selection_reason"), value.get("vision_status"))
               for stage, value in sorted(connection.get("stage_connections", {}).items())),
-        model_backend(), _routing_revision(), _extension_revision(),
+        backend, routing_revision, _extension_revision(),
     )
 
 
 def _model_is_configured(model_connection: dict[str, Any]) -> bool:
+    if is_chatgpt_subscription(model_connection):
+        return model_connection.get("credential_status") == "available"
     protocol = model_connection.get("resolved_model_protocol", "openai")
     if not protocol_requires_api_key(protocol):
         return True
@@ -141,59 +146,53 @@ def _build_unconfigured_capabilities(model_connection: dict[str, Any]) -> dict[s
         model_providers=[],
         active_model_provider="",
         configured=False,
-        setup_message=SETUP_MESSAGE,
+        setup_message=_SUBSCRIPTION_REAUTHORIZE if is_chatgpt_subscription(model_connection) else SETUP_MESSAGE,
     )
 
 
-def _build_components(model_connection: dict[str, Any]) -> tuple[AgentRuntime, dict[str, Any]]:
+def _build_connection_provider(connection: dict[str, Any], timeout_seconds: float) -> Any:
+    if is_chatgpt_subscription(connection):
+        from ..chatgpt_subscription import build_subscription_provider
+
+        return build_subscription_provider(connection, timeout_seconds=timeout_seconds)
+
     from ..models.configured import configure_model_provider
     from .model_catalog import detected_protocol_recorder
 
+    provider = build_model_provider(
+        api_key=connection["api_key"], model=connection["model_name"],
+        base_url=connection["model_base_url"] or None,
+        timeout_seconds=timeout_seconds, protocol=connection.get("model_protocol", "auto"),
+        detected_protocol=connection.get("detected_protocol"),
+        on_protocol_detected=detected_protocol_recorder(connection),
+        price_per_million_input=connection.get("price_per_million_input"),
+        price_per_million_output=connection.get("price_per_million_output"),
+    )
+    provider = _with_fallbacks(provider, connection, timeout_seconds)
+    return configure_model_provider(provider, connection.get("parameters", {}), connection.get("reasoning_effort"))
+
+
+def _build_components(model_connection: dict[str, Any]) -> tuple[AgentRuntime, dict[str, Any]]:
     settings = get_settings()
 
     if not _model_is_configured(model_connection):
-        raise ValueError("必须先配置模型服务 API Key")
+        raise ValueError(_SUBSCRIPTION_REAUTHORIZE if is_chatgpt_subscription(model_connection) else "必须先配置模型服务 API Key")
 
     models = ModelProviderRegistry()
-    model = build_model_provider(
-        api_key=model_connection["api_key"],
-        model=model_connection["model_name"],
-        base_url=model_connection["model_base_url"] or None,
-        timeout_seconds=settings.model_timeout_seconds,
-        protocol=model_connection.get("model_protocol", "auto"),
-        detected_protocol=model_connection.get("detected_protocol"),
-        on_protocol_detected=detected_protocol_recorder(model_connection),
-        price_per_million_input=model_connection.get("price_per_million_input"),
-        price_per_million_output=model_connection.get("price_per_million_output"),
-    )
-    model = _with_fallbacks(model, model_connection, settings.model_timeout_seconds)
-    model = configure_model_provider(
-        model, model_connection.get("parameters", {}), model_connection.get("reasoning_effort"),
-    )
+    model = _build_connection_provider(model_connection, settings.model_timeout_seconds)
     model_alias = str(model_connection.get("profile_id") or model.name)
     models.register(model_alias, model)
 
     stage_connections = model_connection.get("stage_connections", {})
     stage_providers = {}
+    identity_fields = ("auth_kind", "profile_id", "profile_revision", "connection_id", "connection_revision", "credential_fingerprint")
     for stage, connection in stage_connections.items():
         if not _model_is_configured(connection):
             continue
-        if (connection.get("profile_id"), connection.get("profile_revision"), connection.get("connection_revision"), connection.get("credential_fingerprint")) == (
-            model_connection.get("profile_id"), model_connection.get("profile_revision"), model_connection.get("connection_revision"), model_connection.get("credential_fingerprint"),
-        ):
+        if all(connection.get(key) == model_connection.get(key) for key in identity_fields):
             stage_providers[stage] = model
         else:
-            provider = build_model_provider(
-                api_key=connection["api_key"], model=connection["model_name"],
-                base_url=connection["model_base_url"] or None,
-                timeout_seconds=settings.model_timeout_seconds, protocol=connection.get("model_protocol", "auto"),
-                detected_protocol=connection.get("detected_protocol"),
-                on_protocol_detected=detected_protocol_recorder(connection),
-                price_per_million_input=connection.get("price_per_million_input"),
-                price_per_million_output=connection.get("price_per_million_output"),
-            )
-            provider = _with_fallbacks(provider, connection, settings.model_timeout_seconds)
-            stage_providers[stage] = configure_model_provider(provider, connection.get("parameters", {}), connection.get("reasoning_effort"))
+            stage_providers[stage] = _build_connection_provider(connection, settings.model_timeout_seconds)
     model_router = ModelRouter(stage_connections, stage_providers, strict_capabilities=model_connection.get("strict_capabilities", False)) if stage_connections else None
 
     tools = _build_tool_registry(settings)
@@ -235,9 +234,15 @@ def _with_fallbacks(model: Any, model_connection: dict[str, Any], timeout_second
         return model
     from ..models.litellm_router import build_routed_provider
 
+    def load_commercial_profile(profile_id):
+        connection = get_profile_connection(profile_id)
+        if is_chatgpt_subscription(connection):
+            raise ValueError("ChatGPT 订阅不能用作备用模型")
+        return connection
+
     return build_routed_provider(
         model, model_connection, policy, timeout_seconds=timeout_seconds,
-        load_profile=lambda profile_id: get_profile_connection(profile_id),
+        load_profile=load_commercial_profile,
     )
 
 
@@ -250,27 +255,42 @@ def _cached_components(model_connection: dict[str, Any]) -> tuple[AgentRuntime, 
     return cached
 
 
+def _subscription_chat_default_id(catalog: dict[str, Any]) -> str | None:
+    profile_id = catalog.get("purpose_defaults", {}).get("chat")
+    profile = next((item for item in catalog.get("profiles", []) if item["id"] == profile_id), None)
+    if profile and any(source["id"] == profile["connection_id"] and is_chatgpt_subscription(source) for source in catalog.get("connections", [])):
+        return profile_id
+    return None
+
+
 def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any] | None = None,
-                      user_content: str | None = None, has_image_input: bool = False) -> AgentRuntime:
+                      user_content: str | None = None, has_image_input: bool = False,
+                      allow_chatgpt_subscription: bool = False) -> AgentRuntime:
     # Resolve exactly once, before caching; restoring never consults a mutable default.
     from .settings import _settings_lock
+    from .model_purposes import selection_catalog
+    from ..chat.image_assets import image_generation_intent
 
     with _settings_lock(None):
         vision_catalog = None
         initial_profile_id = profile_id
-        if selection is None and has_image_input:
-            from .model_purposes import selection_catalog
-
-            vision_catalog = selection_catalog(include_vision=True)
-            if initial_profile_id is None and not vision_catalog["default_profile_id"]:
-                initial_profile_id = vision_catalog["purpose_defaults"].get("vision")
+        subscription_default = None
+        if selection is None:
+            if has_image_input:
+                vision_catalog = selection_catalog(include_vision=True)
+                if initial_profile_id is None and not vision_catalog["default_profile_id"]:
+                    initial_profile_id = vision_catalog["purpose_defaults"].get("vision")
+            elif profile_id is None and not image_generation_intent(user_content or "", image_model_selected=False):
+                subscription_default = _subscription_chat_default_id(selection_catalog())
+                initial_profile_id = subscription_default
         connection = get_profile_connection(initial_profile_id, selection=selection)
+        if is_chatgpt_subscription(connection) and subscription_default:
+            connection["selection_reason"] = "purpose_default"
         connection = bind_model_stages(
             connection, explicit_profile=profile_id is not None, selection=selection,
             resolve=get_profile_connection, policy=get_routing_policy() if selection is None else None,
         )
-        if selection is None and user_content:
-            from ..chat.image_assets import image_generation_intent
+        if selection is None and user_content and not is_chatgpt_subscription(connection):
             from ..model_protocol import resolve_model_protocol
             from .model_catalog import get_model_catalog
             from ..models.selection import model_output_types
@@ -284,6 +304,15 @@ def get_agent_runtime(profile_id: str | None = None, *, selection: dict[str, Any
                 if chosen is connection and (image_only or (output_types and "chat" not in output_types) or connection.get("capabilities", {}).get("chat") == "unsupported"):
                     chosen = bind_text_model(connection, catalog=get_model_catalog(), resolve=get_profile_connection)
                 connection = chosen
+        # Intent routing can change the executor after the initial selection.
+        # Check the final executor and all stage bindings before building providers.
+        if is_chatgpt_subscription(connection) or any(
+            is_chatgpt_subscription(stage) for stage in connection.get("stage_connections", {}).values()
+        ):
+            if not allow_chatgpt_subscription:
+                raise ValueError("ChatGPT 订阅仅支持团团内的交互式文本聊天，不支持外部消息渠道")
+            if selection is None and (has_image_input or image_generation_intent(user_content or "", image_model_selected=False)):
+                raise ValueError("ChatGPT 订阅仅支持交互式文本聊天，请为图片请求选择兼容模型")
     runtime, _ = _cached_components(connection)
     return runtime
 
@@ -292,10 +321,12 @@ def get_agent_capabilities() -> dict[str, Any]:
     from .settings import _settings_lock
     from ..secret_store import secret_backend_name
     from .model_catalog import get_model_catalog
-    if not get_model_catalog()["default_profile_id"]:
+    catalog = get_model_catalog()
+    subscription_default = _subscription_chat_default_id(catalog)
+    if not subscription_default and not catalog["default_profile_id"]:
         return _build_unconfigured_capabilities({"model_name": "", "model_base_url": "", "model_protocol": "auto", "api_key": ""})
 
-    if secret_backend_name() == "keyring":
+    if subscription_default or secret_backend_name() == "keyring":
         # Capability display is not permission to unlock every stage's key.
         from .model_catalog import get_profile_connection as resolve_profile
 
@@ -303,12 +334,18 @@ def get_agent_capabilities() -> dict[str, Any]:
             return resolve_profile(profile_id, resolve_credentials=False, **kwargs)
 
         with _settings_lock(None):
+            connection = preview(subscription_default)
+            if subscription_default:
+                connection["selection_reason"] = "purpose_default"
             connection = bind_model_stages(
-                preview(), explicit_profile=False, selection=None,
+                connection, explicit_profile=False, selection=None,
                 resolve=preview, policy=get_routing_policy(),
             )
-        configured = connection["api_key_configured"] or not protocol_requires_api_key(connection["resolved_model_protocol"])
+        subscription = is_chatgpt_subscription(connection)
+        configured = (_model_is_configured(connection) if subscription else
+                      connection["api_key_configured"] or not protocol_requires_api_key(connection["resolved_model_protocol"]))
         alias = str(connection["profile_id"]) if configured else ""
+        setup_message = _SUBSCRIPTION_REAUTHORIZE if subscription else SETUP_MESSAGE
         payload = _capabilities_payload(
             settings=get_settings(), model_connection=connection,
             tools=_build_tool_registry(get_settings()), model_providers=[alias] if alias else [],
