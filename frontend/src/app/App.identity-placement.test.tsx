@@ -237,8 +237,8 @@ describe("App identity placement", () => {
     expect(draft).toBeInTheDocument();
     expect(draft).not.toBeVisible();
     expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
-    expect(navigation.getByRole("button", { name: "对话" })).not.toHaveAttribute("aria-current");
-    fireEvent.click(navigation.getByRole("button", { name: "对话" }));
+    expect(navigation.getByRole("button", { name: "创作记录" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(navigation.getByRole("button", { name: "创作记录" }));
     expect(await screen.findByRole("textbox", { name: "测试对话草稿" })).toBe(draft);
     expect(draft).toHaveValue("尚未发送的计划");
     expect(window.location.hash).toBe("#/chat/7");
@@ -255,14 +255,16 @@ describe("App identity placement", () => {
     expect(window.location.hash).toBe("#/settings");
   });
   it.each([
-    ["#/images", "图片创作", "图片"],
-    ["#/video", "视频", "视频"],
+    ["#/images", "图片创作", null],
+    ["#/video", "视频", null],
     ["#/works", "我的作品", "我的作品"]
   ])("opens %s as an addressable product page", async (hash, heading, label) => {
     window.history.replaceState(null, "", hash);
     renderApp();
     expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeInTheDocument();
-    expect(within(screen.getByRole("navigation", { name: "主导航" })).getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
+    const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
+    if (label) expect(navigation.getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
+    else expect(navigation.queryByRole("button", { current: "page" })).not.toBeInTheDocument();
     expect(window.location.hash).toBe(hash);
   });
 

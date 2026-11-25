@@ -83,6 +83,10 @@
 .studio-bottom { flex:none; padding-bottom: max(12px,env(safe-area-inset-bottom)); background:var(--color-bg); }
 .studio-feedback { font-size:12px; padding:4px; overflow-wrap:anywhere; }.studio-feedback button { min-height:28px; padding:2px 7px; }
 .studio-composer { width:min(100%,960px); margin:0 auto; padding:12px 14px; border:1px solid var(--color-border); border-radius:14px; background:var(--color-surface); box-shadow:var(--shadow-sm); }
+.studio-draft-choice { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px; margin-bottom:10px; padding:0 0 10px; border-bottom:1px solid var(--color-border); font-size:13px; }
+.studio-draft-choice details { flex-basis:100%; min-width:0; }
+.studio-draft-choice summary { cursor:pointer; }
+.studio-draft-choice details p { margin-top:6px; max-height:15dvh; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; }
 .studio-composer > label,.studio-edit label { display:block; font-size:14px; font-weight:650; }
 .studio-composer > textarea,.studio-edit textarea { display:block; width:100%; margin:6px 0; line-height:1.5; }
 .studio-composer > textarea { background:transparent; padding:6px 2px; border-color:transparent; }

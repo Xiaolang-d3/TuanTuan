@@ -1,10 +1,10 @@
 import {
   GalleryThumbnails,
-  Image,
-  MessageCircle,
-  Settings,
-  Video,
-  PanelLeft
+  History,
+  LibraryBig,
+  PanelLeft,
+  Plus,
+  Settings
 } from "lucide-react";
 import { type ReactNode } from "react";
 import { sidebarHighlightForView, type SidebarHighlight } from "../constants";
@@ -14,13 +14,14 @@ import { ThemeToggleButton } from "./ThemeToggleButton";
 import { WeixinBotEntry } from './WeixinBotEntry';
 import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
-export type ProductNavKey = "dashboard" | "chat" | "images" | "video" | "works" | "library" | "settings";
+export type ProductNavKey = "dashboard" | "history" | "works" | "library" | "settings";
 
 type PrefetchPage = "chat" | "library" | "dashboard" | "settings";
 
 type SidebarItem = {
   key: ProductNavKey;
   label: string;
+  mobileLabel?: string;
   icon: ReactNode;
   active: boolean;
   prefetch?: PrefetchPage;
@@ -60,10 +61,10 @@ export function AppSidebar({
   const isActive = (key: SidebarHighlight) => highlighted === key;
 
   const primaryItems: SidebarItem[] = [
-    { key: "chat", label: "对话", icon: <MessageCircle size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("chat") },
-    { key: "images", label: "图片", icon: <Image size={18} />, active: isActive("images"), onClick: () => onSelectNav("images") },
-    { key: "video", label: "视频", icon: <Video size={18} />, active: isActive("video"), onClick: () => onSelectNav("video") },
-    { key: "works", label: "我的作品", icon: <GalleryThumbnails size={18} />, active: isActive("works"), onClick: () => onSelectNav("works") },
+    { key: "dashboard", label: "新建创作", mobileLabel: "创作", icon: <Plus size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
+    { key: "history", label: "创作记录", mobileLabel: "记录", icon: <History size={18} />, active: isActive("chat") && !weixinActive, prefetch: "chat", onClick: () => onSelectNav("history") },
+    { key: "works", label: "我的作品", mobileLabel: "作品", icon: <GalleryThumbnails size={18} />, active: isActive("works"), onClick: () => onSelectNav("works") },
+    { key: "library", label: "知识库", icon: <LibraryBig size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") },
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
 
@@ -79,7 +80,7 @@ export function AppSidebar({
         aria-label={item.label}
         title={collapsed ? item.label : undefined}
       >
-        {item.icon}<span>{item.label}</span>
+        {item.icon}<span>{extraClass ? item.mobileLabel ?? item.label : item.label}</span>
       </button>
     );
   }

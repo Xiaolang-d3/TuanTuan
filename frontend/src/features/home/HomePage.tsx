@@ -13,6 +13,7 @@ import { HomeModelBenchmarks } from "./HomeModelBenchmarks";
 import { HomeWorkspaceBar } from "./HomeWorkspaceBar";
 import { HomeProductUpdates } from "./HomeProductUpdates";
 import { HomeInfoTabs, type HomeInfoTabDef } from "./HomeInfoTabs";
+import { HomeNewsSummary } from "./HomeNewsSummary";
 
 type HomePageProps = {
   fetchJson: FetchJson;
@@ -21,6 +22,7 @@ type HomePageProps = {
   onAnalyze: (item: HomeReadableItem) => Promise<void>;
   onLibraryChanged: () => Promise<void>;
   weixinLive?: { connected: boolean; unread_count: number } | null;
+  creationEntry?: ReactNode;
 };
 
 function greetingPrefix(date: Date) { return date.getHours() < 12 ? "早上好" : date.getHours() < 18 ? "下午好" : "晚上好"; }
@@ -44,7 +46,12 @@ function ModuleSkeleton({ variant = "cards" }: { variant?: "cards" | "rows" }) {
   return <div className={`home-skeleton-list home-skeleton-list--${variant}`} role="status" aria-label="资讯加载中">{Array.from({ length: variant === "rows" ? 5 : 3 }, (_, index) => <div className="home-skeleton-card" key={index}><div className="home-skeleton home-skeleton-tag" /><div className="home-skeleton home-skeleton-title" /><div className="home-skeleton home-skeleton-line" /><div className="home-skeleton home-skeleton-line short" /></div>)}</div>;
 }
 
-export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive }: HomePageProps) {
+function publishedTime(article: HomeArticle) {
+  const time = article.published_at ? Date.parse(article.published_at) : NaN;
+  return Number.isFinite(time) ? time : -Infinity;
+}
+
+export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive, creationEntry }: HomePageProps) {
   const { feed, loading, error, refreshing, notice, setNotice, refresh, savePreferences, setItemState, generateDigest, regenerateCuration } = useHomeFeed(fetchJson);
   const { workspace, loading: workspaceLoading, error: workspaceError, refresh: refreshWorkspace } = useHomeWorkspace(fetchJson);
   const [now, setNow] = useState(() => new Date());
@@ -68,6 +75,7 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   const interestButton = useRef<HTMLButtonElement>(null);
   const bookmarksHandingOff = useRef(false);
   const compact = mode === "compact";
+  const hasCreationEntry = creationEntry != null && typeof creationEntry !== "boolean";
 
   const openInterest: MouseEventHandler<HTMLButtonElement> = (event) => setInterestTrigger(event.currentTarget);
 
@@ -93,15 +101,16 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
     ...(feed?.sources || []).filter(source => source.kind === "news").map(source => source.publisher).filter((publisher): publisher is string => Boolean(publisher)),
     ...modelNews.map(item => item.source)
   ]));
-  const news = modelNews.filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden && (newsFilter === "all" || item.category === newsFilter) && (newsPublisher === "all" || item.source === newsPublisher));
+  const eligibleNews = modelNews.filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden);
+  const summaryNews = hasCreationEntry ? [...eligibleNews].sort((a, b) => publishedTime(b) - publishedTime(a) || 0).slice(0, 3) : [];
+  const news = eligibleNews.filter((item) => (newsFilter === "all" || item.category === newsFilter) && (newsPublisher === "all" || item.source === newsPublisher));
   const practices = (feed?.practices || []).filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden && (practiceFilter === "all" || item.category === practiceFilter));
   const repositories = (feed?.repositories[period] || []).filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden && (repoFilter === "all" || item.tags.some((tag) => normalizedTag(tag) === repoFilter)));
   const updates = (feed?.updates || []).filter((item) => !feed?.item_states[item.id]?.hidden && (releaseFilter === "all" || item.compatibility === releaseFilter));
-  const newCount = modelNews.filter((item) => matchesPreferences(item.tags) && !feed?.item_states[item.id]?.hidden && item.published_at && now.getTime() - new Date(item.published_at).getTime() >= 0 && now.getTime() - new Date(item.published_at).getTime() < 86_400_000).length;
+  const newCount = eligibleNews.filter((item) => { const age = now.getTime() - publishedTime(item); return age >= 0 && age < 86_400_000; }).length;
   const failedSources = (feed?.sources || []).filter((source) => source.status === "error");
   const newsLimit = compact ? 12 : 8;
-  const previewNews = news;
-  const visibleNews = expandedNews ? news : previewNews.slice(0, newsLimit);
+  const visibleNews = expandedNews ? news : news.slice(0, newsLimit);
   const visiblePractices = expandedPractices ? practices : practices.slice(0, 6);
   const visibleRepos = expandedRepos ? repositories : repositories.slice(0, 7);
 
@@ -168,26 +177,46 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
     </div>
   };
 
+  const infoControls = <div className="home-head-tools">
+    <div className="home-segment home-mode-switch" role="group" aria-label="显示模式">
+      <button type="button" aria-pressed={compact} onClick={() => changeMode("compact")}><List size={14} />简洁</button>
+      <button type="button" aria-pressed={!compact} onClick={() => changeMode("info")}><LayoutGrid size={14} />信息</button>
+    </div>
+    <span className="home-vsep" />
+    <span className="home-sync"><span className={`home-sync-dot${failedSources.length || !feed?.last_synced_at ? " stale" : ""}`} />最近同步 <b>{syncTime}</b></span>
+    <button className={`home-icon-btn${refreshing ? " home-spin" : ""}`} type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label="刷新资讯" title="刷新资讯"><RefreshCw size={16} /></button>
+    <button ref={bookmarksButton} className="home-icon-btn" type="button" aria-label="查看收藏" title="查看收藏" onClick={() => { bookmarksHandingOff.current = false; setBookmarksOpen(true); }}><Bookmark size={16} /></button>
+    <button ref={interestButton} className="home-link-btn" type="button" onClick={openInterest}><SlidersHorizontal size={14} />兴趣设置</button>
+  </div>;
+  const infoStatus = <>
+    {(error || failedSources.length > 0) && <div className="home-banner" role="alert"><TriangleAlert size={16} /><span>{error || `${failedSources.map((source) => source.label).join("、")}暂时更新失败`}{feed && " · 已保留现有内容"}</span><button type="button" onClick={() => { void refresh(); }} disabled={refreshing}>重试</button></div>}
+    {refreshing && <p className="home-refresh-status" role="status">正在同步公开资讯，已有内容可继续阅读。</p>}
+  </>;
+  const infoTabsSection = <HomeInfoTabs accountKey={accountKey} tabs={infoTabs} panels={infoPanels} />;
+  const infoNotice = notice && <div className={hasCreationEntry ? "home-news-summary-notice" : "home-toast"} role="status"><span>{notice}</span>{undoItem && <button type="button" onClick={() => { void changeState(undoItem, { hidden: false }); }}>撤销</button>}<button type="button" aria-label="关闭提示" onClick={() => { setNotice(null); setUndoItem(null); }}><X size={14} /></button></div>;
+
   return <section className="home-page" aria-label="开发者首页" data-mode={mode}>
     <header className="home-head">
       <div className="home-hello">
         <div className="home-eyebrow"><span>{now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</span><span>·</span><time className="home-time" aria-label="当前时间" dateTime={now.toISOString()}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time></div>
         <h1 className="home-welcome">{greetingPrefix(now)}，{accountName.trim() || "欢迎回来"}</h1>
       </div>
-      <div className="home-head-tools">
-        <div className="home-segment home-mode-switch" role="group" aria-label="显示模式">
-          <button type="button" aria-pressed={compact} onClick={() => changeMode("compact")}><List size={14} />简洁</button>
-          <button type="button" aria-pressed={!compact} onClick={() => changeMode("info")}><LayoutGrid size={14} />信息</button>
-        </div>
-        <span className="home-vsep" />
-        <span className="home-sync"><span className={`home-sync-dot${failedSources.length || !feed?.last_synced_at ? " stale" : ""}`} />最近同步 <b>{syncTime}</b></span>
-        <button className={`home-icon-btn${refreshing ? " home-spin" : ""}`} type="button" disabled={refreshing} onClick={() => { void refresh(); }} aria-label="刷新资讯" title="刷新资讯"><RefreshCw size={16} /></button>
-        <button ref={bookmarksButton} className="home-icon-btn" type="button" aria-label="查看收藏" title="查看收藏" onClick={() => { bookmarksHandingOff.current = false; setBookmarksOpen(true); }}><Bookmark size={16} /></button>
-        <button ref={interestButton} className="home-link-btn" type="button" onClick={openInterest}><SlidersHorizontal size={14} />兴趣设置</button>
-      </div>
+      {!hasCreationEntry && infoControls}
     </header>
-    {(error || failedSources.length > 0) && <div className="home-banner" role="alert"><TriangleAlert size={16} /><span>{error || `${failedSources.map((source) => source.label).join("、")}暂时更新失败`}{feed && " · 已保留现有内容"}</span><button type="button" onClick={() => { void refresh(); }} disabled={refreshing}>重试</button></div>}
-    {refreshing && <p className="home-refresh-status" role="status">正在同步公开资讯，已有内容可继续阅读。</p>}
+    {hasCreationEntry ? <>
+      {creationEntry}
+      <HomeNewsSummary
+        articles={summaryNews}
+        loading={moduleLoading("news", eligibleNews.length)}
+        unavailable={Boolean(error) && !feed}
+        now={now}
+        controls={infoControls}
+        status={<>{infoStatus}{infoNotice}</>}
+        cardActions={cardActions}
+      >
+        {infoTabsSection}
+      </HomeNewsSummary>
+    </> : infoStatus}
     <div className="home-overview">
       <HomeWorkspaceBar workspace={workspace} loading={workspaceLoading} error={workspaceError} now={now} onRefresh={() => { void refreshWorkspace(); }} weixinLive={weixinLive} />
       {compact && (workspace || workspaceLoading) && <button
@@ -205,11 +234,11 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
         <HomeProductUpdates workspace={workspace} loading={workspaceLoading} />
       </div>
     </div>
-    <HomeInfoTabs accountKey={accountKey} tabs={infoTabs} panels={infoPanels} />
+    {!hasCreationEntry && infoTabsSection}
     <footer className="home-footnote"><span><Github size={14} />公开信息源 · 标题、摘要与原文链接均可核对</span><span>{feed?.last_synced_at ? `同步于 ${formatPublished(feed.last_synced_at, now)}` : "同步完成后显示更新时间"}</span></footer>
     {bookmarksOpen && <HomeBookmarksDialog items={bookmarks} busyItems={busyItems} onBookmark={(id) => { void changeState(id, { bookmarked: false }); }} onMenuAction={onFeedMenuAction} mode={mode} onClose={() => setBookmarksOpen(false)} returnFocus={() => !bookmarksHandingOff.current && (bookmarksButton.current ?? false)} />}
     {interestTrigger && <HomeInterestDialog fetchJson={fetchJson} preferences={feed?.preferences || { topics: ["AI", "Agent", "MCP", "RAG", "评测", "开发工具"], repositories: [], digest_profile_id: "" }} savePreferences={savePreferences} onClose={() => setInterestTrigger(null)} returnFocus={() => interestTrigger.isConnected ? interestTrigger : (interestButton.current ?? false)} />}
     {librarySave && <HomeLibraryDialog item={librarySave.item} fetchJson={fetchJson} onLibraryChanged={onLibraryChanged} onClose={() => setLibrarySave(null)} onSaved={(message) => setNotice(message)} returnFocus={() => librarySave.trigger?.isConnected ? librarySave.trigger : (bookmarksButton.current ?? false)} />}
-    {notice && <div className="home-toast" role="status"><span>{notice}</span>{undoItem && <button type="button" onClick={() => { void changeState(undoItem, { hidden: false }); }}>撤销</button>}<button type="button" aria-label="关闭提示" onClick={() => { setNotice(null); setUndoItem(null); }}><X size={14} /></button></div>}
+    {!hasCreationEntry && infoNotice}
   </section>;
 }
