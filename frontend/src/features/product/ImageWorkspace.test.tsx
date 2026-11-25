@@ -37,6 +37,24 @@ function setup(items:StudioTask[]=[], models=[model], more=false, canEdit=true, 
 beforeEach(()=>{vi.stubGlobal("URL",Object.assign(class extends URL{},{createObjectURL:vi.fn().mockReturnValue("blob:pic"),revokeObjectURL:vi.fn()}));});
 afterEach(()=>{cleanup();sessionStorage.clear();vi.restoreAllMocks();vi.unstubAllGlobals();vi.clearAllMocks();});
 describe("图片工作台",()=>{
+  it("没有可用图片模型时显示明确引导并跳转配置，不展示生成示例", async () => {
+    const { api, props } = setup([], []);
+    expect(await screen.findByRole("heading", { name: "尚未配置模型" })).toBeVisible();
+    const guide = screen.getByRole("region", { name: "尚未配置模型" });
+    expect(within(guide).getByText("还没有可用的图片模型")).toBeVisible();
+    expect(within(guide).getByText("团团暂不提供免费图片模型，请配置自己的模型服务后开始创作。")).toBeVisible();
+    fireEvent.click(within(guide).getByText("模型接入说明和配置教程"));
+    expect(within(guide).getByText(/测试连接，然后添加支持图片生成的模型/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "商品封面" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "配置图片模型" }));
+    expect(props.onOpenSettings).toHaveBeenCalledOnce();
+    expect(api.generate).not.toHaveBeenCalled();
+  });
+  it("存在可用图片模型时不显示未配置引导", async () => {
+    setup();
+    await waitFor(() => expect(screen.getByLabelText("图片模型")).toHaveDisplayValue("海报模型"));
+    expect(screen.queryByRole("heading", { name: "尚未配置模型" })).not.toBeInTheDocument();
+  });
   it("真实空态示例只回填，选择每轮支持的模型和画幅后才提交",async()=>{
     const {api}=setup([], [{id:"auto",name:"自动模型",sizes:["auto"]},model]);
     fireEvent.click(await screen.findByRole("button",{name:"商品封面"}));expect(api.generate).not.toHaveBeenCalled();

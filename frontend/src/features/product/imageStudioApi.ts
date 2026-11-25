@@ -24,6 +24,7 @@ export type StudioPreview = {
   requires_confirmation: boolean;
   candidates: { profile_id: string; model_name: string; service_name: string; eligible: boolean; reason_code?: string }[];
   reason?: string;
+  reason_code?: string | null;
 };
 
 export function studioAdmissionConflict(error: unknown): error is ApiError {

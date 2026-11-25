@@ -54,19 +54,29 @@ def _preview(operation: ImageOperation, profile_id: str | None, asset_id: str | 
                                       strict_capabilities=catalog["strict_capabilities"])
     sources = {item["id"]: item for item in catalog["connections"]}
     profiles = {item["id"]: item for item in catalog["profiles"]}
-    exclusions = {item["profile_id"]: item["reason"] for item in picked["excluded"]}
+    exclusions = {item["profile_id"]: item for item in picked["excluded"]}
     candidates = []
     for profile in profiles.values():
         connection = sources[profile["connection_id"]]
-        if profile["id"] in exclusions and "image" not in model_output_types(profile, connection)[0] and profile["id"] != profile_id:
-            continue
-        reason = exclusions.get(profile["id"])
+        exclusion = exclusions.get(profile["id"])
+        if exclusion and profile["id"] != profile_id:
+            outputs, _ = model_output_types(profile, connection)
+            explicitly_configured = (profile.get("capabilities") or {}).get("image_generation") in {"supported", "unsupported"}
+            if "image" not in outputs and not explicitly_configured:
+                continue
         candidates.append({"profile_id": profile["id"], "model_name": profile["model_name"],
-                           "service_name": connection["name"], "eligible": reason is None,
-                           "reason_code": reason})
+                           "service_name": connection["name"], "eligible": exclusion is None,
+                           "reason_code": exclusion["reason_code"] if exclusion else None,
+                           "reason": exclusion["reason"] if exclusion else None})
     if not picked["eligible"]:
+        if profile_id is not None:
+            exclusion = exclusions.get(profile_id)
+            reason_code = exclusion["reason_code"] if exclusion else "profile_missing"
+        else:
+            codes = {item["reason_code"] for item in candidates}
+            reason_code = next(iter(codes)) if len(codes) == 1 else "blocked" if codes else "not_configured"
         return {"eligible": False, "selection": None, "comparison_key": None, "requires_confirmation": False,
-                "candidates": candidates, "reason": picked["error"]}
+                "candidates": candidates, "reason": picked["error"], "reason_code": reason_code}
     profile = profiles[picked["profile_id"]]
     connection = sources[profile["connection_id"]]
     base = connection["effective_base_url"]

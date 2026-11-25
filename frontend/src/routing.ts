@@ -8,7 +8,8 @@ export type AppRoute =
   | { section: "images" }
   | { section: "video" }
   | { section: "works" }
-  | { section: "settings"; page: SettingsPage };
+  | { section: "settings"; page: "model"; purpose?: "image" }
+  | { section: "settings"; page: Exclude<SettingsPage, "model"> };
 
 export function routeForSection(section: ViewKey): AppRoute {
   if (section === "settings") return { section, page: "overview" };
@@ -21,7 +22,7 @@ export function routeForSection(section: ViewKey): AppRoute {
 
 export function parseAppHash(hash: string): AppRoute | null {
   const value = hash.replace(/^#/, "");
-  const [rawPath] = value.split("?", 2);
+  const [rawPath, query] = value.split("?", 2);
   const path = rawPath.replace(/^\//, "").replace(/\/$/, "");
   if (path === "home" || path === "dashboard") return { section: "dashboard" };
   if (path === "library" || path === "chat/library") return { section: "chat", page: "library" };
@@ -35,7 +36,10 @@ export function parseAppHash(hash: string): AppRoute | null {
   if (path === "settings" || path === "settings/overview") {
     return { section: "settings", page: "overview" };
   }
-  if (path === "settings/model" || path === "settings/models") return { section: "settings", page: "model" };
+  if (path === "settings/model" || path === "settings/models") {
+    if (new URLSearchParams(query).get("purpose") === "image") return { section: "settings", page: "model", purpose: "image" };
+    return { section: "settings", page: "model" };
+  }
   if (path === "settings/appearance") return { section: "settings", page: "appearance" };
   if (path === "settings/agent") return { section: "settings", page: "agent" };
   if (path === "settings/account") return { section: "settings", page: "account" };
@@ -56,5 +60,6 @@ export function appRouteHash(route: AppRoute): string {
   if (route.section === "video") return "#/video";
   if (route.section === "works") return "#/works";
   if (route.page === "overview") return "#/settings";
+  if (route.page === "model" && route.purpose === "image") return "#/settings/model?purpose=image";
   return `#/settings/${route.page}`;
 }

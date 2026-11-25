@@ -213,7 +213,9 @@ def test_generation_only_model_is_not_eligible_for_studio_edit(clients, monkeypa
         result = owner.post(preview, json=query).json()
         assert result['eligible'] is False and result['selection'] is None
         candidate = next(c for c in result['candidates'] if c['profile_id'] == profile_id)
-        assert candidate['eligible'] is False and '不支持图片编辑' in candidate['reason_code']
+        assert candidate['eligible'] is False
+        assert candidate['reason_code'] == 'operation_unsupported'
+        assert result['reason_code'] == 'operation_unsupported'
 
     response = owner.post(f"/chat-assets/{source['id']}/edits", json={
         'operation_id': str(uuid4()), 'mode': 'edit', 'prompt': '改为暖色', 'profile_id': profile_id,
