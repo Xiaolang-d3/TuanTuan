@@ -38,6 +38,11 @@ async function mockCurrentProduct(page: Page) {
       preferences: { topics: ["AI", "Agent", "MCP"], repositories: [] }, item_states: {}, bookmarks: [],
       refreshing: false, last_synced_at: null
     } });
+    if (path === "/home/workspace") return route.fulfill({ json: {
+      generated_at: "2026-09-22T08:00:00Z", weixin: { connected: false, unread_count: 0 },
+      conversations: { items: [], error: null }, jobs: { running: [], pending_confirmations: [] },
+      changelog: { items: [], error: null }, skills: { items: [], error: null }, library_recent: { items: [], error: null }
+    } });
     if (path === "/library") return route.fulfill({ json: {
       profile: { name: "读者", privacy_mode: "redacted", knowledge_revision: 1 },
       facts: [{ id: 1, category: "knowledge", statement: "每周整理一次阅读笔记", status: "pending" }],
