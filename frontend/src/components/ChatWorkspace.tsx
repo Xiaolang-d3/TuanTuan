@@ -278,7 +278,6 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const [conversationListOpen, setConversationListOpen] = useState(false);
   const [researchPanelOpen, setResearchPanelOpen] = useState(false);
   const scrolling = useConversationScroll(props.currentConversationId, props.messages, researchPanelOpen);
-  useEffect(() => { if (props.modelSelectionFeedback) scrolling.jumpToLatest(); }, [props.modelSelectionFeedback, scrolling.jumpToLatest]);
   const researchReturn = useRef<{ top: number; element: HTMLElement | null } | null>(null);
   const [researchSelection, setResearchSelection] = useState<{
     agent?: AgentRunResult;
@@ -451,6 +450,14 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
     void selectAttachments(supported);
   }
 
+  const modelFeedback = props.modelSelectionFeedback ? (
+    <div className={`composer-model-feedback ${props.modelSelectionFeedback.kind}`} role={props.modelSelectionFeedback.kind === "error" ? "alert" : "status"}>
+      {props.modelSelectionFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
+      <span>{props.modelSelectionFeedback.text}</span>
+      <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
+    </div>
+  ) : null;
+
   return (
     <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.focused ? "is-focused" : ""} ${hasConversationContent ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
       <ResearchPanelActionsContext.Provider value={{ openDetails: openResearchDetails }}>
@@ -523,18 +530,29 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
             <div className="message assistant"><div className="message-content"><RunProcess streaming stopping={props.taskCancelBusy} /></div></div>
           ) : null}
 
-          {props.modelSelectionFeedback && <div className={`composer-model-feedback ${props.modelSelectionFeedback.kind}`} role={props.modelSelectionFeedback.kind === "error" ? "alert" : "status"}>
-            {props.modelSelectionFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
-            <span>{props.modelSelectionFeedback.text}</span>
-            <button type="button" aria-label="关闭模型切换提示" onClick={props.onDismissModelSelectionFeedback}><X size={14} /></button>
-          </div>}
           {presentationService && conversationId ? <PresentationChat service={presentationService} conversationId={conversationId} request={pptSelected && !quickMode ? 1 : 0} hideStoredForm={quickMode} modelScope={modelScope} disabled={Boolean(props.modelSelectionBusy)} submittedJob={submittedJob} onReuseQuick={reuseQuickPpt} onContentChange={handlePresentationContentChange} onOpenModelSettings={() => props.onOpenModelSettings?.()} /> : null}
             {props.documentReviewService && props.currentConversationId ? <DocumentReviewPanel service={props.documentReviewService} conversationId={props.currentConversationId} attachments={[...props.messages.flatMap(message => message.payload?.attachments ?? []), ...props.pendingAttachments]} onContentChange={handleReviewContentChange} /> : null}
           <div ref={props.chatEndRef} />
           </div>
         </ThreadPrimitive.Viewport>
-        {scrolling.away ? <button type="button" className="chat-jump-latest" onClick={scrolling.jumpToLatest}>{scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}<ArrowDown size={14} aria-hidden="true" /></button> : null}
         </div>
+        {scrolling.away || (hasConversationContent && modelFeedback) ? (
+          <div className="chat-thread-overlay">
+            {hasConversationContent ? modelFeedback : null}
+            {scrolling.away ? (
+              <button
+                type="button"
+                className="chat-jump-latest"
+                data-unread={scrolling.unread || undefined}
+                aria-label={scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}
+                onClick={scrolling.jumpToLatest}
+              >
+                <span className="chat-jump-latest-label">{scrolling.unread ? "有新内容 · 回到最新" : "回到最新"}</span>
+                <ArrowDown size={16} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="chat-composer">
           {!hasConversationContent && props.density !== "dock" ? (
@@ -543,6 +561,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               <p>提问、查资料，或描述你想生成的图片。</p>
             </div>
           ) : null}
+          {!hasConversationContent ? modelFeedback : null}
           {clarification && !props.chatBusy ? (
             <ComposerClarification
               clarification={clarification}
@@ -570,8 +589,8 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
           ) : null}
 
           {props.replacementUndo?.conversationId === props.currentConversationId && !props.chatBusy ? (
-            <section className="chat-retry-prompt" role="status" aria-label="撤销替换">
-              <RefreshCw size={14} />
+            <section className="chat-retry-prompt chat-replacement-undo" role="status" aria-label="撤销替换">
+              <RefreshCw size={14} aria-hidden="true" />
               <span>已替换本轮及后续消息。生成的图片无法恢复。</span>
               <button type="button" onClick={() => void props.onUndoReplacement?.()}>撤销</button>
             </section>

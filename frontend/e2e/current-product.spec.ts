@@ -244,7 +244,8 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
   }
 });
 
-test("long conversations keep one scroll viewport without blank space above the composer", async ({ page }) => {
+test("long conversations keep one scroll viewport without blank space above the composer", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
   const source = { title: "参考资料", url: "https://example.com/reference", domain: "example.com" };
   const messages = Array.from({ length: 6 }, (_, index) => [
     { id: index * 2 + 1, role: "user", content: `问题 ${index + 1}`, created_at: conversation.updated_at },
@@ -257,7 +258,28 @@ test("long conversations keep one scroll viewport without blank space above the 
       } }
     }
   ]).flat();
-  await page.route("**/chat/messages?*", route => route.fulfill({ json: messages }));
+  let currentMessages = messages;
+  await page.route("**/chat/messages?*", route => route.fulfill({ json: currentMessages }));
+  await page.route("**/chat/messages/11/tail?*", route => {
+    currentMessages = messages.slice(0, -2);
+    return route.fulfill({ json: { messages: messages.slice(-2) } });
+  });
+  await page.route("**/chat/messages/restore", route => {
+    currentMessages = messages;
+    return route.fulfill({ json: {} });
+  });
+  await page.route("**/ag-ui", route => {
+    const { threadId, runId } = route.request().postDataJSON();
+    const [userMessage, originalAnswer] = messages.slice(-2);
+    const assistantMessage = { ...originalAnswer, content: `重新生成的回答。\n\n${originalAnswer.content}` };
+    currentMessages = [...currentMessages, userMessage, assistantMessage];
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
   await page.setViewportSize({ width: 1088, height: 770 });
   await page.goto("/#/chat/1");
   await expect(page.locator(".message.assistant")).toHaveCount(6);
@@ -296,6 +318,30 @@ test("long conversations keep one scroll viewport without blank space above the 
   for (const width of [777, 390, 1088]) {
     await page.setViewportSize({ width, height: 770 });
     await viewport.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    const jump = page.getByRole("button", { name: /回到最新/ });
+    await expect(jump).toBeHidden();
+    const [viewportBefore, composerBefore] = await Promise.all([viewport.boundingBox(), composer.boundingBox()]);
+    const scrollHeight = await viewport.evaluate(el => el.scrollHeight);
+    await viewport.evaluate(el => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event("scroll"));
+    });
+    await expect(jump).toBeVisible();
+    await assertSingleViewport();
+    const [viewportAfter, composerAfter, jumpBox] = await Promise.all([viewport.boundingBox(), composer.boundingBox(), jump.boundingBox()]);
+    expect(viewportAfter!.height).toBeCloseTo(viewportBefore!.height, 0);
+    expect(composerAfter!.y).toBeCloseTo(composerBefore!.y, 0);
+    expect(await viewport.evaluate(el => el.scrollHeight)).toBe(scrollHeight);
+    expect(jumpBox!.y + jumpBox!.height).toBeLessThan(composerAfter!.y);
+    expect(jumpBox!.y + jumpBox!.height).toBeGreaterThan(composerAfter!.y - 24);
+    const overlayBox = await page.locator(".chat-main > .chat-thread-overlay").boundingBox();
+    expect(overlayBox!.width).toBeCloseTo(jumpBox!.width, 0);
+    await expect.poll(() => viewport.evaluate((el, y) => {
+      const hit = document.elementFromPoint(el.getBoundingClientRect().left + 24, y);
+      return el.contains(hit);
+    }, jumpBox!.y + jumpBox!.height / 2)).toBe(true);
+    await jump.click();
+    await expect(jump).toBeHidden();
     await assertSingleViewport();
     const [viewportBox, lastMessageBox] = await Promise.all([
       viewport.boundingBox(), page.locator(".message.assistant").last().boundingBox()
@@ -304,6 +350,27 @@ test("long conversations keep one scroll viewport without blank space above the 
     expect(bottomGap).toBeGreaterThanOrEqual(0);
     expect(bottomGap).toBeLessThanOrEqual(64);
   }
+
+  await page.setViewportSize({ width: 390, height: 640 });
+  const sessionHeader = page.locator(".chat-session-header");
+  expect((await sessionHeader.boundingBox())!.height).toBe(44);
+  expect((await composer.locator(".composer-input").boundingBox())!.height).toBeLessThanOrEqual(110);
+  const regenerate = viewport.getByRole("button", { name: "重新生成回答", exact: true }).last();
+  await regenerate.focus();
+  await regenerate.press("Enter");
+  const undo = page.getByRole("status", { name: "撤销替换" });
+  await expect(undo).toContainText("生成的图片无法恢复");
+  expect((await undo.boundingBox())!.height).toBeLessThanOrEqual(56);
+  expect((await viewport.boundingBox())!.height).toBeGreaterThan(300);
+  const latest = page.getByRole("button", { name: /回到最新/ });
+  await viewport.evaluate(el => { el.scrollTop = 0; });
+  await expect(latest).toBeVisible();
+  await expect(latest.locator(".chat-jump-latest-label")).toBeHidden();
+  expect((await latest.boundingBox())!.width).toBe(44);
+  await page.screenshot({ path: testInfo.outputPath("mobile-reading-space.png"), animations: "disabled" });
+  await undo.getByRole("button", { name: "撤销", exact: true }).click();
+  await expect(undo).toBeHidden();
+  await expect(viewport.getByText("重新生成的回答。", { exact: true })).toBeHidden();
 });
 
 test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
