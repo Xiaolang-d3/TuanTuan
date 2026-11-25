@@ -1,12 +1,12 @@
 import { creationKinds, type CreationKind, type FetchCreationJson } from "./creationRecordsApi";
 
-export type ProjectKind = CreationKind | "library";
+export type ProjectKind = CreationKind | "library" | "image_work" | "final_work";
 export type ProjectStatus = "active" | "archived";
 export type Project = { id: string; name: string; description: string; status: ProjectStatus; created_at: string; updated_at: string };
 export type ProjectItem = { kind: ProjectKind; source_id: string; title: string; conversation_id: number | null };
 export type ProjectDetail = Project & { items: ProjectItem[] };
 export type ProjectInput = { name: string; description: string };
-export const projectKinds: Record<ProjectKind, string> = { ...creationKinds, library: "知识库资料" };
+export const projectKinds: Record<ProjectKind, string> = { ...creationKinds, library: "知识库资料", image_work: "图片作品", final_work: "文档 / PPT 定稿" };
 
 export function createProjectsApi(fetchJson: FetchCreationJson) {
   const path = (id: string) => `/projects/${encodeURIComponent(id)}`;

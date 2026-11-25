@@ -1098,7 +1098,9 @@ export function App({
   recordClient.current = fetchJson;
 
   function openProjectItem(item: ProjectItem) {
-    if (item.kind === "library") {
+    if (item.kind === "image_work" || item.kind === "final_work") {
+      navigateRoute({ section: "works", work: `${item.kind}:${item.source_id}` });
+    } else if (item.kind === "library") {
       setOpenLibraryResultId(Number(item.source_id));
       navigateRoute({ section: "chat", page: "library" });
     } else {
@@ -1399,6 +1401,8 @@ export function App({
           accessToken={accessToken}
           fetchJson={fetchJson}
           ready={databaseReady}
+          linkedWork={appRoute.work}
+          onCloseLinkedWork={() => navigateRoute({ section: "works" }, true)}
           onOpenImages={() => navigateRoute({ section: "images" })}
         /> : null}
 

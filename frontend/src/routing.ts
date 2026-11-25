@@ -9,7 +9,7 @@ export type AppRoute =
   | { section: "projects"; projectId?: string }
   | { section: "images"; taskId?: string }
   | { section: "video" }
-  | { section: "works" }
+  | { section: "works"; work?: string }
   | { section: "settings"; page: "model"; purpose?: "image" }
   | { section: "settings"; page: Exclude<SettingsPage, "model"> };
 
@@ -40,7 +40,10 @@ export function parseAppHash(hash: string): AppRoute | null {
     return taskId ? { section: "images", taskId } : { section: "images" };
   }
   if (path === "video") return { section: "video" };
-  if (path === "works") return { section: "works" };
+  if (path === "works") {
+    const work = new URLSearchParams(query).get("work");
+    return work ? { section: "works", work } : { section: "works" };
+  }
   const chatRoute = path.match(/^chat\/(\d+)$/);
   if (chatRoute) return { section: "chat", conversationId: Number(chatRoute[1]) };
   if (path === "settings" || path === "settings/overview") {
@@ -70,7 +73,7 @@ export function appRouteHash(route: AppRoute): string {
   if (route.section === "projects") return route.projectId ? `#/projects?${new URLSearchParams({ id: route.projectId })}` : "#/projects";
   if (route.section === "images") return route.taskId ? `#/images?${new URLSearchParams({ task: route.taskId })}` : "#/images";
   if (route.section === "video") return "#/video";
-  if (route.section === "works") return "#/works";
+  if (route.section === "works") return route.work ? `#/works?${new URLSearchParams({ work: route.work })}` : "#/works";
   if (route.page === "overview") return "#/settings";
   if (route.page === "model" && route.purpose === "image") return "#/settings/model?purpose=image";
   return `#/settings/${route.page}`;

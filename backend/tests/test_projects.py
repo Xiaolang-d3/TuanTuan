@@ -77,7 +77,7 @@ def test_projects_crud_and_authentication(accounts):
     project = create_project(owner, "  我的项目  ")
     project_id = project["id"]
     path = f"/projects/{project_id}"
-    assert project == {"id": project_id, "name": "我的项目", "description": "",
+    assert project == {"id": project_id, "name": "我的项目", "description": "", "status": "active",
                        "updated_at": project["created_at"], "created_at": project["created_at"]}
     assert datetime.fromisoformat(project["created_at"]).utcoffset().total_seconds() == 0
     assert expect(owner.get(path), 200) == {**project, "items": []}
@@ -129,7 +129,13 @@ def test_link_projects_by_live_source_without_copying_or_owning_it(accounts):
                             ("library", "0321"), ("library", "9223372036854775808")]:
         link(owner, project_id, kind, source_id, 404)
 
+    with workspace_db(owner) as conn:
+        conn.execute("INSERT INTO image_studio_works(id, asset_id, source_id, asset_json) VALUES ('img-work', 'asset-work', 321, '{}')")
+        conn.execute("INSERT INTO final_works(id, kind, source_id, source_version, filename, media_type, size, payload) "
+                     "VALUES ('doc-work', 'document', 'removed-original', 1, '定稿.md', 'text/markdown', 1, X'78')")
     expected = {
+        ("image_work", "img-work"): ("资料", None),
+        ("final_work", "doc-work"): ("定稿.md", None),
         ("chat", "101"): ("活对话", 101),
         ("image", "image-1"): ("图片提示词", 101),
         ("document", "doc-1"): ("文档", 101),
@@ -159,11 +165,14 @@ def test_link_projects_by_live_source_without_copying_or_owning_it(accounts):
         conn.execute("UPDATE library_sources SET title='改名后的资料' WHERE id=321")
     expected[("chat", "101")] = ("改名后的对话", 101)
     expected[("library", "321")] = ("改名后的资料", None)
+    expected[("image_work", "img-work")] = ("改名后的资料", None)
+    assert expect(owner.patch(path, json={"status": "archived"}), 200)["status"] == "archived"
     assert_items(expect(owner.get(path), 200)["items"], expected)
+    assert expect(owner.patch(path, json={"status": "active"}), 200)["status"] == "active"
     assert link(owner, project_id, "library", "321")["title"] == "改名后的资料"
 
     source_tables = ("conversations", "chat_messages", "image_studio_tasks", "authored_documents",
-                     "authored_document_versions", "background_jobs", "library_sources")
+                     "authored_document_versions", "background_jobs", "library_sources", "image_studio_works", "final_works")
     with workspace_db(owner) as conn:
         before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in source_tables}
     expect(owner.delete(f"{path}/items/library/321"), 204)

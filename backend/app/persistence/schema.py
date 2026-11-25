@@ -440,7 +440,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC, id 
 -- Polymorphic links never own the underlying source. Only the project cascades.
 CREATE TABLE IF NOT EXISTS project_items (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('chat', 'image', 'document', 'presentation', 'library')),
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'image', 'document', 'presentation', 'library', 'image_work', 'final_work')),
     source_id TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
     PRIMARY KEY (project_id, kind, source_id)

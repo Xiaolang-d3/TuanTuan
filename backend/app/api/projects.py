@@ -16,7 +16,7 @@ _MAX_ITEMS = 200
 _MAX_ID_LENGTH = 128
 _ID_PATTERN = r"^[^/\s\x00-\x1f\x7f]+$"
 
-ProjectKind = Literal["chat", "image", "document", "presentation", "library"]
+ProjectKind = Literal["chat", "image", "document", "presentation", "library", "image_work", "final_work"]
 ProjectId = Annotated[str, Path(min_length=1, max_length=_MAX_ID_LENGTH)]
 SourceId = Annotated[str, Path(min_length=1, max_length=_MAX_ID_LENGTH, pattern=_ID_PATTERN)]
 ProjectName = Annotated[str, StringConstraints(min_length=1, max_length=120)]
@@ -84,6 +84,9 @@ _SOURCE_JOINS = """
     LEFT JOIN authored_documents d ON link.kind = 'document' AND d.id = link.source_id
     LEFT JOIN background_jobs j ON link.kind = 'presentation' AND j.id = link.source_id
         AND j.kind IN ('ppt.generate', 'ppt.quick_generate')
+    LEFT JOIN image_studio_works iw ON link.kind = 'image_work' AND iw.id = link.source_id
+    LEFT JOIN library_sources iw_source ON iw_source.id = iw.source_id
+    LEFT JOIN final_works fw ON link.kind = 'final_work' AND fw.id = link.source_id
     LEFT JOIN library_sources l
         ON link.kind = 'library' AND l.id = link.source_id AND CAST(l.id AS TEXT) = link.source_id
         AND CASE WHEN json_valid(l.metadata_json)
@@ -99,12 +102,15 @@ _ITEM_COLUMNS = """
              THEN CASE WHEN json_type(j.request_json, '$.topic') = 'text'
                        THEN json_extract(j.request_json, '$.topic') END END), 1, 120), ''), '演示文稿')
         WHEN 'library' THEN COALESCE(NULLIF(substr(trim(l.title), 1, 240), ''), '资料')
+        WHEN 'image_work' THEN COALESCE(NULLIF(substr(trim(iw_source.title), 1, 240), ''), '图片作品')
+        WHEN 'final_work' THEN substr(fw.filename, 1, 240)
     END AS title,
     COALESCE(c.id, t.conversation_id, d.conversation_id, CASE WHEN json_valid(j.request_json)
         THEN CASE WHEN json_type(j.request_json, '$.conversation_id') = 'integer'
                   THEN json_extract(j.request_json, '$.conversation_id') END END) AS conversation_id
 """
-_IS_LIVE_SOURCE = "(c.id IS NOT NULL OR t.id IS NOT NULL OR d.id IS NOT NULL OR j.id IS NOT NULL OR l.id IS NOT NULL)"
+_IS_LIVE_SOURCE = ("(c.id IS NOT NULL OR t.id IS NOT NULL OR d.id IS NOT NULL OR j.id IS NOT NULL "
+                   "OR l.id IS NOT NULL OR iw.id IS NOT NULL OR fw.id IS NOT NULL)")
 
 
 def _timestamp() -> str:

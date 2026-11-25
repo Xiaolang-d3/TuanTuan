@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ArrowLeft, FolderKanban, Plus } from "lucide-react";
 import { ActionButton } from "../../components/ui/ActionButton";
 import type { LibrarySource } from "../../types";
-import { readCreationRecords, type CreationKind, type FetchCreationJson } from "./creationRecordsApi";
+import { readCreationRecords, type FetchCreationJson } from "./creationRecordsApi";
+import type { StudioWork } from "./imageStudioApi";
+import type { FinalWork } from "./finalWorksApi";
 import { createProjectsApi, projectKinds, type Project, type ProjectDetail, type ProjectItem, type ProjectKind } from "./projectsApi";
 import "./ProjectsPage.css";
 
 type Props = { fetchJson: FetchCreationJson; id?: string; onSelect: (id?: string) => void; onOpen: (item: ProjectItem) => void };
 const itemKey = (item: ProjectItem) => `${item.kind}:${item.source_id}`;
-const kinds: ProjectKind[] = ["chat", "image", "document", "presentation", "library"];
+const kinds = Object.keys(projectKinds) as ProjectKind[];
 
 function LinkSource({ fetchJson, linked, busy, onAdd }: { fetchJson: FetchCreationJson; linked: ProjectItem[]; busy: boolean; onAdd: (item: ProjectItem) => Promise<boolean> }) {
   const [kind, setKind] = useState<ProjectKind>("chat");
@@ -23,7 +25,15 @@ function LinkSource({ fetchJson, linked, busy, onAdd }: { fetchJson: FetchCreati
         const sources = await fetchJson<LibrarySource[]>("/library/sources", { signal: controller.signal });
         return { items: sources.filter(source => !source.trashed_at).map(source => ({ kind, source_id: String(source.id), title: source.title, conversation_id: null })), more: false };
       }
-      const result = await readCreationRecords(fetchJson, { kind: kind as CreationKind, limit: 30, offset: page * 30, signal: controller.signal });
+      if (kind === "image_work") {
+        const { items } = await fetchJson<{ items: StudioWork[] }>("/image-studio/works", { signal: controller.signal });
+        return { items: items.map(work => ({ kind, source_id: work.id, title: work.asset.original_filename, conversation_id: null })), more: false };
+      }
+      if (kind === "final_work") {
+        const { items } = await fetchJson<{ items: FinalWork[] }>("/works/final", { signal: controller.signal });
+        return { items: items.map(work => ({ kind, source_id: work.id, title: work.filename, conversation_id: null })), more: false };
+      }
+      const result = await readCreationRecords(fetchJson, { kind, limit: 30, offset: page * 30, signal: controller.signal });
       return { items: result.items.map(record => ({ kind: record.kind, source_id: record.id, title: record.title, conversation_id: record.conversation_id })), more: result.has_more };
     };
     void load().then(result => { if (!controller.signal.aborted) setCatalog({ ...result, kind, page, error: false }); })
