@@ -13,7 +13,11 @@ test("the mobile prompt bar opens real resource actions without losing a draft",
     "/system/database-status": { status: "ready", schema_version: 35, required_schema_version: 35 },
     "/library": { profile: { name: "", privacy_mode: "redacted" }, facts: [], sources: [], folders: [], collections: [] },
     "/agent/settings": defaultAgentSettings,
-    "/agent/capabilities": { configured: true, active_model_provider: "openai_compatible", active_model_name: "mock-model", active_platform: "local", model_providers: ["openai_compatible"], platforms: ["local"], tools: [] },
+    "/agent/capabilities": {
+      configured: true, active_model_provider: "openai_compatible", active_model_name: "mock-model-with-a-long-display-name",
+      active_platform: "local", model_providers: ["openai_compatible"], platforms: ["local"], tools: [],
+      web_research: { enabled: true, provider: "mock" }
+    },
     "/agent/model-connections": { connections: [], profiles: [], default_profile_id: null },
     "/attachments/config": { storage: "local", vision_enabled: false, checks: [] },
     "/conversations": [{ id: 1, title: "资料测试", status: "active", summary: "", message_count: 0, task_status: "active", updated_at: "2026-11-02T08:00:00Z" }],
@@ -36,11 +40,34 @@ test("the mobile prompt bar opens real resource actions without losing a draft",
   await page.goto("/#/chat/1");
   const draft = page.getByRole("textbox", { name: "输入消息" });
   const trigger = page.getByRole("button", { name: "添加资料" });
+  const voice = page.getByRole("button", { name: "语音输入" });
+  const search = page.getByRole("button", { name: "联网搜索" });
+  const send = page.getByRole("button", { name: "发送", exact: true });
+  const model = page.getByRole("button", { name: /切换模型，当前/ });
   const panel = page.getByRole("menu", { name: "资料选项" });
   const upload = panel.getByRole("menuitem", { name: "上传文件" });
+  for (const width of [320, 512]) {
+    await page.setViewportSize({ width, height: 640 });
+    for (const tool of [trigger, voice, search]) {
+      await expect(tool.locator(".composer-tool-label")).toBeHidden();
+      await expect(tool).toBeInViewport({ ratio: 1 });
+      await expect(tool).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      const box = (await tool.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    const boxes = await Promise.all([trigger, voice, search, model, send].map(control => control.boundingBox()));
+    const rowCenter = boxes[0]!.y + boxes[0]!.height / 2;
+    for (const box of boxes) expect(box!.y + box!.height / 2).toBeCloseTo(rowCenter, 0);
+    await expect(send).toBeInViewport({ ratio: 1 });
+  }
+  await page.setViewportSize({ width: 1024, height: 640 });
+  for (const tool of [trigger, voice, search]) await expect(tool.locator(".composer-tool-label")).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 640 });
   await draft.fill("保留这段草稿");
   await trigger.press("ArrowDown");
   await expect(panel).toBeInViewport({ ratio: 1 });
+  await expect(trigger).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(upload).toBeFocused();
   if (process.env.PROMPT_BAR_SCREENSHOT) await page.screenshot({ path: process.env.PROMPT_BAR_SCREENSHOT });
   await page.keyboard.press("Escape");
