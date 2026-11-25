@@ -62,15 +62,18 @@
 .chat-generated-image button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 .chat-result-notice { color: var(--color-text-muted); font-size: 12px; padding: 0 24px; }
 
-.message-actions:has(> .generated-image-actions-menu) { position: relative; }
-.generated-image-actions-menu > summary { display: flex; align-items: center; border-radius: 6px; color: var(--color-text-muted); cursor: pointer; list-style: none; }
-.generated-image-actions-menu > summary::-webkit-details-marker { display: none; }
-.generated-image-actions-menu[open] > summary, .generated-image-actions-menu > summary:hover { color: var(--color-text); background: var(--color-surface-subtle); }
+.message-actions:has(> .generated-image-actions-menu), .generated-image-save-menu { position: relative; }
+.generated-image-actions-menu > summary, .generated-image-save-menu > summary { display: flex; align-items: center; border-radius: 6px; color: var(--color-text-muted); cursor: pointer; list-style: none; }
+.generated-image-actions-menu > summary::-webkit-details-marker, .generated-image-save-menu > summary::-webkit-details-marker { display: none; }
+.generated-image-actions-menu[open] > summary, .generated-image-actions-menu > summary:hover, .generated-image-save-menu[open] > summary, .generated-image-save-menu > summary:hover { color: var(--color-text); background: var(--color-surface-subtle); }
 .generated-image-message-action:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
 .generated-image-message-action[aria-busy="true"] { cursor: progress; }
 .generated-image-action-list { position: absolute; z-index: 2; inset-inline-start: 0; bottom: calc(100% + 4px); width: min(240px, 70vw); max-height: 180px; overflow: auto; box-sizing: border-box; margin: 0; padding: 4px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); list-style: none; }
 .generated-image-action-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-inline: 6px; }
 .generated-image-action-list > li > span:first-child { flex: 1 0 0; min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.generated-image-save-choices { position: absolute; z-index: 3; bottom: calc(100% + 4px); inset-inline-start: 0; min-width: 150px; padding: 4px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.generated-image-save-choice { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 5px; color: var(--color-text); background: transparent; font: inherit; font-size: 12px; text-align: start; cursor: pointer; }
+.generated-image-save-choice:hover, .generated-image-save-choice:focus-visible { background: var(--color-surface-subtle); }
 .message-actions:has(> .generated-image-action-error) { max-width: 100%; flex-wrap: wrap; }
 .generated-image-action-error { flex-basis: 100%; color: var(--color-danger); font-size: 12px; overflow-wrap: anywhere; }
 
@@ -90,5 +93,6 @@
   .chat-generated-image[data-actions="hover"] > .generated-image-prompt { opacity: 0; pointer-events: none; }
   .chat-generated-image[data-actions="hover"]:is(:hover, :focus-within, :has(details[open])) > .generated-image-prompt { opacity: 1; pointer-events: auto; }
   .message:not(:hover, :focus-within) .message-actions > button.generated-image-message-action:not([aria-busy="true"]),
-  .message:not(:hover, :focus-within) .generated-image-actions-menu:not([open]) > summary { opacity: 0; pointer-events: none; }
+  .message:not(:hover, :focus-within) .generated-image-actions-menu:not([open]) > summary,
+  .message:not(:hover, :focus-within) .generated-image-save-menu:not([open]) > summary { opacity: 0; pointer-events: none; }
 }

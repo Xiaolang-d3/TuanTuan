@@ -89,7 +89,7 @@ export function AppSidebar({
       <div className="brand">
         <button className="brand-home" type="button" onClick={onGoHome} aria-label="返回首页" title="返回首页">
           <span className="brand-mark" aria-hidden="true">
-            <img className="brand-mark-image" src="/tuantuan-logo.png" alt="" />
+            <img className="brand-mark-image" src="/tuantuan-mark.svg" alt="" />
           </span>
           <span className="brand-copy">
             <strong>团团</strong>
@@ -107,7 +107,7 @@ export function AppSidebar({
         >
           {collapsed ? (
             <span className="sidebar-toggle-logo" aria-hidden="true">
-              <img src="/tuantuan-logo.png" alt="" />
+              <img src="/tuantuan-mark.svg" alt="" />
             </span>
           ) : null}
           <PanelLeft className="sidebar-toggle-icon" size={20} strokeWidth={1.8} aria-hidden="true" />

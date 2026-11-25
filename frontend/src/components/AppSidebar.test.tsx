@@ -88,7 +88,7 @@ describe("AppSidebar", () => {
     const collapsed = renderSidebar(undefined, true);
     const toggle = screen.getByRole("button", { name: "展开侧边栏" });
     const logo = toggle.querySelector("img");
-    expect(logo).toHaveAttribute("src", "/tuantuan-logo.png");
+    expect(logo).toHaveAttribute("src", "/tuantuan-mark.svg");
     expect(logo).toHaveAttribute("alt", "");
     expect(logo?.parentElement).toHaveAttribute("aria-hidden", "true");
     expect(toggle).toHaveAttribute("aria-expanded", "false");

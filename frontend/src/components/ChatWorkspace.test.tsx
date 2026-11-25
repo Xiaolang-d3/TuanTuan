@@ -7,9 +7,8 @@ import type { DocumentReviewService } from "../features/chat/document-review-ser
 import type { DocumentService, SavedDocument } from "../features/chat/document-service";
 import { ExtensionPreviewProvider } from "../features/extensions/ExtensionPreviewContext";
 
-it("edits a mixed text/image answer as one document while retaining the composer draft", async () => {
-  const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "图.png", parse_status: "parsed" };
-  const mixed: ChatMessage = { ...assistantMessage("整体回答"), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [asset], output_blocks: [{ type: "text", text: "开头" }, { type: "image", asset_id: asset.id }, { type: "text", text: "结尾" }] } } };
+it("edits a text answer as a document while retaining the composer draft", async () => {
+  const mixed = assistantMessage("整体回答");
   const doc: SavedDocument = { document_id: "d".repeat(32), version: 1, latest_version: 1, parent_document_version: null, conversation_id: 1, message_id: 12, title: "图文", markdown: "开头\n\n![图](resources/image.png)\n\n结尾", evidence: [], resources: [], citations: [], incomplete: false, created_at: "2026-11-09" };
   const documents = { create: vi.fn().mockResolvedValue(doc), latest: vi.fn().mockResolvedValue(doc), versions: vi.fn().mockResolvedValue({ versions: [{ version: 1, parent_document_version: null, created_at: doc.created_at }] }) } as unknown as DocumentService;
   const p = renderChat([message, mixed], { documentService: documents, onLoadResults: vi.fn().mockResolvedValue({ message_id: 12, snapshot: "a".repeat(64), incomplete: false, artifacts: [{ selector: "answer", kind: "answer", filename: "回答.md", mime_type: "text/markdown", content: "开头和结尾", can_index: true }] }) });
@@ -92,6 +91,7 @@ function fencedMermaid(source: string): string {
 
 function renderChat(messages: ChatMessage[] = [message], extras: {
   documentService?: DocumentService;
+  onEditDocument?: ChatWorkspaceProps["onEditDocument"];
   documentReviewService?: DocumentReviewService;
   voiceInput?: ChatWorkspaceProps["voiceInput"];
   onLoadResults?: ChatWorkspaceProps["onLoadResults"];
@@ -123,6 +123,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
 } = {}) {
   const props = {
     documentService: extras.documentService,
+    onEditDocument: extras.onEditDocument,
     documentReviewService: extras.documentReviewService,
     voiceInput: extras.voiceInput,
     onLoadResults: extras.onLoadResults,
@@ -322,12 +323,15 @@ describe("ChatWorkspace", () => {
   it("puts image save and download icons in the reply actions and keeps dimensions out of the thread", () => {
     const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "生成图片.png", parse_status: "parsed", width: 1024, height: 1536 };
     const pure: ChatMessage = { ...assistantMessage(""), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [asset], output_blocks: [{ type: "image", asset_id: asset.id }] } } };
-    renderChat([message, pure], { onLoadResults: vi.fn(), onLoadAttachment: vi.fn() });
+    renderChat([message, pure], { onLoadResults: vi.fn(), onLoadAttachment: vi.fn(), onEditDocument: vi.fn() });
     expect(screen.getAllByRole("button", { name: "预览 生成图片.png" })).toHaveLength(1);
     expect(screen.queryByText("1024 × 1536")).not.toBeInTheDocument();
-    const actions = within(screen.getByRole("button", { name: "复制回答" }).parentElement!);
-    expect(actions.getByRole("button", { name: "保存 生成图片.png 到文件库" })).toHaveTextContent(/^$/);
-    expect(actions.getByRole("button", { name: "下载原图" })).toHaveTextContent(/^$/);
+    const actions = within(screen.getByRole("button", { name: "复制图片" }).parentElement!);
+    expect(screen.queryByRole("button", { name: "复制回答" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑文档" })).not.toBeInTheDocument();
+    fireEvent.click(actions.getByLabelText("保存图片"));
+    expect(actions.getByRole("button", { name: "保存到文件库" })).toBeVisible();
+    expect(actions.getByRole("button", { name: "下载原图" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "导出 PNG" })).not.toBeInTheDocument();
   });
 
@@ -362,7 +366,9 @@ describe("ChatWorkspace", () => {
   it("renders ordered text and images once when a snapshot repeats an image reference", () => {
     const asset: ChatAttachment = { id: "generated", origin: "generated", kind: "image", original_filename: "生成图片.png", parse_status: "parsed" };
     const mixed: ChatMessage = { ...assistantMessage("前言\n后记"), payload: { agent: { provider: "responses", platform: "local", rounds: 1, status: "done", events: [], assets: [asset], output_blocks: [{ type: "text", text: "前言" }, { type: "image", asset_id: asset.id }, { type: "image", asset_id: asset.id }, { type: "text", text: "后记" }] } } };
-    const p = renderChat([message, mixed]);
+    const p = renderChat([message, mixed], { onEditDocument: vi.fn(), onLoadAttachment: vi.fn() });
+    expect(screen.queryByRole("button", { name: "编辑文档" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制文字" })).toBeEnabled();
     expect(screen.getAllByText("前言")).toHaveLength(1);
     expect(screen.getAllByText("后记")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "预览 生成图片.png" })).toHaveLength(1);
@@ -399,7 +405,8 @@ describe("ChatWorkspace", () => {
     const p = renderChat([message, pure], { onLoadResults: load, onSaveResult: vi.fn() });
     const input = screen.getByRole("textbox", { name: "输入消息" });
     fireEvent.change(input, { target: { value: "未发送草稿" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存 生成图片.png 到文件库" }));
+    fireEvent.click(screen.getByLabelText("保存图片"));
+    fireEvent.click(screen.getByRole("button", { name: "保存到文件库" }));
     expect(await screen.findByRole("dialog", { name: "聊天成果" })).toBeInTheDocument();
     expect(load).toHaveBeenCalledWith(12, expect.any(AbortSignal));
     fireEvent.click(screen.getByRole("button", { name: "关闭成果" }));

@@ -722,8 +722,8 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
               <div className="message-footer-tools">
                 <WebSourcesPanel sources={webSources} onOpen={() => openResearch()} />
                 <ActionBarPrimitive.Root className="message-actions" hideWhenRunning>
-                  <MessageCopyButton content={resultContent} label="复制回答" />
-                  {openDocument && source.id > 0 && (resultContent.trim() || assets.length) ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
+                  {(!assets.length || resultContent.trim()) ? <MessageCopyButton content={resultContent} label={assets.length ? "复制文字" : "复制回答"} /> : null}
+                  {openDocument && source.id > 0 && !assets.length && resultContent.trim() ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
                   {!uncertainWrite && <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
                     <RefreshCw size={14} aria-hidden="true" />
                   </ActionBarPrimitive.Reload>}
