@@ -11,32 +11,19 @@
 
 </div>
 
-团团是一个能够执行任务的智能体。
-
 ## 项目架构
 
-```mermaid
-flowchart TB
-    Web["Web 前端 · React"] --> Backend
+![团团项目架构：用户通过对话提出任务，团团理解需求并按需使用资料、模型和工具，最后交付回答、文档、演示文稿或图片。](assets/project-architecture.svg)
 
-    Backend["FastAPI 后端<br/>账号鉴权 · 接收请求 · 流式返回"] --> Agent
-    Agent["Agent 任务编排<br/>理解请求 · 检索资料 · 调用工具"]
-    Agent --> Data["资料与成果<br/>SQLite · 文件存储"]
-    Agent --> Services["按需调用<br/>模型 · 搜索服务"]
-
-    classDef core fill:#E8F1FF,stroke:#2563EB,color:#0F2A5F,stroke-width:2px
-    class Backend,Agent core
-```
-
-用户从 Web 发起请求，Agent 按需读取资料、调用模型和工具，再返回回答或生成文档、PPT、图片等成果。
+从对话开始，团团理解你的需求，按需查阅资料、使用工具，再把回答和成果带回给你。
 
 ## 技术栈
 
-- **前端**：React 19、TypeScript、Vite、Vitest、Playwright；聊天界面基于 assistant-ui
-- **后端**：Python 3.11+、FastAPI、Uvicorn、Pydantic；模型接入统一走 LiteLLM 与 OpenAI SDK
-- **桌面端**：Tauri 2、Rust；在 [独立仓库](https://github.com/Xiaolang-d3/TuanTuan-Desktop)维护，使用固定版本的本仓库前后端
-- **数据与存储**：SQLite、sqlite-vec，可选 MinIO
-- **测试**：pytest（含 Agent 离线评测）、Vitest、Playwright
+- **前端**：React 19、TypeScript、Vite、assistant-ui
+- **后端**：Python 3.11+、FastAPI、Uvicorn、Pydantic、LiteLLM、OpenAI SDK
+- **桌面端**：Tauri 2、Rust
+- **数据与存储**：SQLite、sqlite-vec、MinIO
+- **测试**：pytest、Vitest、Playwright
 
 ## 项目结构
 
