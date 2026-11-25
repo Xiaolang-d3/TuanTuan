@@ -330,4 +330,11 @@
 @media (max-width: 600px) {
   .chat-workspace .chat-retry-prompt > span { flex-basis: calc(100% - 28px); }
   .chat-workspace .chat-retry-prompt button { min-height: 36px; }
+  .chat-workspace .chat-replacement-undo {
+    flex-wrap: nowrap;
+    padding-block: 4px;
+  }
+  .chat-workspace .chat-replacement-undo > span { flex-basis: 0; }
+  .chat-workspace .chat-replacement-undo > :is(button, svg) { flex: none; }
+  .chat-workspace .chat-replacement-undo > button { min-height: 44px; }
 }

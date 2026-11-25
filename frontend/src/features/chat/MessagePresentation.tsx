@@ -14,6 +14,7 @@ import { HistoryAttachment } from "./HistoryAttachment";
 import { GeneratedImage, GeneratedImageActions } from "./GeneratedImage";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { copyMessageText, MessageCopyInProgressError } from "./messageCopy";
+import { Popover, PopoverContent } from "../../components/ui/Popover";
 import { ActionBarPrimitive, ComposerPrimitive, MessagePrimitive, type AppendMessage, type MessageState } from "@assistant-ui/react";
 import { BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Copy, ListChecks, Pencil, RefreshCw, Search, Trash2, X } from "lucide-react";
 import "./approval-card.css";
@@ -659,8 +660,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
   const openDocument = useContext(DocumentActionsContext);
   const source = state.metadata.custom.source as ChatMessage | undefined;
   const [quoted, setQuoted] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => { setQuoted(""); setConfirmDelete(false); }, [source?.id]);
+  useEffect(() => { setQuoted(""); }, [source?.id]);
   if (!source) return null;
   const modelSelection = source.payload?.agent?.model_selection ?? source.payload?.model_selection;
   const answerModelName = modelSelection?.answered_model_name?.trim()
@@ -717,8 +717,8 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
             {imagePending ? <section className="message-image-output" aria-label="输出结果"><ImageGenerationProgress /></section> : assets.length ? <section className="message-image-output" aria-label="输出结果">{blocks.length ? blocks.map((block, index) => block.type === "image" ? imageBlock(block.asset_id) : <MarkdownContent key={`text-${index}`} sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{block.text}</MarkdownContent>) : resultContent ? <MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent> : null}{assets.filter(asset => !seenAssets.has(asset.id)).map(asset => imageBlock(asset.id))}</section> : <>
               {resultContent ? <section className="message-result message-dialog" aria-label="输出结果"><MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent></section> : null}
             </>}
-            {quoted ? <button type="button" className="message-quote-action" onMouseDown={(event) => event.preventDefault()} onClick={() => { quoteSelection?.(quoted); setQuoted(""); }}>针对这段提问</button> : null}
             {!isActiveAssistant ? <div className="message-footer">
+              {quoted ? <button type="button" className="message-quote-action" onMouseDown={(event) => event.preventDefault()} onClick={() => { quoteSelection?.(quoted); setQuoted(""); }}>针对这段提问</button> : null}
               <div className="message-footer-tools">
                 <WebSourcesPanel sources={webSources} onOpen={() => openResearch()} />
                 <ActionBarPrimitive.Root className="message-actions" hideWhenRunning>
@@ -747,9 +747,15 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
             <ActionBarPrimitive.Root className="message-actions user-message-actions" hideWhenRunning>
               <MessageCopyButton content={source.content} label="复制消息" />
               <ActionBarPrimitive.Edit className="message-icon-action" aria-label="编辑消息" title="编辑消息"><Pencil size={14} aria-hidden="true" /></ActionBarPrimitive.Edit>
-              {deleteTurn && source.id > 0 && !confirmDelete ? <button type="button" className="message-icon-action" aria-label="删除这轮问答" title="只删除这轮问答" onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden="true" /></button> : null}
+              {deleteTurn && source.id > 0 ? (
+                <Popover.Root key={source.id}>
+                  <Popover.Trigger type="button" className="message-icon-action" aria-label="删除这轮问答" title="只删除这轮问答"><Trash2 size={14} aria-hidden="true" /></Popover.Trigger>
+                  <PopoverContent className="message-turn-delete-popover" aria-label="删除这轮问答" align="end">
+                    <Popover.Close type="button" className="ui-button ui-button-danger" aria-label="确认删除这轮问答" onClick={() => void deleteTurn(source.id)}>确认删除</Popover.Close>
+                  </PopoverContent>
+                </Popover.Root>
+              ) : null}
             </ActionBarPrimitive.Root>
-            {confirmDelete ? <button type="button" className="message-quote-action message-turn-delete" aria-label="确认删除这轮问答" onClick={() => void deleteTurn?.(source.id)}>确认删除</button> : null}
           </>
         )}
       </div>

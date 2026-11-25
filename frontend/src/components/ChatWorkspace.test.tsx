@@ -273,10 +273,20 @@ describe("ChatWorkspace", () => {
     expect(props.onSend).not.toHaveBeenCalled();
   });
 
-  it("shows dismissible model selection feedback in the composer", () => {
+  it("shows dismissible model selection feedback without moving the transcript", () => {
     const dismiss = vi.fn();
-    const { view, ...props } = renderChat([message], { modelSelectionFeedback: { kind: "success", text: "已切换至图片模型" }, onDismissModelSelectionFeedback: dismiss });
-    expect(within(screen.getByRole("log")).getByText("已切换至图片模型").closest("[role=status]")).toBeInTheDocument();
+    const { view, ...props } = renderChat([message], { onDismissModelSelectionFeedback: dismiss });
+    const viewport = screen.getByRole("log");
+    Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1500 });
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 300 });
+    viewport.scrollTop = 217;
+    fireEvent.scroll(viewport);
+    view.rerender(<ChatWorkspace {...props} modelSelectionFeedback={{ kind: "success", text: "已切换至图片模型" }} />);
+    const feedback = screen.getByText("已切换至图片模型").closest("[role=status]");
+    expect(feedback?.closest(".chat-thread-overlay")).toBeInTheDocument();
+    expect(viewport.contains(feedback)).toBe(false);
+    expect(viewport.scrollTop).toBe(217);
+    expect(screen.getByRole("button", { name: "回到最新" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "关闭模型切换提示" }));
     expect(dismiss).toHaveBeenCalledOnce();
     view.rerender(<ChatWorkspace {...props} modelSelectionFeedback={{ kind: "error", text: "未能确认切换" }} />);
@@ -479,8 +489,9 @@ describe("ChatWorkspace", () => {
     fireEvent.scroll(viewport);
     const jump = screen.getByRole("button", { name: "回到最新" });
     expect(jump.querySelector(".lucide-arrow-down")).toHaveAttribute("aria-hidden", "true");
-    expect(jump.closest(".chat-composer")).toBeNull();
-    expect(viewport.contains(jump)).toBe(false);
+    const surface = viewport.closest(".chat-thread-surface");
+    expect(jump.closest(".chat-thread-overlay")?.parentElement).toBe(surface?.parentElement);
+    expect(surface?.contains(jump)).toBe(false);
     p.view.rerender(<ChatWorkspace {...p} messages={[message, assistantMessage("已有回答，追加内容")]} />);
     expect(viewport.scrollTop).toBe(217);
     fireEvent.click(screen.getByRole("button", { name: "有新内容 · 回到最新" }));
@@ -595,12 +606,17 @@ describe("ChatWorkspace", () => {
     selection?.removeAllRanges();
     selection?.addRange(range);
     fireEvent.mouseUp(passage);
-    fireEvent.click(screen.getByRole("button", { name: "针对这段提问" }));
+    const quote = screen.getByRole("button", { name: "针对这段提问" });
+    expect(quote.closest(".message-footer")).toBeInTheDocument();
+    fireEvent.click(quote);
     expect(screen.getByRole("textbox", { name: "输入消息" })).toHaveValue("> 可以核对的句子\n\n针对这段：");
     fireEvent.click(screen.getByRole("button", { name: "导出对话" }));
     expect(onExportConversation).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "删除这轮问答" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除这轮问答" }));
+    const confirmation = within(screen.getByRole("dialog", { name: "删除这轮问答" })).getByRole("button", { name: "确认删除这轮问答" });
+    expect(screen.getByRole("log").contains(confirmation)).toBe(false);
+    expect(onDeleteTurn).not.toHaveBeenCalled();
+    fireEvent.click(confirmation);
     expect(onDeleteTurn).toHaveBeenCalledWith(message.id);
   });
 
