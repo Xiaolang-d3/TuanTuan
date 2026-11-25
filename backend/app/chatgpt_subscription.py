@@ -59,9 +59,10 @@ def _clear(account: dict, *, expired: bool = False) -> None:
 
 
 def status(db_path: Path) -> dict:
-    base = {"available": False, "configured": False, "plan_enabled": False,
+    show_entry = not hosted_models()
+    base = {"show_entry": show_entry, "available": False, "configured": False, "plan_enabled": False,
             "status": "unavailable", "active_id": None, "connection_id": None, "accounts": []}
-    if not local_enabled():
+    if not show_entry or not local_enabled():
         return {**base, "message": _LOCAL_ONLY}
     try:
         if not store.storage_available():

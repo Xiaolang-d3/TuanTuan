@@ -5,6 +5,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlsplit
 
@@ -195,6 +196,26 @@ def test_identity_only_and_non_local_guards(clients, monkeypatch):
     assert owner.post(f'{ROOT}/start', json={}).status_code == 400
     assert owner.post(f'{ROOT}/active', json={'account_id': status['active_id']}).status_code == 400
     assert owner.delete(ROOT).status_code == 400
+
+
+def test_subscription_entry_visibility_follows_deployment_mode(tmp_path, monkeypatch):
+    path = tmp_path / 'workspace.db'
+    monkeypatch.setattr(subscription, 'get_settings', lambda: SimpleNamespace(is_loopback_only=True))
+    monkeypatch.setenv('TUANTUAN_DEPLOYMENT_MODE', 'hosted')
+
+    def unexpected_storage_check():
+        pytest.fail('Hosted status must not access local credentials')
+
+    monkeypatch.setattr(subscription.store, 'storage_available', unexpected_storage_check)
+    hosted = subscription.status(path)
+    assert hosted['show_entry'] is False
+    assert hosted['available'] is False
+
+    monkeypatch.setenv('TUANTUAN_DEPLOYMENT_MODE', 'local')
+    monkeypatch.setattr(subscription.store, 'storage_available', lambda: False)
+    local = subscription.status(path)
+    assert local['show_entry'] is True
+    assert local['available'] is False
 
 
 def test_rotation_keeps_binding_but_terminal_refresh_removes_it(tmp_path, vault, monkeypatch):

@@ -15,7 +15,8 @@ const catalog: ModelCatalog = {
   purpose_defaults: { chat: "existing-chat", image: null, vision: null },
   purpose_version: 1
 };
-const signedOut = { available: true, configured: false, plan_enabled: false, status: "signed_out", accounts: [] };
+const signedOut = { show_entry: true, available: true, configured: false, plan_enabled: false, status: "signed_out", accounts: [] };
+const unavailable = { ...signedOut, available: false, status: "unavailable" };
 const account = { id: "sample-account", label: "示例 ChatGPT 账号", signed_in: true, plan_enabled: true };
 const connected = { ...signedOut, configured: true, plan_enabled: true, status: "connected", active_id: account.id, connection_id: account.id, accounts: [account] };
 const subscriptionConnection: ModelCatalog["connections"][number] = { id: account.id, name: "ChatGPT 订阅", model_base_url: "https://api.openai.com/v1", model_protocol: "responses", auth_kind: "chatgpt_subscription", api_key_configured: false, enabled: true, revision: 1 };
@@ -40,7 +41,7 @@ const reads: Record<string, unknown> = {
 
 test.use({ viewport: { width: 1440, height: 1000 }, serviceWorkers: "block" });
 
-async function mockApp(page: Page, baseURL: string, available = true) {
+async function mockApp(page: Page, baseURL: string, initialStatus = signedOut) {
   const origin = new URL(baseURL).origin;
   const writes: Array<{ path: string; body: unknown }> = [];
   const unexpected: string[] = [];
@@ -75,7 +76,7 @@ async function mockApp(page: Page, baseURL: string, available = true) {
         return send({ attempt_id: "demo-attempt", authorization_url: authorize });
       }
     } else {
-      if (path === subscriptionPath) return send(authorized ? connected : available ? signedOut : { ...signedOut, available: false, status: "unavailable" });
+      if (path === subscriptionPath) return send(authorized ? connected : initialStatus);
       if (path === `${subscriptionPath}/attempts/demo-attempt`) {
         if (!complete) {
           pendingPolls++;
@@ -143,8 +144,26 @@ test("authorizes ChatGPT in a separate browser page without changing the default
   expect(mock.unexpected).toEqual([]);
 });
 
+test("hides the panel for hosted deployment while leaving ordinary model setup available", async ({ page, baseURL }) => {
+  const hosted = { ...signedOut, show_entry: false, available: false, status: "unavailable" };
+  const mock = await mockApp(page, baseURL!, hosted);
+  await page.goto("/#/settings/model");
+  const statusResponse = page.waitForResponse(response => new URL(response.url()).pathname === subscriptionPath);
+  await page.getByRole("button", { name: "基础配置", exact: true }).click();
+  await statusResponse;
+  await expect(page.getByRole("region", { name: "ChatGPT 订阅登录" })).toHaveCount(0);
+  await page.getByRole("button", { name: "添加服务", exact: true }).click();
+  const editor = page.getByRole("form", { name: "添加服务" });
+  await expect(editor.getByLabel("API Key", { exact: true })).toBeEditable();
+  await editor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "模型配置", exact: true }).click();
+  await expect(page.getByRole("region", { name: "当前默认模型" })).toContainText(existingModel);
+  expect(mock.writes).toEqual([]);
+  expect(mock.unexpected).toEqual([]);
+});
+
 test("does not offer sign-in when the local backend reports subscription login unavailable", async ({ page, baseURL }) => {
-  const mock = await mockApp(page, baseURL!, false);
+  const mock = await mockApp(page, baseURL!, unavailable);
   await page.goto("/#/settings/model");
   const subscription = await showSubscription(page);
   await expect(subscription.getByText("当前环境不支持 ChatGPT 订阅登录。")).toBeVisible();

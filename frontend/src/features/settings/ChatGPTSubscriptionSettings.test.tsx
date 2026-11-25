@@ -4,7 +4,7 @@ import { ChatGPTSubscriptionSettings } from "./ChatGPTSubscriptionSettings";
 
 const path = "/agent/chatgpt-subscription";
 const authorize = "https://auth.openai.com/api/accounts/authorize?state=example-state";
-const signedOut = { available: true, configured: false, plan_enabled: false, status: "signed_out", accounts: [] };
+const signedOut = { show_entry: true, available: true, configured: false, plan_enabled: false, status: "signed_out", accounts: [] };
 const first = { id: "first", label: "工作账号", signed_in: true, plan_enabled: true };
 const second = { id: "second", label: "个人账号", signed_in: true, plan_enabled: false };
 const connected = { ...signedOut, configured: true, plan_enabled: true, status: "connected", active_id: "first", accounts: [first, second] };
@@ -25,6 +25,16 @@ afterEach(() => {
 });
 
 describe("ChatGPTSubscriptionSettings", () => {
+  it("keeps the hosted entry hidden before and after status loads", async () => {
+    let resolveStatus!: (value: unknown) => void;
+    const fetchJson = vi.fn().mockImplementation(() => new Promise(resolve => { resolveStatus = resolve; }));
+    const { container } = await renderSettings(fetchJson);
+    expect(fetchJson).toHaveBeenCalledOnce();
+    expect(container).toBeEmptyDOMElement();
+    await act(async () => resolveStatus({ ...signedOut, show_entry: false, available: false, status: "unavailable" }));
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("does not offer sign-in when unsupported by the local backend", async () => {
     const fetchJson = vi.fn().mockResolvedValue({ ...signedOut, available: false, status: "unavailable" });
     await renderSettings(fetchJson);

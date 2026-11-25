@@ -9,6 +9,7 @@ const maxPollMs = 10 * 60_000;
 
 type Account = { id: string; label: string; email?: string; signed_in: boolean; plan_enabled: boolean };
 type Subscription = {
+  show_entry: boolean;
   available: boolean;
   configured: boolean;
   plan_enabled: boolean;
@@ -230,6 +231,8 @@ export function ChatGPTSubscriptionSettings({ fetchJson, onChanged, disabled = f
       if (current(task)) setError(accountId ? "无法确认账号切换，请重新读取状态后重试。" : "无法确认已退出，请重新读取状态后重试。");
     } finally { finish(task); }
   }
+
+  if (subscription?.show_entry !== true) return null;
 
   const locked = Boolean(phase) || disabled;
   const waiting = phase === "starting" || phase === "waiting";
