@@ -113,6 +113,15 @@ test("image workspace makes three drafts, restores settings, edits and archives 
       return route.fulfill({ json: { assets: [edited], conversation_id: 42, message_id: 44 } });
     }
     if (path === "/image-studio/works") return route.fulfill({ json: { items: works } });
+    if (path === "/works/final") return route.fulfill({ json: { items: [
+      { id: "doc-work", kind: "document", filename: "活动方案.md", media_type: "text/markdown", created_at, size: 18 },
+      { id: "ppt-work", kind: "presentation", filename: "活动演示.pptx", media_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation", created_at, size: 1024 },
+    ] } });
+    if (path === "/works/final/doc-work/file") {
+      expect(request.method()).toBe("GET");
+      expect(request.headers().authorization).toBe("Bearer image-workspace-fixture");
+      return route.fulfill({ contentType: "text/markdown", body: "# 活动方案" });
+    }
     if (path === "/image-studio/works/edited" && request.method() === "POST") {
       if (!works.length) works.push({ id: "final-work", asset: image("edited", "海报-定稿.png"), created_at });
       return route.fulfill({ json: works[0] });
@@ -217,7 +226,17 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await page.getByRole("button", { name: "已归档 · 查看作品", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible();
   await expect(page.getByText("海报-定稿.png", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "查看作品", exact: true }).click();
+  const types = page.getByRole("group", { name: "作品类型" });
+  await expect(page.getByText("活动演示.pptx", { exact: true })).toBeVisible();
+  await types.getByRole("button", { name: "文档", exact: true }).click();
+  await expect(page.getByText("海报-定稿.png", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "打开 活动方案.md" }).click();
+  const documentDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下载定稿" }).click();
+  expect((await documentDownload).suggestedFilename()).toBe("活动方案.md");
+  await page.getByRole("button", { name: "关闭详情" }).click();
+  await types.getByRole("button", { name: "图片", exact: true }).click();
+  await page.getByRole("button", { name: "打开 海报-定稿.png", exact: true }).click();
   const download = page.waitForEvent("download");
   await page.getByRole("dialog", { name: "作品详情" }).getByRole("button", { name: "下载原图", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("海报-定稿.png");

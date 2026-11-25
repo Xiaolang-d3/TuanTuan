@@ -1,4 +1,5 @@
 import { createApiClient, fetchWithTimeout } from "../../api/client";
+import { createFinalWorksApi } from "../product/finalWorksApi";
 import { createActivityService, type BackgroundJob, type FileArtifact } from "./activity-service";
 
 // Full integrity checks on a cold disk can exceed the ordinary API timeout.
@@ -36,6 +37,7 @@ export function createPresentationService(apiBase: string, accessToken: string) 
   const path = (id: string) => `/presentations/${encodeURIComponent(id)}`;
   return {
     activity,
+    archiveFinal: createFinalWorksApi(apiBase, accessToken, request).archivePresentation,
     capabilities: (signal?: AbortSignal, conversationId?: number) => request<PresentationCapabilities>(`/presentations/capabilities${conversationId ? `?conversation_id=${conversationId}` : ""}`, { signal, cache: "no-store" }, PRESENTATION_SETUP_TIMEOUT_MS),
     quickCapabilities: (conversationId: number, signal?: AbortSignal) => request<QuickPresentationCapabilities>(`/presentations/quick/capabilities?conversation_id=${conversationId}`, { signal, cache: "no-store" }),
     createQuick: (topic: string, attachmentIds: string[], conversationId: number, key: string) => request<PresentationJob>("/presentations/quick", {

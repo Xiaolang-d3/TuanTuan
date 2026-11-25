@@ -66,6 +66,22 @@ it("archives the visible saved version with a stable retry receipt and indexing 
   expect(vi.mocked(service.archive).mock.calls[0][2].idempotency_key).toBe(vi.mocked(service.archive).mock.calls[1][2].idempotency_key);
 });
 
+it("saves only the selected saved version to works, without adding it to knowledge", async () => {
+  const service = fixture();
+  service.archiveFinal = vi.fn().mockResolvedValue({ id: "work" });
+  render(<DocumentEditor documentId={first.document_id} service={service} />);
+  const editor = await screen.findByRole("textbox", { name: "文档正文" });
+  fireEvent.change(editor, { target: { value: "还未保存" } });
+  const archive = screen.getByRole("button", { name: "保存到我的作品" });
+  expect(archive).toBeDisabled();
+  fireEvent.change(editor, { target: { value: first.markdown } });
+  fireEvent.click(archive);
+  expect(await screen.findByText("已将 v1 保存到我的作品（Markdown）")).toBeVisible();
+  expect(service.archiveFinal).toHaveBeenCalledWith(first.document_id, 1, expect.any(AbortSignal));
+  expect(service.archive).not.toHaveBeenCalled();
+  expect(service.save).not.toHaveBeenCalled();
+});
+
 it("discards a late document response after an account service change", async () => {
   const original = fixture(), next = fixture();
   let finish!: (document: SavedDocument) => void;

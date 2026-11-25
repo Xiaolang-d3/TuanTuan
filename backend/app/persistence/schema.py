@@ -455,6 +455,21 @@ CREATE TABLE IF NOT EXISTS memory_rules (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Keep the copied payload and its metadata in one transaction, without a
+-- source foreign key: deleting the original does not delete the archive.
+CREATE TABLE IF NOT EXISTS final_works (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('document', 'presentation')),
+    source_id TEXT NOT NULL,
+    source_version INTEGER NOT NULL CHECK(source_version > 0),
+    filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK(size >= 0),
+    payload BLOB NOT NULL CHECK(typeof(payload) = 'blob' AND length(payload) = size),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(kind, source_id, source_version)
+);
+
 CREATE TABLE IF NOT EXISTS memory_conversation_state (
     conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
     last_extracted_message_id INTEGER NOT NULL,
