@@ -24,6 +24,19 @@ function expectFieldError(label: string) {
 afterEach(cleanup);
 
 describe("UnifiedConnectionEditor", () => {
+  it("tests the draft without saving or revealing the key", async () => {
+    const p = props();
+    const onTest = vi.fn().mockResolvedValue(undefined);
+    render(<UnifiedConnectionEditor {...p} onTest={onTest} />);
+    fill("https://draft.test/v1", "private-test-key");
+    submit("测试连接");
+    expect(await screen.findByRole("status")).toHaveTextContent("尚未保存配置，也未测试生成能力或额度");
+    expect(onTest).toHaveBeenCalledExactlyOnceWith({ model_base_url: "https://draft.test/v1", model_protocol: "auto", api_key: "private-test-key" });
+    expect(p.onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "显示 API Key" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://other.test/v1" } });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
   it.each([
     "bad-address", "ftp://api.test/v1", "https://user:password@api.test/v1",
     "https://api.test/v1?key=value", "https://api.test/v1#fragment", ""

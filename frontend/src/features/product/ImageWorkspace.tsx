@@ -3,7 +3,7 @@ import { ArrowUp, GalleryHorizontalEnd, Image as ImageIcon, RefreshCw, Settings2
 import type { ChatAttachment } from "../chat/types";
 import type { ImagePageActions } from "./ImageWorkspacePage";
 import type { StudioTask } from "./imageStudioApi";
-import { StudioModelPicker, useStudioModelPreview } from "./StudioModelPicker";
+import { StudioModelPicker, studioPreviewReason, useStudioModelPreview } from "./StudioModelPicker";
 import { StudioThumb } from "./StudioMedia";
 import { StudioTaskDetail, type StudioEditBinding } from "./StudioTaskDetail";
 import { failureMessage, sizeText, statusText, useImageWorkspace, useStudioHistory, type StudioApi, type StatusFilter } from "./useImageWorkspace";
@@ -93,6 +93,10 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
   const outstanding=run.recent;
   const matchesRecent=outstanding&&(!history.status||history.status===outstanding.status)&&(!history.query.trim()||outstanding.prompt.toLowerCase().includes(history.query.trim().toLowerCase()));
   const tasks=history.items.map(t=>outstanding?.id===t.id?outstanding:t).filter(t=>!history.status||history.status===t.status);
+  const modelSetupNeeded = preview.data && !preview.data.eligible && !preview.data.candidates.some(model => model.eligible);
+  const modelNotConfigured = modelSetupNeeded && (preview.data?.reason_code === "not_configured" ||
+    (!preview.data?.reason_code && preview.data?.candidates.length === 0));
+  const hasHistoryFilter = Boolean(history.query || history.status);
   if(matchesRecent&&outstanding&&history.offset===0&&!tasks.some(t=>t.id===outstanding.id)&&(run.locked||run.receipt===outstanding.id))tasks.unshift(outstanding);
   const generation = enabled && outstanding?.id === generationId ? outstanding : null;
   const historyGrid = useRef<HTMLDivElement>(null);
@@ -129,8 +133,37 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     : <><header className="studio-head"><div><p className="studio-kicker">创作空间</p><h1>图片创作</h1></div><button onClick={onOpenWorks}><GalleryHorizontalEnd size={16}/>我的作品</button></header>
     <div className="studio-tools"><input type="search" role="textbox" aria-label="搜索创作记录" placeholder="搜索创作描述…" value={history.query} onChange={e=>history.search(e.target.value)}/><select value={history.status} aria-label="任务状态" onChange={e=>history.filter(e.target.value as StatusFilter)}><option value="">全部状态</option>{Object.entries(statusText).map(([key,value])=><option key={key} value={key}>{value}</option>)}</select><button onClick={()=>{refreshHistory();run.check();}} aria-label="刷新创作记录"><RefreshCw size={16}/></button></div>
     <div className="studio-scroll" aria-label="创作历史" aria-busy={history.loading}>
+    {modelSetupNeeded && <section className="studio-model-onboarding" aria-labelledby="studio-model-onboarding-title">
+      <div className="studio-model-onboarding-copy">
+        <h2 id="studio-model-onboarding-title">{modelNotConfigured ? "尚未配置模型" : "请检查图片模型配置"}</h2>
+        {modelNotConfigured ? <>
+          <p>还没有可用的图片模型</p>
+          <p>团团暂不提供免费图片模型，请配置自己的模型服务后开始创作。</p>
+        </> : <p>{studioPreviewReason(preview.data)}</p>}
+      </div>
+      <div className="studio-model-onboarding-actions">
+        <button type="button" className="studio-primary" onClick={onOpenSettings}><Settings2 size={16} aria-hidden="true"/>{modelNotConfigured ? "配置图片模型" : "管理图片模型"}</button>
+        <details>
+          <summary>模型接入说明和配置教程</summary>
+          <ol>
+            <li>进入模型管理，选择服务商或兼容 API，并填写服务地址与 API Key。</li>
+            <li>测试连接，然后添加支持图片生成的模型，可从服务商发现或手动填写模型名称。</li>
+            <li>保存模型并确认图片生成能力，返回图片创作选择模型。</li>
+          </ol>
+        </details>
+      </div>
+    </section>}
     {history.error&&<p role="alert" className="studio-error">无法读取历史：{history.error}</p>}
-    {!tasks.length&&!history.error&&(history.loading?<p className="studio-muted">正在读取历史…</p>:<div className="studio-empty"><ImageIcon size={28} aria-hidden="true"/><h2>{history.query||history.status?"没有匹配的任务":"还没有创作记录"}</h2><p>{history.query||history.status?"换个关键词，或调整任务状态。":"写下画面描述，或从一个示例开始。"}</p><div className="studio-actions">{history.query||history.status?<button onClick={()=>{history.search("");history.filter("");}}>清除筛选</button>:examples.map(([label,text])=><button key={label} onClick={()=>fillDraft(text)}>{label}</button>)}</div></div>)}
+    {!tasks.length && !history.error && (history.loading ? <p className="studio-muted">正在读取历史…</p> :
+      (!modelSetupNeeded || hasHistoryFilter) && <div className="studio-empty">
+        <ImageIcon size={28} aria-hidden="true" />
+        <h2>{hasHistoryFilter ? "没有匹配的任务" : "还没有创作记录"}</h2>
+        <p>{hasHistoryFilter ? "换个关键词，或调整任务状态。" : "写下画面描述，或从一个示例开始。"}</p>
+        <div className="studio-actions">
+          {hasHistoryFilter ? <button onClick={() => { history.search(""); history.filter(""); }}>清除筛选</button> :
+            examples.map(([label, text]) => <button key={label} onClick={() => fillDraft(text)}>{label}</button>)}
+        </div>
+      </div>)}
     <div ref={historyGrid} className={`studio-grid studio-history-grid${layout ? " studio-history-packed" : ""}`}
       style={layout ? { height: layout.height } : undefined}>{cards.map(({ task, tile }) => {
       const asset = task.assets[0];

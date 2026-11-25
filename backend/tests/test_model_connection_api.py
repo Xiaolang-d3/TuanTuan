@@ -52,6 +52,23 @@ def test_explicit_new_key_is_only_forwarded_to_the_new_root(connection):
     assert factory.call_args.kwargs["base_url"] == "https://new.example.test/v1"
 
 
+def test_catalog_draft_never_reuses_or_updates_saved_connection(connection, monkeypatch):
+    saved, provider, factory = connection
+    load_saved = Mock(side_effect=AssertionError("draft must not load saved credentials"))
+    monkeypatch.setattr(model, "get_model_connection", load_saved)
+    draft = ModelDiscoveryIn(model_base_url=saved["model_base_url"], model_protocol="openai")
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(model.discover_models(draft, draft_only=True))
+    assert error.value.status_code == 400
+    factory.assert_not_called()
+    draft.api_key = "synthetic-draft-key"
+    result = asyncio.run(model.discover_models(draft, draft_only=True))
+    load_saved.assert_not_called()
+    provider.list_models.assert_awaited_once()
+    assert factory.call_args.kwargs["api_key"] == draft.api_key
+    assert draft.api_key not in str(result)
+
+
 def test_capability_probe_also_blocks_cross_connection_reuse(connection):
     _saved, _provider, factory = connection
     with pytest.raises(HTTPException) as error:

@@ -242,14 +242,21 @@ describe("UnifiedModelManager", () => {
     expect(trigger).toHaveTextContent("全部服务");
     expect(directory.getAllByText("gpt-4.1", { exact: true })).toHaveLength(2);
   });
-  it("only reveals the credential typed in the connection form when requested", () => {
-    render(<UnifiedModelManager {...props()} />);
+  it("tests the new connection draft without saving or displaying the credential", async () => {
+    const p = props();
+    p.fetchJson.mockResolvedValue({ models: ["image-model"] });
+    render(<UnifiedModelManager {...p} />);
     fireEvent.click(screen.getByRole("button", { name: "添加服务" }));
-    fireEvent.change(screen.getByLabelText("API Key", { exact: true }), { target: { value: "test-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "显示 API Key" }));
-    expect(screen.getByLabelText("API Key", { exact: true })).toHaveAttribute("type", "text");
-    fireEvent.click(screen.getByRole("button", { name: "隐藏 API Key" }));
-    expect(screen.getByLabelText("API Key", { exact: true })).toHaveAttribute("type", "password");
+    const form = within(screen.getByRole("form", { name: "添加服务" }));
+    fireEvent.change(form.getByLabelText("Base URL"), { target: { value: "https://draft.test/v1" } });
+    fireEvent.change(form.getByLabelText("API Key"), { target: { value: "test-key" } });
+    expect(form.queryByRole("button", { name: "显示 API Key" })).not.toBeInTheDocument();
+    fireEvent.click(form.getByRole("button", { name: "测试连接" }));
+    expect(await form.findByRole("status")).toHaveTextContent("尚未保存配置");
+    expect(p.fetchJson).toHaveBeenCalledWith("/agent/models/discover?draft_only=true", {
+      method: "POST", body: JSON.stringify({ model_base_url: "https://draft.test/v1", model_protocol: "auto", api_key: "test-key" }),
+    });
+    expect(p.onMutate).not.toHaveBeenCalled();
   });
   it("offers ordinary service removal with confirmation and resets the selected service", async () => {
     const p = props(); const view = render(<UnifiedModelManager {...p} />);

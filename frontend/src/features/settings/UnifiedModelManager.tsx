@@ -20,6 +20,7 @@ export type UnifiedModelManagerProps = {
   onApplied: () => Promise<void>;
   advanced?: ReactNode;
   additionalConnectionActions?: ReactNode;
+  initialPurpose?: "image";
 };
 type Row = { connection: ModelConnection; name: string; profile?: ModelProfile; entry?: ModelCatalogEntry; types: ModelCategory[] };
 const defaultPurposes = {
@@ -38,18 +39,18 @@ const normalizedAddress = (value: string) => value.trim().replace(/\/+$/, "");
 type ModelServiceOption = { id: string | null; label: string };
 const allServices: ModelServiceOption = { id: null, label: "全部服务" };
 
-export function UnifiedModelManager({ catalog, loading, busy, error, secretWritable, fetchJson, onReload, onMutate, onEnsureProfile, onApplied, advanced, additionalConnectionActions }: UnifiedModelManagerProps) {
-  const owner = useMemo(() => ({ active: true }), [fetchJson]);
+export function UnifiedModelManager({ catalog, loading, busy, error, secretWritable, fetchJson, onReload, onMutate, onEnsureProfile, onApplied, advanced, additionalConnectionActions, initialPurpose }: UnifiedModelManagerProps) {
+  const owner = useMemo(() => ({ active: true, initialPurpose }), [fetchJson, initialPurpose]);
   const active = useRef(owner); active.current = owner;
   const latestCatalog = useRef(catalog); latestCatalog.current = catalog;
   const [tab, setTab] = useState<"overview" | "models" | "services">("overview");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [managedModelKey, setManagedModelKey] = useState<string | null>(null);
   const pickerId = useId();
-  const [pickerPurpose, setPickerPurpose] = useState<DefaultPurpose | null>(null);
+  const [pickerPurpose, setPickerPurpose] = useState<DefaultPurpose | null>(initialPurpose ?? null);
   const [pickerError, setPickerError] = useState("");
   const pickerTrigger = useRef<HTMLButtonElement | null>(null);
-  const focusPickerSearch = useRef(true);
+  const focusPickerSearch = useRef(!initialPurpose);
   const restorePickerFocus = useRef(false);
   const [advancedMode, setAdvancedMode] = useState(false);
   const [serviceId, setServiceId] = useState<string | null>(null);
@@ -63,6 +64,20 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
   const [manualService, setManualService] = useState("");
   const [manualName, setManualName] = useState("");
   const [notice, setNotice] = useState("");
+  const [testedConnection, setTestedConnection] = useState<{ id: string; revision: number; message: string } | null>(null);
+  async function testConnection(connection: ModelConnection) {
+    setTestedConnection(null);
+    await run(async () => {
+      let message: string;
+      try {
+        await fetchJson(`/agent/model-connections/${encodeURIComponent(connection.id)}/discover`, { method: "POST" });
+        message = "已连接服务并读取模型目录；尚未测试生成能力或额度。";
+      } catch (error) {
+        message = error instanceof Error ? error.message : "无法读取模型目录，请检查服务地址和 API Key。";
+      }
+      if (active.current === owner) setTestedConnection({ id: connection.id, revision: connection.revision, message });
+    });
+  }
   const [working, setWorking] = useState(false);
   const [archiveId, setArchiveId] = useState<string | null>(null);
   const [removal, setRemoval] = useState<{ owner: object; connection: ModelConnection } | null>(null);
@@ -76,8 +91,9 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
   useEffect(() => {
     owner.active = true;
     pickerTrigger.current = null;
+    focusPickerSearch.current = !owner.initialPurpose;
     restorePickerFocus.current = false;
-    setPickerPurpose(null); setPickerError(""); setManagedModelKey(null);
+    setPickerPurpose(owner.initialPurpose ?? null); setPickerError(""); setManagedModelKey(null);
     setTab("overview"); setServiceId(null); setEditor(null); setInspector(null); setPendingConnection(null); setManual(false); setRemoval(null);
     setInspectorDirty(false); setInspectorSaving(false); setPendingInspectorAction(null); setManualName(""); setManualService(""); setNotice(""); setArchiveId(null); setWorking(false); running.current = null;
     return () => { owner.active = false; };
@@ -279,7 +295,9 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
         try { await onApplied(); } catch { if (active.current === owner) setNotice("服务已删除，请重新读取配置以刷新摘要。"); }
       }
     }); })}>确认删除</button><button type="button" disabled={locked} onClick={() => setRemoval(null)}>取消删除</button></div></section> : null}
-    {editor?.owner === owner ? <UnifiedConnectionEditor key={editor.connection?.id ?? "new"} connection={editor.connection} currentConnection={catalog.connections.find(item => item.id === editor.connection?.id)} connections={catalog.connections} busy={locked} secretWritable={secretWritable} onCancel={() => setEditor(null)} onSave={async body => {
+    {editor?.owner === owner ? <UnifiedConnectionEditor key={editor.connection?.id ?? "new"} connection={editor.connection} currentConnection={catalog.connections.find(item => item.id === editor.connection?.id)} connections={catalog.connections} busy={locked} secretWritable={secretWritable} onCancel={() => setEditor(null)} onTest={async body => {
+      await fetchJson("/agent/models/discover?draft_only=true", { method: "POST", body: JSON.stringify(body) });
+    }} onSave={async body => {
       const ids = catalog.connections.map(item => item.id);
       const success = await onMutate(editor.connection ? `/agent/model-connections/${encodeURIComponent(editor.connection.id)}` : "/agent/model-connections", editor.connection ? "PATCH" : "POST", body);
       if (active.current !== owner) return false;
@@ -388,12 +406,14 @@ export function UnifiedModelManager({ catalog, loading, busy, error, secretWrita
           </>}
         </div>
         <div className="unified-actions">
+          <button type="button" disabled={locked || !connection.enabled} onClick={() => void testConnection(connection)}>测试连接</button>
           <button type="button" onClick={() => { resetFilters(); setServiceId(connection.id); changeTab("models"); }}>查看模型</button>
           {!isSubscriptionConnection(connection) && <>
             <button type="button" disabled={locked || editor?.owner === owner} aria-label={`编辑${connection.name || "模型服务"}`} onClick={() => setEditor({ owner, connection })}>编辑</button>
             <button type="button" className="unified-danger" disabled={locked || loading || editor?.owner === owner} aria-label={`删除${connection.name || "模型服务"}`} onClick={() => { setRemoval({ owner, connection }); setNotice(""); }}>删除</button>
           </>}
         </div>
+        {testedConnection?.id === connection.id && testedConnection.revision === connection.revision && <p role="status">{testedConnection.message}</p>}
         {advancedMode && !isSubscriptionConnection(connection) && <div className="unified-service-advanced">
           <p>连接版本 {connection.revision}</p>
           {archiveId === connection.id ? <div className="unified-actions">

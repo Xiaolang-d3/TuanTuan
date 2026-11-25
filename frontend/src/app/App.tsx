@@ -1294,7 +1294,7 @@ export function App({
                 if (stillOpening()) setErrorMessage(error instanceof Error ? error.message : "打开对话失败");
               });
             }}
-            onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+            onOpenSettings={() => navigateRoute({ section: "settings", page: "model", purpose: "image" })}
           />
         </div> : null}
         {appRoute.section === "video" ? <VideoPage
@@ -1359,11 +1359,11 @@ export function App({
                       onChange={(kernel) => { void changeDefaultKernel(kernel); }}
                     />}
                     manager={modelCatalog.catalog.purpose_defaults ? advanced => <UnifiedModelManager
-                      key={userEmail} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
+                      key={`${userEmail}:${appRoute.purpose ?? "overview"}`} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
                       busy={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} error={modelCatalog.error}
                       fetchJson={fetchJson} secretWritable={savedAgentSettings.secret_storage_writable}
                       onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
-                      onApplied={refreshDefaultModelSelection} advanced={advanced}
+                      onApplied={refreshDefaultModelSelection} advanced={advanced} initialPurpose={appRoute.purpose}
                       additionalConnectionActions={<ChatGPTSubscriptionSettings fetchJson={fetchJson} onChanged={refreshChatGPTSubscription}
                         disabled={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} />}
                     /> : undefined}

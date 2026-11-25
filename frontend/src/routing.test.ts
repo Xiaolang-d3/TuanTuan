@@ -77,6 +77,15 @@ describe("model settings route", () => {
     expect(parseAppHash("#/settings/models")).toEqual({ section: "settings", page: "model" });
     expect(appRouteHash({ section: "settings", page: "model" })).toBe("#/settings/model");
   });
+
+  it("restores only the image default-model intent when reloading model settings", () => {
+    const route = { section: "settings", page: "model", purpose: "image" } as const;
+    expect(appRouteHash(route)).toBe("#/settings/model?purpose=image");
+    expect(initialAppRoute(appRouteHash(route))).toEqual(route);
+    expect(parseAppHash("#/settings/models?purpose=image")).toEqual(route);
+    expect(parseAppHash("#/settings/model?purpose=unknown")).toEqual({ section: "settings", page: "model" });
+    expect(parseAppHash("#/settings/appearance?purpose=image")).toEqual({ section: "settings", page: "appearance" });
+  });
 });
 
 describe("global appearance", () => {

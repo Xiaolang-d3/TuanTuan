@@ -70,6 +70,14 @@
 .studio-card-body button { margin-top:8px; }
 .studio-empty { display:grid; justify-items:center; align-content:center; gap:10px; min-height:clamp(160px,30vh,420px); padding:20px; text-align:center; }
 .studio-empty h2 { font-size:17px; }.studio-empty p { color:var(--color-text-secondary); font-size:13px; }
+.studio-model-onboarding { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:clamp(18px,3vw,32px); margin:0 0 18px; border:1px solid var(--color-border); border-radius:12px; background:var(--color-surface); }
+.studio-model-onboarding-copy { display:grid; gap:8px; max-width:650px; }
+.studio-model-onboarding-copy h2 { font-size:20px; }
+.studio-model-onboarding-copy p { color:var(--color-text-secondary); line-height:1.6; }
+.studio-model-onboarding-actions { display:grid; justify-items:start; gap:8px; flex:0 1 320px; min-width:0; }
+.studio-model-onboarding-actions details { color:var(--color-text-secondary); font-size:13px; line-height:1.6; }
+.studio-model-onboarding-actions summary { cursor:pointer; }
+@media(max-width:700px){.studio-model-onboarding{align-items:stretch;flex-direction:column;gap:16px}.studio-model-onboarding-actions{width:100%;flex:auto}.studio-model-onboarding-actions button{width:100%}}
 .studio-actions,.studio-pager,.studio-parameters,.studio-controls,.studio-feedback { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .studio-pager { justify-content:center; margin:16px 0; font-size:12px; }
 .studio-bottom { flex:none; padding-bottom: max(12px,env(safe-area-inset-bottom)); background:var(--color-bg); }

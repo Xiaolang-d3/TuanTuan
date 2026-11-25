@@ -373,13 +373,13 @@ async def model_connection_check(connection_id: str) -> dict[str, Any]:
 
 
 @router.post("/agent/models/discover")
-async def discover_models(payload: ModelDiscoveryIn) -> dict[str, Any]:
-    saved = get_model_connection()
+async def discover_models(payload: ModelDiscoveryIn, draft_only: bool = False) -> dict[str, Any]:
+    saved = {} if draft_only else get_model_connection()
     try:
         connection = resolve_model_connection(payload.model_dump(exclude_unset=True), saved=saved)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await _discover_connection(connection, remember=_same_saved_connection(connection, saved))
+    return await _discover_connection(connection, remember=not draft_only and _same_saved_connection(connection, saved))
 
 
 async def _discover_connection(connection: dict[str, Any], *, remember: bool = True) -> dict[str, Any]:

@@ -10,6 +10,40 @@ function image(id: string, name: string) {
   return { id, origin: "generated" as const, kind: "image" as const, original_filename: name, parse_status: "parsed" as const, width: 740, height: 480 };
 }
 
+test("unconfigured image workspace guides users to image model settings", async ({ page }) => {
+  const output = resolve("..", "tmp", "image-workspace");
+  await mkdir(output, { recursive: true });
+  await page.addInitScript(() => sessionStorage.setItem("tuantuan-auth-token", "image-workspace-fixture"));
+  await seedFirstRunDone(page, "e2e@local.test");
+  await page.route(`${origin}/**`, async route => {
+    const request = route.request();
+    if (!["fetch", "xhr"].includes(request.resourceType())) return route.continue();
+    const path = new URL(request.url()).pathname.replace(/^\/api(?=\/)/, "");
+    if (path === "/auth/me") return route.fulfill({ json: { user: { id: 1, email: "e2e@local.test", display_name: "测试用户", has_avatar: false } } });
+    if (path === "/system/database-status") return route.fulfill({ json: { status: "ready" } });
+    if (path === "/image-studio/history") return route.fulfill({ json: { items: [], has_more: false } });
+    if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
+    if (path === "/agent/model-selection/preview") return route.fulfill({ json: { eligible: false, selection: null, candidates: [], reason_code: "not_configured" } });
+    return route.fulfill({ status: 404, json: { detail: "Fixture route not needed" } });
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/#/images`);
+  const guide = page.getByRole("region", { name: "尚未配置模型" });
+  await expect(guide.getByText("还没有可用的图片模型")).toBeVisible();
+  await page.screenshot({ path: resolve(output, "onboarding-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const tutorial = guide.getByText("模型接入说明和配置教程");
+  await tutorial.focus();
+  await tutorial.press("Enter");
+  await expect(guide.getByText(/测试连接，然后添加支持图片生成的模型/)).toBeVisible();
+  await tutorial.press("Enter");
+  await expect(guide.getByRole("heading", { name: "尚未配置模型" })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: resolve(output, "onboarding-mobile.png"), animations: "disabled" });
+  await guide.getByRole("button", { name: "配置图片模型" }).click();
+  await expect(page).toHaveURL(/#\/settings\/model\?purpose=image$/);
+});
+
 test("image workspace makes three drafts, restores settings, edits and archives the final result", async ({ page }) => {
   const history: StudioTask[] = [];
   const works: StudioWork[] = [];
