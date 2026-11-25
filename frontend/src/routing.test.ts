@@ -18,7 +18,8 @@ describe("product destination routes", () => {
     ["images", "#/images"],
     ["video", "#/video"],
     ["works", "#/works"],
-    ["history", "#/history"]
+    ["history", "#/history"],
+    ["projects", "#/projects"]
   ] as const)("keeps %s addressable after refresh", (section, hash) => {
     expect(parseAppHash(hash)).toEqual({ section });
     expect(initialAppRoute(hash)).toEqual({ section });
@@ -42,7 +43,6 @@ describe("retired product routes", () => {
     "opportunities/jobs/9",
     "interview-prep",
     "interview-records",
-    "projects",
     "projects/experience-1/questions/experience-1-contribution",
     "project",
     "project/project-1/interview",
