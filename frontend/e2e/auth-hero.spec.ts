@@ -25,7 +25,8 @@ async function checkLayout(page: Page, width: number) {
     await expect(mascot).toBeInViewport({ ratio: 1 });
     await expect.poll(() => mascot.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await expect(demo.locator("figcaption")).toContainText("对话示例");
-    await expect(demo.getByRole("listitem")).toHaveCount(2);
+    await expect(demo.getByRole("list", { name: "执行步骤" }).getByRole("listitem")).toHaveCount(3);
+    await expect(demo.locator(".auth-demo-output").getByRole("listitem")).toHaveCount(2);
     await expect(demo).toBeInViewport({ ratio: 1 });
     const heading = (await title.boundingBox())!;
     const artwork = (await mascot.boundingBox())!;
@@ -33,6 +34,14 @@ async function checkLayout(page: Page, width: number) {
     const panel = (await hero.boundingBox())!;
     expect(panel.x + panel.width).toBeLessThanOrEqual(card.x);
     expect(card.x + card.width / 2).toBeGreaterThan(width / 2);
+    if (width >= 1180) {
+      expect(panel.y).toBeCloseTo(card.y, 0);
+      expect(panel.height).toBeCloseTo(card.height, 0);
+      const execution = (await demo.getByRole("list", { name: "执行步骤" }).boundingBox())!;
+      const result = (await demo.locator(".auth-demo-result").boundingBox())!;
+      expect(execution.x + execution.width).toBeLessThan(result.x);
+      expect(result.y).toBeLessThan(execution.y);
+    }
   } else {
     await expect(demo).toBeHidden();
     if (width >= 600) {
@@ -81,6 +90,62 @@ test("the desktop demo switches examples with the keyboard without moving focus"
   await checkLayout(page, 861);
   await notes.click();
   await expect(page.getByRole("heading", { name: "行动清单" })).toBeVisible();
+});
+
+test("the demo plays steps in order and automatically replays after showing the result", async ({ page, baseURL }) => {
+  await mockHostedSite(page, baseURL);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const start = new Date("2026-11-25T00:00:00Z");
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(new Date(start.getTime() + 1000));
+  await page.goto(hostedHome);
+
+  const demo = page.locator(".auth-demo");
+  const current = demo.locator('[aria-current="step"]');
+  const result = demo.getByRole("heading", { name: "行动清单" });
+  await expect(current).toContainText("读取周会笔记");
+  await expect(result).toBeHidden();
+  const pending = demo.getByText("执行完成后在这里显示结果");
+  await expect(pending).toBeVisible();
+  const initialBounds = await demo.boundingBox();
+
+  await page.clock.runFor(750);
+  await expect(current).toContainText("提取会议决定和后续事项");
+  await page.clock.runFor(750);
+  await expect(current).toContainText("核对待办截止时间");
+  await expect(result).toBeHidden();
+  await page.clock.runFor(750);
+  await expect(demo.locator(".auth-demo-status")).toHaveText("已完成");
+  await expect(result).toBeVisible();
+  await expect(pending).toBeHidden();
+  expect(await demo.boundingBox()).toEqual(initialBounds);
+
+  await expect(demo.getByRole("button", { name: /跳过|重播/ })).toHaveCount(0);
+  await page.clock.runFor(5_999);
+  await expect(result).toBeVisible();
+  await page.clock.runFor(1);
+  await expect(current).toContainText("读取周会笔记");
+  await expect(result).toBeHidden();
+  await expect(pending).toBeVisible();
+  expect(await demo.boundingBox()).toEqual(initialBounds);
+});
+
+test("the demo shows the completed record immediately with reduced motion", async ({ page, baseURL }) => {
+  await mockHostedSite(page, baseURL);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.clock.install();
+  await page.goto(hostedHome);
+
+  const demo = page.locator(".auth-demo");
+  await expect(demo.getByRole("heading", { name: "行动清单" })).toBeVisible();
+  await expect(demo.locator(".auth-demo-status")).toHaveText("已完成");
+  await expect(demo.getByRole("button", { name: /跳过|重播/ })).toHaveCount(0);
+  await page.clock.fastForward(7_000);
+  await expect(demo.getByRole("heading", { name: "行动清单" })).toBeVisible();
+
+  await demo.getByRole("button", { name: "拆解计划" }).click();
+  await expect(demo.getByRole("heading", { name: "访谈准备计划" })).toBeVisible();
 });
 
 const viewports = [

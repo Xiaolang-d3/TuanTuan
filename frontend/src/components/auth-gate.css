@@ -198,7 +198,48 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
 .auth-demo-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--auth-muted); font-size: 12px; font-weight: 650; }
 .auth-demo-input p { margin: 0; font-size: 14px; line-height: 1.5; }
 .auth-demo-file { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--studio-line); border-radius: 6px; color: var(--auth-muted); font-size: 11px; font-weight: 400; }
+.auth-demo-execution { padding: 0 12px; }
+.auth-demo-execution-header { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.auth-demo-execution-header h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.auth-demo-status { color: var(--studio-ink); font-size: 11px; }
+.auth-demo-steps { position: relative; list-style: none; margin: 4px 0 0; padding: 0; }
+.auth-demo-steps::before {
+  position: absolute;
+  inset: 12px auto 12px 7px;
+  width: 1px;
+  background: var(--studio-line);
+  content: "";
+}
+.auth-demo-steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 12px;
+  color: var(--auth-muted);
+}
+.auth-demo-step-icon {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--studio-surface);
+}
+.auth-demo-steps li[data-state="current"] { color: var(--studio-ink); font-weight: 650; }
+.auth-demo-steps li[data-state="current"] .auth-demo-step-icon,
+.auth-demo-steps li[data-state="done"] .auth-demo-step-icon { color: var(--studio-ink); }
+.auth-demo-steps small { font-size: 11px; white-space: nowrap; }
+.auth-demo-result { display: grid; min-width: 0; }
+.auth-demo-result-pending { display: none; }
 .auth-demo-output { padding: 10px 12px 5px; border: 1px solid var(--studio-line); border-radius: 10px; background: var(--studio-tint); }
+.auth-demo-result[data-ready="false"] .auth-demo-output { visibility: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .auth-demo-result[data-ready="true"] .auth-demo-output { animation: auth-demo-reveal 220ms ease-out; }
+  @keyframes auth-demo-reveal { from { opacity: 0; } }
+}
 .auth-demo-output h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; color: var(--studio-ink); font-size: 13px; }
 .auth-demo-output ol { counter-reset: action-step; list-style: none; margin: 0; padding: 0; }
 .auth-demo-output li { counter-increment: action-step; display: flex; align-items: baseline; gap: 8px; padding: 7px 0; font-size: 13px; }
@@ -234,17 +275,52 @@ html:has(.auth-gate) { scrollbar-gutter: auto; }
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(360px, 36vw, 432px);
     align-items: center;
-    gap: clamp(32px, 5vw, 80px);
+    gap: clamp(32px, 4vw, 56px);
     width: min(100%, 1120px);
   }
   .auth-card { grid-area: 1 / 2; }
   .auth-hero { grid-area: 1 / 1; }
 }
+@media (min-width: 1180px) {
+  .auth-shell {
+    align-items: stretch;
+    width: min(100%, 1080px);
+  }
+  .auth-shell > .auth-card { align-content: center; }
+  .auth-hero { display: grid; align-content: center; }
+  .auth-hero h2 { font-size: clamp(42px, 4vw, 58px); }
+  .auth-hero-mascot { max-width: 232px; }
+  .auth-demo { margin-top: 22px; }
+  .auth-demo-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+  .auth-demo-input { grid-column: 1 / -1; padding-bottom: 8px; }
+  .auth-demo-execution { padding: 0 4px 0 12px; }
+  .auth-demo-result > * { grid-area: 1 / 1; }
+  .auth-demo-result-pending {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0;
+    padding: 12px;
+    border: 1px dashed var(--studio-line);
+    border-radius: 10px;
+    color: var(--auth-muted);
+    font-size: 12px;
+    text-align: center;
+  }
+}
 @media (min-width: 861px) and (max-height: 740px) {
-  .auth-hero h2 { font-size: clamp(36px, 4vw, 52px); }
-  .auth-hero-mascot { max-width: 218px; }
+  .auth-hero h2 { font-size: clamp(36px, 3.6vw, 46px); }
+  .auth-hero-intro { margin-top: 8px; }
+  .auth-hero-mascot { max-width: 168px; }
+  .auth-demo { margin-top: 12px; }
   .auth-demo figcaption { padding-block: 8px; }
+  .auth-demo-switch button { min-height: 32px; }
   .auth-demo-body { gap: 6px; padding-block: 8px; }
+  .auth-demo-input { padding-block: 5px 6px; }
+  .auth-demo-steps li { min-height: 21px; }
+  .auth-demo-output li { padding-block: 5px; }
 }
 .auth-card, .auth-status-card {
   box-sizing: border-box;
