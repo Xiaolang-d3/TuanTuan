@@ -14,6 +14,15 @@ afterEach(() => {
 
 const fenced = (language: string, lines: string[]) => `~~~${language}\n${lines.join("\n")}\n~~~`;
 
+it("renders bound web references as source chips and keeps other links separate", () => {
+  const url = "https://example.com/report?a=1&b=2";
+  render(<MarkdownContent sources={[{ url, title: "报告", domain: "example.com" }]}>
+    {"[来源](<https://example.com/report?a=1&amp;b=2>) 和 [其他网站](https://other.example)"}
+  </MarkdownContent>);
+  expect(screen.getByRole("link", { name: "来源 1：报告" })).toHaveAttribute("href", url);
+  expect(screen.getByRole("link", { name: "其他网站" })).not.toHaveClass("md-citation");
+});
+
 it("numbers fenced lines without modifying copied code or inline code", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });

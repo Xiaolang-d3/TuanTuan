@@ -5,7 +5,7 @@ import json
 import pytest
 from app.agent.citations import apply_citation_patches, evaluate_citation_patches, evidence_cards, repair_messages
 from app.agent.runtime import validate_web_citations
-from app.domain import AgentMessage, AgentPlan, AgentPlanStep, AgentRunSnapshot, ModelResponse, ToolCall, ToolResult
+from app.domain import AgentMessage, AgentPlan, AgentPlanStep, AgentRunSnapshot, ModelResponse, ModelStreamEvent, ToolCall, ToolResult
 from app.models import ModelProviderError
 from app.search_options import WebSearchOptions
 from app.tools.limits import MAX_RESULT_DATA_CHARS, govern_tool_result
@@ -62,6 +62,48 @@ def test_known_link_does_not_skip_evidence_review_and_unsupported_number_is_remo
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_search_recommendation_publishes_resolved_references_without_a_review_call(streaming):
+    class StreamingModel(ScriptedModel):
+        async def stream(self, request):
+            response = await self.generate(request)
+            if response.content:
+                before, after = response.content.split("W1", 1)
+                yield ModelStreamEvent(type="text_delta", delta=before)
+                yield ModelStreamEvent(type="text_delta", delta="W1" + after)
+            yield ModelStreamEvent(type="completed", response=response)
+
+    async def scenario():
+        model_class = StreamingModel if streaming else ScriptedModel
+        model = model_class([web_call(), ModelResponse(
+            content="公开报告只覆盖本平台样本。[[web:W1]]\n\n建议加上其他平台的数据。"
+        )])
+        streamed = []
+
+        async def capture(event):
+            if event.type == "text_delta":
+                streamed.append(event.delta)
+
+        result = await runtime_for(model, EvidenceTool()).run("联网搜一下社招情况，有没有数据推荐", event_callback=capture)
+        sources = [source for message in model.requests[-1].messages if message.role == "tool"
+                   for source in message.payload["sources"]]
+        assert sources[0]["source_id"] == "W1" and sources[0]["excerpt"] == QUOTE
+        assert any("[[web:W1]]" in message.content for message in model.requests[-1].messages if message.role == "system")
+        assert result.status == "done" and len(model.requests) == 2
+        assert result.content == f"公开报告只覆盖本平台样本。[来源](<{URL}>)\n\n建议加上其他平台的数据。"
+        assert streamed == [result.content]
+    asyncio.run(scenario())
+
+
+def test_unknown_web_reference_is_not_a_link_and_does_not_trigger_a_model_retry():
+    async def scenario():
+        model = ScriptedModel([web_call(), ModelResponse(content="报告。[[web:W1]] 附录。[[web:W99]]")])
+        result = await runtime_for(model, EvidenceTool()).run("联网搜索社招报告")
+        assert result.status == "done" and len(model.requests) == 2
+        assert result.content == f"报告。[来源](<{URL}>) 附录。（来源未匹配）"
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("payload", [
     {"verified": False, "patches": []},
     {"patches": []},
@@ -109,7 +151,7 @@ def test_rejected_patches_return_specific_diagnostics_without_raw_response(respo
 def test_failed_review_updates_one_node_with_diagnostics_without_publishing_unverified_draft():
     async def scenario():
         model = ScriptedModel([web_call(), ModelResponse(content="本平台社招职位存在变化。"), ModelResponse(content='{"patches":[]}')])
-        result = await runtime_for(model, EvidenceTool()).run("联网整理社招讨论")
+        result = await runtime_for(model, EvidenceTool()).run("联网核实社招讨论")
         events = [event for event in result.events if event.tool_name == "citation_validator"]
         assert result.status == "failed" and result.error.code == "citation_validation_failed"
         assert "本平台社招职位存在变化。" not in result.content
@@ -137,7 +179,7 @@ def test_runtime_repairs_last_round_without_another_search_or_streaming_json():
         tool = EvidenceTool(); streamed = []
         async def capture(event):
             if event.type == "text_delta": streamed.append(event.delta)
-        result = await runtime_for(model, tool, max_rounds=2).run("联网整理社招讨论", event_callback=capture)
+        result = await runtime_for(model, tool, max_rounds=2).run("联网核实社招讨论", event_callback=capture)
         assert result.status == "done" and tool.calls == 1
         assert result.content == DRAFT.replace("https://invented.example/report", URL)
         assert result.rounds == 3
@@ -154,7 +196,7 @@ def test_oversized_draft_does_not_start_another_model_request():
     async def scenario():
         draft = DRAFT + "超长草稿" * 7000
         model = ScriptedModel([web_call(), ModelResponse(content=draft)])
-        result = await runtime_for(model, EvidenceTool()).run("联网整理社招讨论")
+        result = await runtime_for(model, EvidenceTool()).run("联网核实社招讨论")
         assert result.status == "failed" and draft not in result.content
         assert "超出引用修正预算" in result.error.message
         assert len(model.requests) == 2
@@ -166,7 +208,7 @@ def test_retryable_repair_timeout_is_not_retried():
         model = ScriptedModel([web_call(), ModelResponse(content=DRAFT),
             ModelProviderError("request_timeout", "模型超时", retryable=True), patch_response()])
         tool = EvidenceTool()
-        result = await runtime_for(model, tool).run("联网整理社招讨论")
+        result = await runtime_for(model, tool).run("联网核实社招讨论")
         assert result.status == "failed" and DRAFT not in result.content
         assert len(model.requests) == 3 and tool.calls == 1
         assert not any(event.tool_call_id.startswith("model-retry") for event in result.events)
@@ -188,7 +230,7 @@ def test_repair_deadline_cancels_provider_and_withholds_unverified_draft(monkeyp
             return await super().generate(request)
     async def scenario():
         model = HangingRepair([web_call(), ModelResponse(content=DRAFT)])
-        result = await runtime_for(model, EvidenceTool()).run("联网整理社招讨论")
+        result = await runtime_for(model, EvidenceTool()).run("联网核实社招讨论")
         assert result.status == "failed" and DRAFT not in result.content
         assert "引用修正超时" in result.error.message
         assert model.cancelled and len(model.requests) == 3
@@ -253,7 +295,7 @@ def test_web_model_context_is_bounded_deduplicated_and_does_not_mutate_audit():
 def test_failed_repair_withholds_unverified_draft_and_never_runs_tools(repair):
     async def scenario():
         model = ScriptedModel([web_call(), ModelResponse(content=DRAFT), repair]); tool = EvidenceTool()
-        result = await runtime_for(model, tool).run("联网整理社招讨论")
+        result = await runtime_for(model, tool).run("联网核实社招讨论")
         assert result.status == "failed" and result.error.code == "citation_validation_failed"
         assert DRAFT not in result.content and "校园招聘" not in result.content
         assert "未能通过来源核验" in result.content and tool.calls == 1

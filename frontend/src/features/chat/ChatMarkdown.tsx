@@ -89,6 +89,9 @@ function CitationLink({
     return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
   }
   const index = sources.findIndex((source) => canonicalCitationUrl(source.url) === canonicalCitationUrl(href));
+  if (sources.length && index < 0) {
+    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+  }
   const source = index >= 0 ? sources[index] : undefined;
   const title = source?.title || label || href;
   const domain = sourceDomain(source ?? { title, url: href });

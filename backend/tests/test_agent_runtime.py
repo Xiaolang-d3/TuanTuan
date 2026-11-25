@@ -301,16 +301,13 @@ class CurrentRuntimeTest(unittest.IsolatedAsyncioTestCase):
         model = ScriptedModel([
             ModelResponse(content='{"goal":"联网检索","steps":[{"tool_name":"search_public_web","title":"检索公开网页"}]}'),
             ModelResponse(tool_calls=[ToolCall(id="web-1", name="search_public_web", arguments={"query": "最新信息"})]),
-            ModelResponse(content="示例信息。"),
-            ModelResponse(content=json.dumps({"verified": True, "patches": [{
-                "action": "cite_after", "target": "示例信息。", "source_id": "C1",
-                "quote": "示例信息仅用于验证公开来源的引用流程。",
-            }]}, ensure_ascii=False)),
+            ModelResponse(content="示例信息。[[web:W1]]"),
         ])
         result = await runtime_for(model, CountingTool("search_public_web")).run("联网查一下最新信息")
         self.assertEqual(result.status, "done")
-        self.assertIn("https://example.com/source", result.content)
-        self.assertEqual(result.events[-1].tool_name, "citation_validator")
+        self.assertEqual(result.content, "示例信息。[来源](<https://example.com/source>)")
+        self.assertEqual(len(model.requests), 3)
+        self.assertFalse(any(event.tool_name == "citation_validator" for event in result.events))
 
     async def test_recent_history_precedes_current_turn(self) -> None:
         model = ScriptedModel([ModelResponse(content="理解上下文")])
