@@ -53,7 +53,9 @@ function FileDetail({ work, api, close }: { work: FinalWork; api: ReturnType<typ
   </StudioDialog>;
 }
 
-export function WorksPage({ apiBase, accessToken, fetchJson, ready, active = true, onOpenImages }: StudioConnection & { onOpenImages: () => void }) {
+export function WorksPage({ apiBase, accessToken, fetchJson, ready, active = true, onOpenImages, linkedWork, onCloseLinkedWork }: StudioConnection & {
+  onOpenImages: () => void; linkedWork?: string; onCloseLinkedWork?: () => void;
+}) {
   const api = useMemo(() => createImageStudioApi(apiBase, accessToken, fetchJson), [apiBase, accessToken, fetchJson]);
   const finalApi = useMemo(() => createFinalWorksApi(apiBase, accessToken, fetchJson), [apiBase, accessToken, fetchJson]);
   const [images, setImages] = useState<StudioWork[]>([]);
@@ -84,6 +86,12 @@ export function WorksPage({ apiBase, accessToken, fetchJson, ready, active = tru
     ...images.map(image => ({ id: image.id, kind: "image" as const, filename: image.asset.original_filename, created_at: image.created_at, image })),
     ...files,
   ];
+  const linked = linkedWork && items.find(work => `${work.kind === "image" ? "image_work" : "final_work"}:${work.id}` === linkedWork);
+  const opened = selected ?? (linked || null);
+  function closeWork() {
+    setSelected(null);
+    if (linkedWork) onCloseLinkedWork?.();
+  }
   const visible = items.filter(item => filter === "all" || item.kind === filter).sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id));
   const pending = (filter !== "image" && loading.files) || ((filter === "all" || filter === "image") && loading.images);
   const failed = (filter !== "image" && errors.files) || ((filter === "all" || filter === "image") && errors.images);
@@ -94,6 +102,7 @@ export function WorksPage({ apiBase, accessToken, fetchJson, ready, active = tru
       <div className="final-work-filters" role="group" aria-label="作品类型">
         {(Object.keys(filters) as WorkFilter[]).map(value => <ActionButton key={value} variant="secondary" aria-pressed={filter === value} onClick={() => { setFilter(value); setCount(24); }}>{filters[value]}</ActionButton>)}
       </div>
+      {linkedWork && !linked && !loading.images && !loading.files && !errors.images && !errors.files && <p role="status">关联的作品已不存在。</p>}
       {failed && <p role="alert" className="studio-error">部分作品未能读取。 <button onClick={() => setRetry(value => value + 1)}>重新加载</button></p>}
       {pending && !visible.length ? <p role="status">正在读取作品…</p> : !failed && !visible.length ? <div className="studio-empty"><Archive/><h2>还没有{filter === "all" ? "已保存的作品" : `已保存的${filters[filter]}`}</h2><p>在图片详情、保存后的文档或已完成的 PPT 中，将定稿保存到我的作品。</p></div> : null}
       <div className="studio-grid">{visible.slice(0, count).map(work => <article className="studio-card" key={`${work.kind}:${work.id}`}>
@@ -104,6 +113,6 @@ export function WorksPage({ apiBase, accessToken, fetchJson, ready, active = tru
       </article>)}</div>
       {visible.length > count && <button onClick={() => setCount(value => value + 24)}>加载更多作品</button>}
     </div>
-    {active && selected && (selected.kind === "image" ? <WorkDetail key={selected.id} api={api} work={selected.image} close={() => setSelected(null)}/> : <FileDetail key={`${selected.kind}:${selected.id}`} api={finalApi} work={selected} close={() => setSelected(null)}/>)}
+    {active && opened && (opened.kind === "image" ? <WorkDetail key={opened.id} api={api} work={opened.image} close={closeWork}/> : <FileDetail key={`${opened.kind}:${opened.id}`} api={finalApi} work={opened} close={closeWork}/>)}
   </section>;
 }

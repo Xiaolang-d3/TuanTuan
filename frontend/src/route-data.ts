@@ -17,6 +17,7 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
       return ["conversations", "capabilities", "attachmentConfig"];
     case "dashboard":
     case "history":
+    case "projects":
     case "images":
     case "video":
     case "works":

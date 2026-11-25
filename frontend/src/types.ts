@@ -93,6 +93,7 @@ export type AgentCapabilities = {
 export type ViewKey =
   | "dashboard"
   | "history"
+  | "projects"
   | "chat"
   | "images"
   | "video"

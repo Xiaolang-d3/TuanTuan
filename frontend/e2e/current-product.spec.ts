@@ -122,7 +122,7 @@ for (const theme of ["light", "dark", "blue"] as const) {
     for (const width of [874, 1280]) {
       await page.setViewportSize({ width, height: 770 });
       await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText([
-        "新建创作", "创作记录", "我的作品", "知识库", "设置"
+        "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "设置"
       ]);
 
       for (const collapsed of [false, true]) {
@@ -244,6 +244,35 @@ test("recent records link to filtered creation history and open image results re
   expect(writes).toEqual([]);
 });
 
+test("projects open linked final works without generating or copying them", async ({ page }, testInfo) => {
+  const date = "2026-09-22T08:00:00Z";
+  let archived = false;
+  await page.route("**/projects/press", async route => {
+    if (route.request().method() === "PATCH") {
+      expect(route.request().postDataJSON()).toEqual({ status: "archived" });
+      archived = true;
+    }
+    return route.fulfill({ json: {
+      id: "press", name: "发布项目", description: "整理发布资料", status: archived ? "archived" : "active", created_at: date, updated_at: date,
+      items: [{ kind: "final_work", source_id: "draft", title: "发布说明.md", conversation_id: null }],
+    } });
+  });
+  await page.route("**/works/final", route => route.fulfill({ json: { items: [{ id: "draft", kind: "document", filename: "发布说明.md", created_at: date, media_type: "text/markdown", size: 11 }] } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/projects?id=press");
+  await page.getByRole("button", { name: "归档项目", exact: true }).click();
+  await expect(page.getByText("状态：已归档")).toBeVisible();
+  const screenshot = testInfo.outputPath("project-mobile.png");
+  await page.screenshot({ path: screenshot, animations: "disabled" });
+  await testInfo.attach("我的项目", { path: screenshot, contentType: "image/png" });
+  await page.getByRole("button", { name: /^发布说明\.md/ }).click();
+  await expect(page).toHaveURL(/#\/works\?work=final_work%3Adraft$/);
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "发布说明.md" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "发布项目" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^发布说明\.md/ })).toBeVisible();
+});
+
 test("mobile navigation keeps settings reachable through the account menu", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("tuantuan-sidebar:e2e@local.test", "collapsed"));
   for (const width of [390, 320]) {
@@ -251,13 +280,13 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await page.goto("/#/chat/1");
     const navigation = page.getByRole("navigation", { name: "移动端主导航" });
     await expect(navigation.getByRole("button")).toHaveText([
-      "创作", "记录", "作品", "知识库", "设置"
+      "创作", "记录", "作品", "知识库", "项目", "设置"
     ]);
     const labels = await navigation.locator(".mobile-nav-item span").evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect();
       return { left: rect.left, right: rect.right };
     }));
-    expect(labels).toHaveLength(5);
+    expect(labels).toHaveLength(6);
     for (let index = 1; index < labels.length; index += 1) {
       expect(labels[index].left).toBeGreaterThanOrEqual(labels[index - 1].right - 1);
     }

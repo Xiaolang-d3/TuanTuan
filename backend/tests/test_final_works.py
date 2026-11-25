@@ -238,4 +238,4 @@ def test_v46_upgrade_keeps_existing_content_and_adds_an_empty_archive(tmp_path):
     with db.connect(path) as conn:
         assert conn.execute("SELECT title FROM conversations WHERE title='before final works'").fetchone()
         assert conn.execute("SELECT COUNT(*) FROM final_works").fetchone()[0] == 0
-        assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 47
+        assert conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == db.DB_SCHEMA_VERSION

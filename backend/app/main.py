@@ -257,7 +257,7 @@ async def require_login(request: Request, call_next: Any) -> Any:
     root = ensure_workspace(int(user["id"]))
     with use_workspace(int(user["id"]), root):
         response = await call_next(request)
-        if path.startswith(("/auth/", "/image-studio/", "/works/final/")) or path == "/works/final":
+        if path in ("/works/final", "/projects") or path.startswith(("/auth/", "/image-studio/", "/works/final/", "/projects/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

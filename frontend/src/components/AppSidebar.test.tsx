@@ -113,11 +113,11 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("button", { name: "账号菜单" }).closest(".sidebar-identity-slot")).toBeTruthy();
   });
 
-  it("exposes the five product destinations", () => {
+  it("exposes the six product destinations", () => {
     renderSidebar();
     const desktopNav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(desktopNav).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "新建创作", "创作记录", "我的作品", "知识库", "设置"
+      "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "设置"
     ]);
     expect(screen.queryByText("快速搜索…")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "机会中心" })).not.toBeInTheDocument();
@@ -126,13 +126,13 @@ describe("AppSidebar", () => {
   it("opens each product destination from the sidebar", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "设置"]) {
+    for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "我的项目", "设置"]) {
       fireEvent.click(navigation.getByRole("button", { name }));
     }
-    for (const key of ["dashboard", "history", "works", "library", "settings"]) {
+    for (const key of ["dashboard", "history", "works", "library", "projects", "settings"]) {
       expect(props.onSelectNav).toHaveBeenCalledWith(key);
     }
-    expect(props.onSelectNav).toHaveBeenCalledTimes(5);
+    expect(props.onSelectNav).toHaveBeenCalledTimes(6);
   });
 
   it("prefetches library and settings without loading chat for creation records", () => {
@@ -150,7 +150,7 @@ describe("AppSidebar", () => {
     const props = renderSidebar();
     const mobile = screen.getByRole("navigation", { name: "移动端主导航" });
     expect(within(mobile).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "新建创作", "创作记录", "我的作品", "知识库", "设置"
+      "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "设置"
     ]);
     expect(within(mobile).getByRole("button", { name: "创作记录" })).toHaveAttribute("aria-current", "page");
     fireEvent.click(within(mobile).getByRole("button", { name: "新建创作" }));
