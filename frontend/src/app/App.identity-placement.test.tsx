@@ -220,7 +220,12 @@ describe("App identity placement", () => {
 
   it("opens image creation through works without losing the unsent chat draft", async () => {
     conversations.conversations = [{ id: 7, title: "原有对话", summary: "", status: "active", updated_at: "2026-10-14" }];
+    conversations.refreshConversations.mockResolvedValue(conversations.conversations);
     conversations.currentConversationId = 7;
+    const originalApi = api.fetchJson.getMockImplementation()!;
+    api.fetchJson.mockImplementation(path => path.startsWith("/creation-records?")
+      ? Promise.resolve({ items: [{ kind: "chat", id: "7", title: "原有对话", updated_at: "2026-10-14T12:00:00Z", conversation_id: 7, status: null }], has_more: false })
+      : originalApi(path));
     window.history.replaceState(null, "", "#/chat/7");
     renderApp();
     const draft = await screen.findByRole("textbox", { name: "测试对话草稿" });
@@ -239,6 +244,7 @@ describe("App identity placement", () => {
     expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
     expect(navigation.getByRole("button", { name: "创作记录" })).not.toHaveAttribute("aria-current");
     fireEvent.click(navigation.getByRole("button", { name: "创作记录" }));
+    fireEvent.click(await screen.findByRole("button", { name: /原有对话/ }));
     expect(await screen.findByRole("textbox", { name: "测试对话草稿" })).toBe(draft);
     expect(draft).toHaveValue("尚未发送的计划");
     expect(window.location.hash).toBe("#/chat/7");
