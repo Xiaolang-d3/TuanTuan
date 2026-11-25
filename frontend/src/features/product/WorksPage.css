@@ -1,0 +1,6 @@
+.final-work-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 0 14px; }
+.studio .final-work-filters button[aria-pressed="true"] { border-color: currentColor; font-weight: 650; }
+.studio .studio-card-cover.final-work-cover { align-content: center; gap: 8px; color: var(--color-text-muted); }
+.final-work-cover span, .final-work-detail p { font-size: 13px; color: var(--color-text-muted); }
+.final-work-detail { justify-items: start; }
+.final-work-detail h3, .final-work-detail p { margin: 0; }

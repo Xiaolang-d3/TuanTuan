@@ -2,6 +2,7 @@ import { createApiClient, fetchWithTimeout } from "../../api/client";
 import type { ChatAttachment } from "./types";
 import type { LibrarySourceDetail } from "../../types";
 import { createDocumentExportService, type DocumentExportService } from "./document-export-service";
+import { createFinalWorksApi } from "../product/finalWorksApi";
 
 export type DocumentResource = { id: string; uri: string; filename: string; mime_type: string; sha256: string; size_bytes: number };
 export type SavedDocument = { document_id: string; version: number; latest_version: number; parent_document_version: number | null;
@@ -11,6 +12,7 @@ export type DocumentSummary = Pick<SavedDocument, "document_id" | "latest_versio
 export type DocumentVersionSummary = Pick<SavedDocument, "version" | "parent_document_version" | "created_at">;
 export interface DocumentService {
   exports?: DocumentExportService;
+  archiveFinal?: ReturnType<typeof createFinalWorksApi>["archiveDocument"];
   create(input: { conversation_id: number; message_id: number; snapshot: string; idempotency_key: string }, signal?: AbortSignal): Promise<SavedDocument>;
   list(signal?: AbortSignal): Promise<{ documents: DocumentSummary[] }>;
   latest(id: string, signal?: AbortSignal): Promise<SavedDocument>;
@@ -28,6 +30,7 @@ export function createDocumentService(apiBase: string, accessToken: string): Doc
   const post = <T,>(url: string, body: unknown, signal?: AbortSignal) => request<T>(url, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return {
     exports: createDocumentExportService(apiBase, accessToken),
+    archiveFinal: createFinalWorksApi(apiBase, accessToken, request).archiveDocument,
     create: ({ conversation_id, ...body }, signal) => post(`/conversations/${conversation_id}/documents`, body, signal),
     list: signal => request("/documents", { signal, cache: "no-store" }),
     latest: (id, signal) => request(path(id), { signal, cache: "no-store" }),

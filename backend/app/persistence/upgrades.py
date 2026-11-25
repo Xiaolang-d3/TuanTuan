@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    47: "final_works",
     46: "conversation_memory_cursors",
     45: "image_studio_history_and_works",
     44: "ppt_definite_failure_retry",
