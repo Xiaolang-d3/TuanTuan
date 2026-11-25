@@ -353,6 +353,20 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
     researchReturn.current = null;
   }, [props.currentConversationId]);
 
+  const openedHistoryRequest = useRef(0);
+  useEffect(() => {
+    const request = props.historyOpenRequest ?? 0;
+    if (!props.focused) {
+      openedHistoryRequest.current = request;
+      setConversationListOpen(false);
+      return;
+    }
+    if (!request || request === openedHistoryRequest.current) return;
+    openedHistoryRequest.current = request;
+    setResearchPanelOpen(false);
+    setConversationListOpen(true);
+  }, [props.focused, props.historyOpenRequest]);
+
   useEffect(() => {
     if (props.messages.length > 0 || props.chatBusy || !props.currentConversationId) return;
     const timer = window.setTimeout(() => props.chatInputRef.current?.focus(), 0);

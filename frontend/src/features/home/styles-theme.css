@@ -57,6 +57,9 @@
 .home-chip.on { background: var(--home-text) !important; color: var(--home-panel) !important; border-color: var(--home-text); }
 .home-module { background: var(--home-panel); border-color: var(--home-line); }
 .home-module-icon { background: var(--home-accent-soft); color: var(--home-accent); }
+.home-news-summary-description, .home-news-summary-message, .home-news-summary-notice { color: var(--home-text-2); }
+.home-news-summary-notice { background: var(--home-panel-2); }
+.home-news-summary-notice button:hover { color: var(--home-accent-text); }
 .home-count { color: var(--home-text-3); background: var(--home-hover); }
 .home-module-foot, .home-more-link { color: var(--home-text-3) !important; }
 .home-more-link:hover { color: var(--home-accent-text) !important; }

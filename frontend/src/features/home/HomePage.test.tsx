@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "./HomePage";
 import { formatPublished } from "./HomeFeedCards";
@@ -61,6 +62,108 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe("home-metrics", () => {
   it("keeps source evidence for library review", () => {
     expect(homeInboxItems([{ id: 1, statement: "每天记录问题", evidence: [{ excerpt: "原始阅读笔记", source_title: "笔记" }] }])).toEqual([expect.objectContaining({ id: 1, title: "每天记录问题", source: "原始阅读笔记", sourceLabel: "笔记" })]);
+  });
+});
+
+describe("HomePage with a creation entry", () => {
+  it("shows only the three newest eligible model updates below creation, independently of full-feed filters", async () => {
+    const initial = fixtureFeed();
+    initial.preferences.topics = ["Agent"];
+    initial.item_states["article-5"] = { bookmarked: false, hidden: true };
+    initial.model_news = [
+      fixtureArticle(1, { category: "release", published_at: "2026-10-04T01:00:00Z" }),
+      fixtureArticle(3, { category: "release", published_at: "2026-10-06T01:00:00Z" }),
+      fixtureArticle(5, { category: "release", published_at: "2026-10-08T01:00:00Z" }),
+      fixtureArticle(2, { category: "pricing", published_at: "2026-10-08T00:00:00Z" }),
+      fixtureArticle(7, { category: "evaluation", source: "其他来源", published_at: "2026-10-07T01:00:00Z" }),
+      fixtureArticle(9, { category: "release", published_at: "invalid" }),
+      fixtureArticle(11, { category: "release", published_at: "2026-10-05T01:00:00Z" })
+    ];
+    const page = setup(initial);
+    render(<HomePage {...page} creationEntry={<button type="button">开始创作</button>} />);
+    const entry = screen.getByRole("button", { name: "开始创作" });
+    const news = screen.getByRole("region", { name: "最新资讯" });
+    expect(entry.compareDocumentPosition(news) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const summary = within(await within(news).findByRole("list"));
+    const summaryTitles = () => summary.getAllByRole("heading", { level: 3 }).map((title) => title.textContent);
+    const expected = ["测试 Agent 更新 7", "测试 Agent 更新 3", "测试 Agent 更新 11"];
+    expect(summaryTitles()).toEqual(expected);
+    expect(within(news).getByRole("button", { name: "刷新资讯" })).toBeVisible();
+    expect(within(news).getByRole("button", { name: "查看收藏" })).toBeVisible();
+    expect(within(news).getByRole("button", { name: "兴趣设置" })).toBeVisible();
+
+    const toggle = within(news).getByRole("button", { name: "查看完整资讯" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(news).queryByRole("tablist")).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    const fullFeed = within(news).getByRole("region", { name: "信息流" });
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toContainElement(fullFeed);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.change(within(fullFeed).getByRole("combobox", { name: "资讯来源" }), { target: { value: "其他来源" } });
+    fireEvent.click(within(fullFeed).getByRole("button", { name: "价格与成本" }));
+    expect(within(fullFeed).getByText("没有符合筛选条件的动态")).toBeVisible();
+    expect(summaryTitles()).toEqual(expected);
+    fireEvent.click(within(fullFeed).getByRole("tab", { name: "技术热榜" }));
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(fullFeed).not.toBeVisible();
+    expect(summaryTitles()).toEqual(expected);
+    fireEvent.click(toggle);
+    expect(within(fullFeed).getByRole("tab", { name: "技术热榜" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(toggle);
+    fireEvent.click(within(news).getByRole("button", { name: "兴趣设置" }));
+    const interests = within(screen.getByRole("dialog", { name: "兴趣设置" }));
+    fireEvent.click(interests.getByRole("button", { name: "Agent" }));
+    fireEvent.click(interests.getByRole("button", { name: "MCP" }));
+    fireEvent.click(interests.getByRole("button", { name: "保存设置" }));
+    await waitFor(() => expect(summaryTitles()).toEqual(["测试 Agent 更新 2"]));
+    expect(page.request.mock.calls.filter(([path]) => path === "/home/feed")).toHaveLength(1);
+  });
+
+  it("reuses bookmark, analyze, hide and undo state across the summary and full feed", async () => {
+    const page = setup();
+    render(<HomePage {...page} creationEntry={<button type="button">开始创作</button>} />);
+    const news = screen.getByRole("region", { name: "最新资讯" });
+    const summary = within(await within(news).findByRole("list"));
+    fireEvent.click(summary.getByRole("button", { name: "收藏：测试 Agent 更新 1" }));
+    await summary.findByRole("button", { name: "取消收藏：测试 Agent 更新 1" });
+    fireEvent.click(summary.getByRole("button", { name: "更多：测试 Agent 更新 1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "交给 AI 分析" }));
+    expect(page.onAnalyze).toHaveBeenCalledWith(expect.objectContaining({ id: "article-1", kind: "article" }));
+
+    fireEvent.click(within(news).getByRole("button", { name: "查看完整资讯" }));
+    const fullFeed = within(within(news).getByRole("region", { name: "信息流" }));
+    expect(fullFeed.getByRole("button", { name: "取消收藏：测试 Agent 更新 1" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(fullFeed.getByRole("button", { name: "更多：测试 Agent 更新 1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "隐藏此条" }));
+    await waitFor(() => expect(summary.queryByRole("link", { name: "测试 Agent 更新 1" })).not.toBeInTheDocument());
+    expect(fullFeed.queryByRole("link", { name: "测试 Agent 更新 1" })).not.toBeInTheDocument();
+    expect(summary.getByRole("link", { name: "测试 Agent 更新 4" })).toBeVisible();
+    fireEvent.click(within(news).getByRole("button", { name: "撤销" }));
+    expect(await summary.findByRole("link", { name: "测试 Agent 更新 1" })).toBeVisible();
+    expect(fullFeed.getByRole("link", { name: "测试 Agent 更新 1" })).toBeVisible();
+  });
+
+  it("keeps the creation entry interactive during a local feed error and recovers on retry", async () => {
+    function CreationEntry() {
+      const [draft, setDraft] = useState("");
+      return <label>创作草稿<input value={draft} onChange={(event) => setDraft(event.target.value)} /></label>;
+    }
+    const page = setup();
+    const fetchJson: FetchJson = async (path, options) => {
+      if (path === "/home/feed") throw new Error("资讯连接失败");
+      return page.fetchJson(path, options);
+    };
+    render(<HomePage {...page} fetchJson={fetchJson} creationEntry={<CreationEntry />} />);
+    const news = screen.getByRole("region", { name: "最新资讯" });
+    expect(await within(news).findByRole("alert")).toHaveTextContent("资讯连接失败");
+    const draft = screen.getByRole("textbox", { name: "创作草稿" });
+    fireEvent.change(draft, { target: { value: "不要丢失创作内容" } });
+    fireEvent.click(within(news).getByRole("button", { name: "重试" }));
+    expect(await within(news).findByRole("link", { name: "测试 Agent 更新 1" })).toBeVisible();
+    expect(within(news).queryByRole("alert")).not.toBeInTheDocument();
+    expect(draft).toHaveValue("不要丢失创作内容");
+    expect(page.request).toHaveBeenCalledWith("/home/feed/refresh", expect.objectContaining({ method: "POST" }));
   });
 });
 

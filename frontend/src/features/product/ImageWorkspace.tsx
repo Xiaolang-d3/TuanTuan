@@ -13,7 +13,17 @@ import "./ImageWorkspace.css";
 const examples=[['活动海报','为夏日音乐节画一张海报，以紫色行星为主视觉，顶部留出标题位置。'],['商品封面','拍一张陶瓷咖啡杯的产品照，木质桌面，窗边柔光。'],['绘本插画','小狐狸在雨后的森林里散步，植物挂着水珠，温暖的绘本风格。']];
 function defaultSize(sizes: string[]) { return sizes.includes("auto") ? "auto" : sizes[0] || ""; }
 function storedDraft(key:string){try{return sessionStorage.getItem(key)||"";}catch{return "";}}
-export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWorks,onOpenConversation,refreshConversations,onLibraryChanged}:ImagePageActions & {api:StudioApi;enabled:boolean}) {
+type ImageWorkspaceProps = ImagePageActions & { api: StudioApi; enabled: boolean };
+type DraftReceipt = { accountKey: ImagePageActions["accountKey"]; consumed: boolean };
+
+export function ImageWorkspace(props: ImageWorkspaceProps) {
+  // Keep handoff ownership across account changes, but reset all composer/task state.
+  const receipts = useRef(new Map<string, DraftReceipt>()).current;
+  return <ImageWorkspaceForAccount key={props.accountKey} {...props} receipts={receipts}/>;
+}
+
+function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenWorks,onOpenConversation,refreshConversations,onLibraryChanged,
+  creationDraft,onCreationDraftConsumed,receipts}:ImageWorkspaceProps & {receipts: Map<string, DraftReceipt>}) {
   const storageKey=`tuantuan:image-studio:draft:${accountKey}`;
   const [draft,setDraft]=useState(()=>storedDraft(storageKey));const input=useRef<HTMLTextAreaElement>(null);
   const [canEdit,setCanEdit]=useState(true);
@@ -99,6 +109,46 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
   const hasHistoryFilter = Boolean(history.query || history.status);
   if(matchesRecent&&outstanding&&history.offset===0&&!tasks.some(t=>t.id===outstanding.id)&&(run.locked||run.receipt===outstanding.id))tasks.unshift(outstanding);
   const generation = enabled && outstanding?.id === generationId ? outstanding : null;
+  const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
+  const receipt = creationDraft && receipts.get(creationDraft.id);
+  const incomingDraft = enabled && !generation && !current && creationDraft?.content.trim() &&
+    (!receipt || (receipt.accountKey === accountKey && !receipt.consumed)) ? creationDraft : undefined;
+
+  const consumeCreationDraft = useCallback((id: string) => {
+    const owner = receipts.get(id);
+    if (owner?.consumed || (owner && owner.accountKey !== accountKey)) return;
+    receipts.set(id, { accountKey, consumed: true });
+    setPendingDraftId(null);
+    onCreationDraftConsumed?.(id);
+  }, [accountKey, onCreationDraftConsumed, receipts]);
+
+  useEffect(() => {
+    if (!creationDraft?.content.trim() || receipts.has(creationDraft.id)) return;
+    // Record the presenting account even when inactive; a later account must not adopt this ID.
+    receipts.set(creationDraft.id, { accountKey, consumed: false });
+  }, [accountKey, creationDraft, receipts]);
+
+  useEffect(() => {
+    if (!incomingDraft || pendingDraftId === incomingDraft.id || receipts.get(incomingDraft.id)?.consumed) return;
+    if (draft.trim() && draft !== incomingDraft.content) {
+      setPendingDraftId(incomingDraft.id);
+      return;
+    }
+    if (draft !== incomingDraft.content) {
+      setDraft(incomingDraft.content);
+      setNotice("已填入画面描述，尚未生成。");
+    }
+    consumeCreationDraft(incomingDraft.id);
+  }, [consumeCreationDraft, draft, incomingDraft, pendingDraftId, receipts]);
+
+  function decideCreationDraft(accept: boolean) {
+    if (!incomingDraft || pendingDraftId !== incomingDraft.id || receipts.get(incomingDraft.id)?.consumed) return;
+    if (accept) setDraft(incomingDraft.content);
+    setNotice(accept ? "已填入画面描述，尚未生成。" : "已保留当前描述。");
+    consumeCreationDraft(incomingDraft.id);
+    input.current?.focus({ preventScroll: true });
+  }
+
   const historyGrid = useRef<HTMLDivElement>(null);
   const [historyWidth, setHistoryWidth] = useState(0);
   useEffect(() => {
@@ -183,7 +233,16 @@ export function ImageWorkspace({api,enabled,accountKey,onOpenSettings,onOpenWork
     })}</div>
     {(history.page>1||history.hasMore)&&<nav className="studio-pager" aria-label="创作历史分页"><button disabled={history.loading||history.page===1} onClick={history.prev}>上一页</button><span>第 {history.page} 页</span><button disabled={history.loading||!history.hasMore} onClick={history.next}>下一页</button></nav>}</div>
     <footer className="studio-bottom"><div className="studio-feedback" aria-live="polite">{outstanding&&<><span>最近任务 · {statusText[outstanding.status]}</span><button onClick={()=>outstanding.source_asset_id ? show(outstanding) : setGenerationId(outstanding.id)}>查看任务</button></>}{notice&&<span>{notice}</span>}{run.issue&&<span className="studio-error">{run.issue} <button onClick={run.check}>查询结果</button>{run.notFound&&<button onClick={()=>{if(window.confirm("已在服务记录中核对结果？再次创建任务可能重新计费。"))run.acknowledgeMissing();}}>已核对，解除限制</button>}</span>}</div>
-    <form className="studio-composer" onSubmit={generate}><label htmlFor="studio-prompt">想生成什么图片？</label><textarea id="studio-prompt" ref={input} aria-label="画面描述" value={draft} maxLength={4000} rows={2} onChange={e=>setDraft(e.target.value)} placeholder="例如：紫色音乐节海报，顶部留出标题位置。" onKeyDown={e=>{if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}}/>
+    <form className="studio-composer" onSubmit={generate}>
+    {incomingDraft && pendingDraftId === incomingDraft.id && <div className="studio-draft-choice" role="group" aria-label="处理新创作草稿">
+      <p id="studio-draft-choice-description" role="status">收到一份新的创作草稿。请选择使用新草稿或保留当前描述。</p>
+      <div className="studio-actions">
+        <button type="button" aria-describedby="studio-draft-choice-description" onClick={() => decideCreationDraft(true)}>使用新草稿</button>
+        <button type="button" aria-describedby="studio-draft-choice-description" onClick={() => decideCreationDraft(false)}>保留当前描述</button>
+      </div>
+      <details><summary>查看新草稿</summary><p>{incomingDraft.content}</p></details>
+    </div>}
+    <label htmlFor="studio-prompt">想生成什么图片？</label><textarea id="studio-prompt" ref={input} aria-label="画面描述" value={draft} maxLength={4000} rows={2} onChange={e=>setDraft(e.target.value)} placeholder="例如：紫色音乐节海报，顶部留出标题位置。" onKeyDown={e=>{if(!e.nativeEvent.isComposing&&e.nativeEvent.keyCode!==229&&e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.currentTarget.form?.requestSubmit();}}}/>
     <StudioModelPicker label="图片模型" profileId={selection.profile} preview={preview} busy={run.locked}
       onChange={profile => { preview.refresh(); setSelection({ profile, size: null }); }} />
     <div className="studio-controls"><div className="studio-parameters">

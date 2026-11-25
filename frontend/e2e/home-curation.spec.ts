@@ -46,6 +46,7 @@ for (const theme of ["light", "dark"] as const) {
       return route.fulfill({ status: 404, json: { detail: "Unhandled curation UI test route" } });
     });
     await page.goto("/#/home");
+    await page.getByRole("button", { name: "查看完整资讯" }).click();
     const card = page.getByRole("region", { name: /今日值得看/ });
     await expect(card.getByText("还没有启用每日资讯精选")).toBeVisible();
     expect(writes).toEqual([]);

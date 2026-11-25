@@ -43,6 +43,7 @@ import type { ModelParameterUpdate } from "../features/chat/ComposerModelParamet
 import type { ArtifactManifest } from "../features/chat/result-types";
 import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
+import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { defaultAgentSettings, pageMeta, topbarSectionForPage } from "../constants";
 import { createPagePrefetcher } from "../page-prefetch";
 import { createRouteDataCache, requiredDataForRoute, type RouteDataKey } from "../route-data";
@@ -198,7 +199,11 @@ export function App({
   const { libraryEditor, librarySources, libraryFolders, libraryCollections, createLibraryCollection, renameLibraryCollection, deleteLibraryCollection, updateLibraryCollectionSources, organizeLibrarySource, createLibraryFolder, loadLibraryOriginal, searchLibrarySources, confirmedKnowledge, confirmedKnowledgeCount, sourceCount, pendingKnowledge, libraryLoaded, libraryBusy, sourceImportBusy, enhancedDocumentParse, setLibraryEditor, setEnhancedDocumentParse, refreshLibrary, saveLibraryMetadata, importLibraryFiles, createPastedSource, updateLibrarySource, downloadLibrarySource, deleteLibrarySource } = useLibrary({ fetchJson, apiBase, accessToken, setErrorMessage, setNoticeMessage });
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
-  const [homeComposerDraft, setHomeComposerDraft] = useState<ChatComposerDraft | null>(null);
+  const creationScope = JSON.stringify([apiBase, userEmail]);
+  const [creationForm, setCreationForm] = useState<{ scope: string; mode: CreationMode; drafts: CreationDrafts }>({ scope: creationScope, mode: "chat", drafts: { chat: "", images: "" } });
+  const activeCreationForm = creationForm.scope === creationScope ? creationForm : { scope: creationScope, mode: "chat" as const, drafts: { chat: "", images: "" } };
+  const [imageCreationDraft, setImageCreationDraft] = useState<{ scope: string; id: string; content: string } | null>(null);
+  const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string }) | null>(null);
   const composerDrafts = useMemo(() => readStringMap(preferenceKey("tuantuan-composer-drafts", userEmail)), [userEmail]);
   const persistComposerDrafts = useCallback(() => {
     writeStringMap(preferenceKey("tuantuan-composer-drafts", userEmail), composerDrafts);
@@ -1075,11 +1080,14 @@ export function App({
     />
   );
 
+  const [historyOpenRequest, setHistoryOpenRequest] = useState(0);
+
   function selectProductNav(key: ProductNavKey) {
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
-    else if (key === "chat") navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
-    else if (key === "images") navigateRoute({ section: "images" });
-    else if (key === "video") navigateRoute({ section: "video" });
+    else if (key === "history") {
+      navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
+      setHistoryOpenRequest(request => request + 1);
+    }
     else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
@@ -1134,27 +1142,31 @@ export function App({
     } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
   }
 
-  async function analyzeHomeItem(item: HomeReadableItem) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string) {
     if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
-      throw new Error("请等待当前对话操作完成后再创建资讯分析");
+      throw new Error("请等待当前对话操作完成后再打开新的工作区");
     }
     homeAnalysisBusyRef.current = true;
     const controller = new AbortController();
+    const routeAtClick = window.location.hash;
     homeAnalysisControllerRef.current = controller;
     setConversationBusy(true);
     try {
-      const created = await createHomeAnalysisConversation(fetchJson, item, controller.signal);
+      const created = await create(controller.signal);
       if (controller.signal.aborted || homeAnalysisControllerRef.current !== controller) return;
+      invalidateConversationReads();
       setConversations(current => [created, ...current.filter(conversation => conversation.id !== created.id)]);
+      if (window.location.hash !== routeAtClick) return;
       setChatMessages([]);
-      setHomeComposerDraft({
+      setHomeComposerDraft(content.trim() ? {
+        scope: creationScope,
         id: `home-${created.id}`,
         conversationId: created.id,
-        content: homeAnalysisDraft(item)
-      });
+        content,
+      } : null);
       setCurrentConversationId(created.id);
       navigateRoute({ section: "chat", conversationId: created.id });
-      setNoticeMessage("资讯分析草稿已准备，编辑后发送");
+      setNoticeMessage(notice);
     } finally {
       if (homeAnalysisControllerRef.current === controller) {
         homeAnalysisControllerRef.current = null;
@@ -1162,6 +1174,24 @@ export function App({
         setConversationBusy(false);
       }
     }
+  }
+
+  async function analyzeHomeItem(item: HomeReadableItem) {
+    await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
+  }
+
+  function openCreationWorkspace(mode: CreationMode, content: string) {
+    if (!databaseReady) return;
+    if (mode === "images") {
+      if (content.trim()) setImageCreationDraft({ scope: creationScope, id: crypto.randomUUID(), content });
+      navigateRoute({ section: "images" });
+      return;
+    }
+    void openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
+    }), content, content.trim() ? "对话草稿已准备，编辑后发送" : "已新建对话").catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setErrorMessage(error instanceof Error ? error.message : "打开对话工作区失败");
+    });
   }
 
   const libraryModule = (
@@ -1256,6 +1286,16 @@ export function App({
               fetchJson={fetchJson}
               accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
+              creationEntry={<CreationEntry
+                mode={activeCreationForm.mode}
+                drafts={activeCreationForm.drafts}
+                onMode={mode => setCreationForm({ ...activeCreationForm, mode })}
+                onDraft={(mode, text) => setCreationForm({ ...activeCreationForm, drafts: { ...activeCreationForm.drafts, [mode]: text } })}
+                onOpen={openCreationWorkspace}
+                onOpenVideo={() => navigateRoute({ section: "video" })}
+                ready={databaseReady}
+                busy={activeCreationForm.mode === "chat" && (conversationBusy || chatBusy)}
+              />}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
               weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}
@@ -1272,6 +1312,8 @@ export function App({
             ready={databaseReady}
             active={appRoute.section === "images"}
             accountKey={userEmail}
+            creationDraft={imageCreationDraft?.scope === creationScope ? imageCreationDraft : undefined}
+            onCreationDraftConsumed={id => setImageCreationDraft(current => current?.id === id ? null : current)}
             onOpenWorks={() => navigateRoute({ section: "works" })}
             refreshConversations={refreshConversations}
             onLibraryChanged={refreshLibrary}
@@ -1298,7 +1340,7 @@ export function App({
           />
         </div> : null}
         {appRoute.section === "video" ? <VideoPage
-          onOpenChat={() => selectProductNav("chat")}
+          onOpenChat={() => navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined })}
           onOpenLibrary={() => selectProductNav("library")}
           onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
         /> : null}
@@ -1459,6 +1501,7 @@ export function App({
             onDocumentArchived={() => { void refreshLibrary(); }}
             density={activeView === "chat" ? "page" : "dock"}
             focused={activeView === "chat" && !workspaceLibraryOpen}
+            historyOpenRequest={historyOpenRequest}
             conversationTitle={currentConversation?.title}
             currentModelName={currentModelName}
             defaultModelName={defaultModelProfile?.model_name || capabilities?.active_model_name}
@@ -1493,9 +1536,9 @@ export function App({
             onWebSearchChange={conversationWebSearch.setEnabled}
             libraryAttachments={libraryAttachments}
             onLibraryAttachmentsConsumed={() => setLibraryAttachments(null)}
-            composerDraft={homeComposerDraft}
+            composerDraft={homeComposerDraft?.scope === creationScope ? homeComposerDraft : null}
             composerDrafts={composerDrafts}
-            onComposerDraftConsumed={() => setHomeComposerDraft(null)}
+            onComposerDraftConsumed={() => setHomeComposerDraft(current => current === homeComposerDraft ? null : current)}
             conversations={conversations}
             conversationBusy={conversationBusy}
             waitingForUser={waitingForUser}

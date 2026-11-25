@@ -1,8 +1,10 @@
 import { cleanup,fireEvent,render,screen,waitFor,within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { ImageWorkspace } from "./ImageWorkspace";
+import { ImageWorkspacePage } from "./ImageWorkspacePage";
 import type { StudioModel, StudioPreviewRequest, StudioTask } from "./imageStudioApi";
-import { ApiError } from "../../api/client";
+import { ApiError, type createApiClient } from "../../api/client";
 import type { StudioApi } from "./useImageWorkspace";
 import { downloadBlob } from "../chat/result-files";
 vi.mock("../chat/result-files",()=>({downloadBlob:vi.fn()}));
@@ -37,6 +39,117 @@ function setup(items:StudioTask[]=[], models=[model], more=false, canEdit=true, 
 beforeEach(()=>{vi.stubGlobal("URL",Object.assign(class extends URL{},{createObjectURL:vi.fn().mockReturnValue("blob:pic"),revokeObjectURL:vi.fn()}));});
 afterEach(()=>{cleanup();sessionStorage.clear();vi.restoreAllMocks();vi.unstubAllGlobals();vi.clearAllMocks();});
 describe("图片工作台",()=>{
+  it("仅在已登录、就绪且激活时回填草稿，同一交接 ID 不重复处理或生成", async () => {
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/image-studio/options") return { models: [] };
+      if (path === "/agent/model-selection/preview") return { eligible: false, candidates: [], reason_code: "not_configured" };
+      return { items: [] };
+    });
+    const consume = vi.fn();
+    const props = {
+      apiBase: "http://example.test", fetchJson: fetchJson as unknown as ReturnType<typeof createApiClient>, accountKey: "a",
+      onOpenSettings: vi.fn(), onOpenWorks: vi.fn(), onOpenConversation: vi.fn(),
+      refreshConversations: vi.fn().mockResolvedValue(null), onLibraryChanged: vi.fn().mockResolvedValue(undefined),
+      creationDraft: { id: "handoff-1", content: "  晚霞下的书店\n街角留白  " }, onCreationDraftConsumed: consume,
+    };
+    const page = (accessToken: string, ready: boolean, active: boolean) => <StrictMode>
+      <ImageWorkspacePage {...props} accessToken={accessToken} ready={ready} active={active}/>
+    </StrictMode>;
+    const view = render(page("", true, true));
+    view.rerender(page("token", false, true));
+    view.rerender(page("token", true, false));
+    expect(screen.getByLabelText("画面描述")).toHaveValue("");
+    expect(consume).not.toHaveBeenCalled();
+    expect(fetchJson).not.toHaveBeenCalled();
+
+    view.rerender(page("token", true, true));
+    expect(await screen.findByRole("heading", { name: "尚未配置模型" })).toBeVisible();
+    expect(screen.getByLabelText("画面描述")).toHaveValue(props.creationDraft.content);
+    expect(consume).toHaveBeenCalledExactlyOnceWith("handoff-1");
+    expect(fetchJson.mock.calls.map(([path]) => path)).not.toContain("/image-studio/generate");
+
+    fireEvent.change(screen.getByLabelText("画面描述"), { target: { value: "" } });
+    view.rerender(page("token", true, false));
+    view.rerender(page("token", true, true));
+    await screen.findByRole("heading", { name: "尚未配置模型" });
+    expect(screen.getByLabelText("画面描述")).toHaveValue("");
+    expect(consume).toHaveBeenCalledTimes(1);
+  });
+
+  it("已有描述时明确询问，不因清空文本而自动覆盖，并支持保留或接受", async () => {
+    const { api, props, view } = setup();
+    const consume = vi.fn();
+    const prompt = screen.getByLabelText("画面描述");
+    fireEvent.change(prompt, { target: { value: "我自己写的草稿" } });
+    const handoff = (id: string, content: string) => view.rerender(<ImageWorkspace {...props}
+      creationDraft={{ id, content }} onCreationDraftConsumed={consume}/>);
+
+    handoff("declined", "被保留现稿所拒绝的描述");
+    const choice = screen.getByRole("group", { name: "处理新创作草稿" });
+    expect(prompt).toHaveValue("我自己写的草稿");
+    expect(consume).not.toHaveBeenCalled();
+    fireEvent.change(prompt, { target: { value: "" } });
+    expect(prompt).toHaveValue("");
+    expect(consume).not.toHaveBeenCalled();
+    fireEvent.change(prompt, { target: { value: "修订后的草稿" } });
+    fireEvent.click(within(choice).getByRole("button", { name: "保留当前描述" }));
+    handoff("declined", "被保留现稿所拒绝的描述");
+    expect(prompt).toHaveValue("修订后的草稿");
+    expect(prompt).toHaveFocus();
+    expect(screen.queryByRole("group", { name: "处理新创作草稿" })).not.toBeInTheDocument();
+    expect(consume).toHaveBeenCalledExactlyOnceWith("declined");
+
+    handoff("accepted", "来自首页的新草稿");
+    fireEvent.click(screen.getByRole("button", { name: "使用新草稿" }));
+    expect(prompt).toHaveValue("来自首页的新草稿");
+    expect(prompt).toHaveFocus();
+    expect(consume.mock.calls).toEqual([["declined"], ["accepted"]]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "生成图片" })).toBeEnabled());
+    expect(api.generate).not.toHaveBeenCalled();
+  });
+
+  it("账号切换不会继承未处理的交接或另一个账号的现稿", async () => {
+    sessionStorage.setItem("tuantuan:image-studio:draft:b", "乙账号原有草稿");
+    const { api, props, view } = setup();
+    const consume = vi.fn();
+    const firstOffer = { id: "a-draft", content: "仅甲账号的交接草稿" };
+    const firstProps = { ...props, enabled: false, creationDraft: firstOffer, onCreationDraftConsumed: consume };
+    view.rerender(<ImageWorkspace {...firstProps}/>);
+    view.rerender(<ImageWorkspace {...firstProps} enabled accountKey="b"/>);
+    expect(screen.getByLabelText("画面描述")).toHaveValue("乙账号原有草稿");
+    expect(screen.queryByRole("group", { name: "处理新创作草稿" })).not.toBeInTheDocument();
+    expect(screen.queryByText(firstOffer.content)).not.toBeInTheDocument();
+    expect(consume).not.toHaveBeenCalled();
+
+    const secondOffer = { id: "b-draft", content: "仅乙账号的交接草稿" };
+    view.rerender(<ImageWorkspace {...firstProps} enabled accountKey="b" creationDraft={secondOffer}/>);
+    fireEvent.click(screen.getByRole("button", { name: "使用新草稿" }));
+    expect(screen.getByLabelText("画面描述")).toHaveValue(secondOffer.content);
+    expect(consume).toHaveBeenCalledExactlyOnceWith("b-draft");
+    view.rerender(<ImageWorkspace {...firstProps} enabled/>);
+    expect(screen.getByLabelText("画面描述")).toHaveValue(firstOffer.content);
+    expect(consume.mock.calls).toEqual([["b-draft"], ["a-draft"]]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "生成图片" })).toBeEnabled());
+    expect(api.generate).not.toHaveBeenCalled();
+  });
+
+  it("去模型设置后重新打开图片工作区仍保留未提交的描述", async () => {
+    const { api, props, view } = setup();
+    const consume = vi.fn();
+    const creationDraft = { id: "settings-draft", content: "夜晚的城市公园" };
+    view.rerender(<ImageWorkspace {...props} creationDraft={creationDraft} onCreationDraftConsumed={consume}/>);
+    expect(screen.getByLabelText("画面描述")).toHaveValue(creationDraft.content);
+    fireEvent.change(screen.getByLabelText("画面描述"), { target: { value: "有星光的城市公园" } });
+    fireEvent.click(screen.getByRole("button", { name: "设置图片模型" }));
+    expect(props.onOpenSettings).toHaveBeenCalledOnce();
+    view.unmount();
+    render(<ImageWorkspace {...props}/>);
+    expect(screen.getByLabelText("画面描述")).toHaveValue("有星光的城市公园");
+    expect(consume).toHaveBeenCalledExactlyOnceWith("settings-draft");
+    await waitFor(() => expect(screen.getByRole("button", { name: "生成图片" })).toBeEnabled());
+    expect(api.generate).not.toHaveBeenCalled();
+  });
+
   it("没有可用图片模型时显示明确引导并跳转配置，不展示生成示例", async () => {
     const { api, props } = setup([], []);
     expect(await screen.findByRole("heading", { name: "尚未配置模型" })).toBeVisible();
