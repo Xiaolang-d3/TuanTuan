@@ -51,7 +51,7 @@ function encodePng(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /**
- * 把预设 SVG 光栅化成 512×512 的 PNG File，交给现有头像上传接口（PNG 在允许类型内）。
+ * 将预设头像统一转为 512×512 的 PNG，交给现有头像上传接口。
  */
 export async function presetAvatarFile(preset: AvatarPreset): Promise<File> {
   const blob = await fetchAvatarBlob(preset.src);

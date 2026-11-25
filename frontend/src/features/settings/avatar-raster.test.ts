@@ -2,16 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { avatarRasterSize, presetAvatarFile } from "./avatar-raster";
 import type { AvatarPreset } from "./avatar-presets";
 
-const preset: AvatarPreset = { id: "nailong-smile", label: "开心奶龙", src: "/avatars/nailong-smile.svg" };
+const preset: AvatarPreset = { id: "nailong-smile", label: "开心奶龙", src: "/assets/nailong-smile.webp" };
 
 const objectUrl = "blob:preset-1";
 
-function svgBlob() {
-  return new Blob(["<svg viewBox=\"0 0 512 512\"/>"], { type: "image/svg+xml" });
-}
-
 function stubFetch(ok = true) {
-  const blob = svgBlob();
+  const blob = new Blob(["webp"], { type: "image/webp" });
   const fetchMock = vi.fn(async () => (
     ok
       ? { ok: true, status: 200, blob: async () => blob }
@@ -48,8 +44,8 @@ function stubImage(options: ImageOptions = {}) {
   class FakeImage {
     onload: (() => void) | null = null;
     onerror: (() => void) | null = null;
-    naturalWidth = avatarRasterSize;
-    naturalHeight = avatarRasterSize;
+    naturalWidth = 360;
+    naturalHeight = 360;
     decode?: () => Promise<void>;
     currentSrc = "";
 
@@ -104,7 +100,7 @@ describe("presetAvatarFile", () => {
     vi.unstubAllGlobals();
   });
 
-  it("rasters a preset svg into a square png File", async () => {
+  it("converts a preset WebP into a square PNG File", async () => {
     expect(avatarRasterSize).toBe(512);
     const { fetchMock, blob } = stubFetch();
     const { createObjectURL, revokeObjectURL } = stubObjectUrl();
@@ -113,7 +109,7 @@ describe("presetAvatarFile", () => {
 
     const file = await presetAvatarFile(preset);
 
-    expect(fetchMock).toHaveBeenCalledWith("/avatars/nailong-smile.svg", { cache: "force-cache" });
+    expect(fetchMock).toHaveBeenCalledWith(preset.src, { cache: "force-cache" });
     expect(createObjectURL).toHaveBeenCalledWith(blob);
     expect(images[0].src).toBe(objectUrl);
     expect(drawImage).toHaveBeenCalledWith(images[0], 0, 0, avatarRasterSize, avatarRasterSize);

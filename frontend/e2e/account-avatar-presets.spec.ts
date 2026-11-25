@@ -73,18 +73,14 @@ for (const theme of ["light", "dark"] as const) {
     const tiles = picker.getByRole("button");
     await expect(tiles).toHaveCount(12);
 
-    // Every tile has to render real artwork, not a broken image.
-    const loaded = await picker.locator("img").evaluateAll(images => images.map(image => ({
-      complete: (image as HTMLImageElement).complete,
-      width: (image as HTMLImageElement).naturalWidth,
-      height: (image as HTMLImageElement).naturalHeight
-    })));
-    expect(loaded).toHaveLength(12);
-    for (const image of loaded) {
-      expect(image.complete).toBe(true);
-      expect(image.width).toBeGreaterThan(0);
-      expect(image.height).toBeGreaterThan(0);
-    }
+    await tiles.last().scrollIntoViewIfNeeded();
+    await expect.poll(() => picker.locator("img").evaluateAll(images =>
+      images.filter(image => image instanceof HTMLImageElement
+        && image.complete
+        && image.naturalWidth === 360
+        && image.naturalHeight === 360
+        && image.currentSrc.endsWith(".webp")).length
+    )).toBe(12);
 
     const cheer = picker.getByRole("button", { name: "使用加油奶龙" });
     await expect(cheer).toHaveAttribute("aria-pressed", "false");
@@ -97,21 +93,31 @@ for (const theme of ["light", "dark"] as const) {
 
     expect(uploads).toHaveLength(1);
     const multipart = uploads[0];
-    // A 512x512 canvas render of the SVG is several KB of PNG; a blank failure
-    // would be a few hundred bytes, so this guards real rasterisation.
+    // A blank canvas would produce a much smaller PNG.
     expect(multipart.length).toBeGreaterThan(4096);
-    // The multipart part must carry a PNG produced by the canvas, not the SVG.
-    const pngAt = multipart.indexOf(Buffer.from(pngSignature));
-    expect(pngAt).toBeGreaterThan(-1);
-    expect(multipart.includes(Buffer.from("image/svg+xml"))).toBe(false);
+    const png = pngPart(multipart);
+    expect(png).not.toBeNull();
+    expect(png?.readUInt32BE(16)).toBe(512);
+    expect(png?.readUInt32BE(20)).toBe(512);
+    expect(multipart.includes(Buffer.from("Content-Type: image/png"))).toBe(true);
 
-    const output = resolve("..", "output", "account-avatar-presets");
+    const output = process.env.CI
+      ? resolve("..", "..", "output", "playwright")
+      : resolve("..", "output", "account-avatar-presets");
     await mkdir(output, { recursive: true });
     for (const width of [996, 390]) {
       await page.setViewportSize({ width, height: 900 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await expect(picker).toBeInViewport();
-      await page.screenshot({ path: resolve(output, `account-presets-${width}-${theme}.png`), fullPage: true });
+      await expect.poll(() => tiles.evaluateAll(elements => elements.every(element => {
+        const { left, right } = element.getBoundingClientRect();
+        return left >= 0 && right <= document.documentElement.clientWidth;
+      }))).toBe(true);
+      await page.screenshot({
+        path: resolve(output, `account-presets-${width}-${theme}.png`),
+        fullPage: true,
+        animations: "disabled"
+      });
     }
   });
 }
