@@ -6,6 +6,7 @@ export type AppRoute =
   | { section: "dashboard" }
   | { section: "chat"; conversationId?: number; page?: "library" }
   | { section: "history" }
+  | { section: "projects"; projectId?: string }
   | { section: "images"; taskId?: string }
   | { section: "video" }
   | { section: "works" }
@@ -15,7 +16,7 @@ export type AppRoute =
 export function routeForSection(section: ViewKey): AppRoute {
   if (section === "settings") return { section, page: "overview" };
   if (section === "chat") return { section };
-  if (section === "images" || section === "history") return { section };
+  if (section === "images" || section === "history" || section === "projects") return { section };
   if (section === "video") return { section };
   if (section === "works") return { section };
   return { section: "dashboard" };
@@ -30,6 +31,10 @@ export function parseAppHash(hash: string): AppRoute | null {
   if (path === "settings/library") return { section: "settings", page: "library" };
   if (path === "chat") return { section: "chat" };
   if (path === "history") return { section: "history" };
+  if (path === "projects") {
+    const projectId = new URLSearchParams(query).get("id");
+    return projectId ? { section: "projects", projectId } : { section: "projects" };
+  }
   if (path === "images") {
     const taskId = new URLSearchParams(query).get("task");
     return taskId ? { section: "images", taskId } : { section: "images" };
@@ -62,6 +67,7 @@ export function appRouteHash(route: AppRoute): string {
   if (route.section === "dashboard") return "#/home";
   if (route.section === "chat") return route.page === "library" ? "#/chat/library" : route.conversationId ? `#/chat/${route.conversationId}` : "#/chat";
   if (route.section === "history") return "#/history";
+  if (route.section === "projects") return route.projectId ? `#/projects?${new URLSearchParams({ id: route.projectId })}` : "#/projects";
   if (route.section === "images") return route.taskId ? `#/images?${new URLSearchParams({ task: route.taskId })}` : "#/images";
   if (route.section === "video") return "#/video";
   if (route.section === "works") return "#/works";

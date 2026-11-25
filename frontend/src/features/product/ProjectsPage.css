@@ -1,0 +1,23 @@
+.projects-page { display: grid; align-content: start; justify-items: start; gap: 16px; padding: clamp(16px, 4vw, 28px); min-width: 0; }
+.projects-page > :not(button) { width: 100%; }
+.projects-page h1, .projects-page h2, .projects-page p { margin: 0; }
+.projects-page h1 { display: flex; align-items: center; gap: 8px; font-size: 24px; overflow-wrap: anywhere; }
+.projects-page h1 svg { flex-shrink: 0; }
+.projects-page h2 { font-size: 17px; }
+.projects-page p, .projects-row span { color: var(--color-text-muted); overflow-wrap: anywhere; }
+.projects-heading, .projects-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.projects-heading > div:first-child { display: grid; min-width: 0; gap: 6px; }
+.projects-actions { justify-content: flex-start; }
+.projects-content, .projects-form, .projects-link { display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+.projects-form label, .projects-link label { display: grid; gap: 5px; min-width: 0; }
+.projects-form :is(input, textarea), .projects-link select { font: inherit; min-width: 0; max-width: 100%; padding: 8px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px; }
+.projects-list { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
+.projects-list li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 8px; padding-right: 8px; }
+.projects-row { display: grid; flex: 1 1 auto; text-align: start; gap: 4px; min-width: 0; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: var(--color-text); cursor: pointer; overflow-wrap: anywhere; }
+.projects-row:hover { background: var(--color-surface-hover); }
+.projects-row span { font-size: 13px; }
+.projects-row:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+@media (min-width: 640px) {
+  .projects-link { grid-template-columns: minmax(120px, 1fr) minmax(140px, 2fr) auto; align-items: end; }
+  .projects-link p, .projects-link .projects-actions { grid-column: 1 / -1; }
+}

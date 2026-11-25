@@ -427,6 +427,24 @@ CREATE INDEX IF NOT EXISTS idx_library_sources_enabled_updated
 CREATE INDEX IF NOT EXISTS idx_library_sources_content_hash
     ON library_sources(content_hash);
 
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')
+);
+CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC, id DESC);
+
+-- Polymorphic links never own the underlying source. Only the project cascades.
+CREATE TABLE IF NOT EXISTS project_items (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'image', 'document', 'presentation', 'library')),
+    source_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
+    PRIMARY KEY (project_id, kind, source_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_conversation ON chat_messages(conversation_id, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_conversation ON conversation_tasks(conversation_id, status);
 CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge_chunks(source_type, source_id);

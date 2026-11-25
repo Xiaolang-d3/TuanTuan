@@ -46,6 +46,8 @@ import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/h
 import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { CreationRecords } from "../features/product/CreationRecords";
 import type { CreationRecord } from "../features/product/creationRecordsApi";
+import { ProjectsPage } from "../features/product/ProjectsPage";
+import type { ProjectItem } from "../features/product/projectsApi";
 import { defaultAgentSettings, pageMeta, topbarSectionForPage } from "../constants";
 import { createPagePrefetcher } from "../page-prefetch";
 import { createRouteDataCache, requiredDataForRoute, type RouteDataKey } from "../route-data";
@@ -1085,6 +1087,7 @@ export function App({
   function selectProductNav(key: ProductNavKey) {
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
     else if (key === "history") navigateRoute({ section: "history" });
+    else if (key === "projects") navigateRoute({ section: "projects" });
     else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
@@ -1094,7 +1097,16 @@ export function App({
   const recordClient = useRef(fetchJson);
   recordClient.current = fetchJson;
 
-  function openCreationRecord(record: CreationRecord) {
+  function openProjectItem(item: ProjectItem) {
+    if (item.kind === "library") {
+      setOpenLibraryResultId(Number(item.source_id));
+      navigateRoute({ section: "chat", page: "library" });
+    } else {
+      openCreationRecord({ kind: item.kind, id: item.source_id, conversation_id: item.conversation_id });
+    }
+  }
+
+  function openCreationRecord(record: Pick<CreationRecord, "kind" | "id" | "conversation_id">) {
     const intent = ++recordNavigation.current;
     if (record.kind === "image") navigateRoute({ section: "images", taskId: record.id });
     else if (record.kind === "document") {
@@ -1332,6 +1344,11 @@ export function App({
         {appRoute.section === "history" ? (databaseReady
           ? <CreationRecords key={creationScope} fetchJson={fetchJson} onOpen={openCreationRecord} onCreate={() => navigateRoute({ section: "dashboard" })} />
           : <PageLoading label="正在连接创作记录…" />) : null}
+
+        {appRoute.section === "projects" ? (databaseReady
+          ? <ProjectsPage key={creationScope} id={appRoute.projectId} fetchJson={fetchJson}
+            onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem} />
+          : <PageLoading label="正在连接项目…" />) : null}
 
         {visitedImageWorkspace || appRoute.section === "images" ? <div hidden={appRoute.section !== "images"}>
           <ImageWorkspacePage
