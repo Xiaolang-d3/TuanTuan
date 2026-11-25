@@ -106,10 +106,15 @@ function ProjectView({ fetchJson, id, onSelect, onOpen }: Props) {
     {id && <ActionButton size="sm" onClick={() => onSelect()} disabled={busy}><ArrowLeft size={16} aria-hidden="true"/>返回我的项目</ActionButton>}
     <header className="projects-heading">
       <div><h1><FolderKanban size={22} aria-hidden="true"/>{id ? detail?.name || "项目详情" : "我的项目"}</h1>
+        {detail && <p>状态：{detail.status === "archived" ? "已归档" : "进行中"}</p>}
         <p>{id ? detail?.description || "把相关创作和资料放在一起，来源仍保留在原处。" : "把对话、图片、文档、PPT 和资料关联到同一个项目。"}</p></div>
       {!id && !form && <ActionButton onClick={() => setForm({ name: "", description: "" })}><Plus size={16} aria-hidden="true"/>新建项目</ActionButton>}
       {detail && !form && !confirmDelete && <div className="projects-actions">
         <ActionButton size="sm" disabled={busy} onClick={() => setForm({ name: detail.name, description: detail.description })}>编辑项目</ActionButton>
+        <ActionButton size="sm" disabled={busy} onClick={() => void mutate(async () => {
+          const saved = await api.update(detail.id, { status: detail.status === "active" ? "archived" : "active" });
+          setDetail(old => old && { ...old, ...saved });
+        }, "暂时无法更新项目状态，请重试。")}>{detail.status === "active" ? "归档项目" : "恢复项目"}</ActionButton>
         <ActionButton size="sm" disabled={busy} onClick={() => setConfirmDelete(true)}>删除项目</ActionButton>
       </div>}
     </header>
@@ -128,7 +133,7 @@ function ProjectView({ fetchJson, id, onSelect, onOpen }: Props) {
     </section>}
     {list?.length === 0 && <p>还没有项目。创建一个项目，把相关工作整理在一起。</p>}
     {list && list.length > 0 && <ul className="projects-list">{list.map(project => <li key={project.id}>
-      <button type="button" disabled={busy} className="projects-row" onClick={() => onSelect(project.id)}><strong>{project.name}</strong><span>{project.description || "查看关联内容"}</span></button>
+      <button type="button" disabled={busy} className="projects-row" onClick={() => onSelect(project.id)}><strong>{project.name}</strong><span>{project.status === "archived" ? "已归档" : "进行中"}{project.description ? ` · ${project.description}` : ""}</span></button>
     </li>)}</ul>}
     {detail && <section className="projects-content" aria-label="项目关联内容">
       <header className="projects-heading"><h2>关联内容</h2><ActionButton size="sm" disabled={busy} aria-expanded={linking} onClick={() => setLinking(value => !value)}>{linking ? "收起添加" : "添加关联"}</ActionButton></header>

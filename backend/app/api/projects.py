@@ -21,6 +21,7 @@ ProjectId = Annotated[str, Path(min_length=1, max_length=_MAX_ID_LENGTH)]
 SourceId = Annotated[str, Path(min_length=1, max_length=_MAX_ID_LENGTH, pattern=_ID_PATTERN)]
 ProjectName = Annotated[str, StringConstraints(min_length=1, max_length=120)]
 ProjectDescription = Annotated[str, StringConstraints(max_length=2000)]
+ProjectStatus = Literal["active", "archived"]
 
 
 class ProjectCreate(BaseModel):
@@ -39,6 +40,7 @@ class ProjectCreate(BaseModel):
 class ProjectPatch(ProjectCreate):
     # A default denotes omission, not a submitted value; explicit null fails validation.
     name: ProjectName = ""
+    status: ProjectStatus = "active"
 
 
 class ItemCreate(BaseModel):
@@ -51,6 +53,7 @@ class Project(BaseModel):
     id: str
     name: str
     description: str
+    status: ProjectStatus
     updated_at: str
     created_at: str
 
@@ -110,7 +113,7 @@ def _timestamp() -> str:
 
 def _project(conn: sqlite3.Connection, project_id: str) -> Project:
     row = conn.execute(
-        "SELECT id, name, description, created_at, updated_at FROM projects WHERE id = ?", (project_id,)
+        "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = ?", (project_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(404, "项目不存在")
@@ -121,7 +124,7 @@ def _project(conn: sqlite3.Connection, project_id: str) -> Project:
 def list_projects() -> ProjectList:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, name, description, created_at, updated_at FROM projects "
+            "SELECT id, name, description, status, created_at, updated_at FROM projects "
             "ORDER BY updated_at DESC, id DESC LIMIT ?", (_MAX_PROJECTS,)
         )
         return ProjectList(items=[Project(**dict(row)) for row in rows])
@@ -164,11 +167,12 @@ def patch_project(project_id: ProjectId, payload: ProjectPatch) -> Project:
         changes = payload.model_dump(exclude_unset=True)
         name = changes.get("name", project.name)
         description = changes.get("description", project.description)
-        if (name, description) == (project.name, project.description):
+        status = changes.get("status", project.status)
+        if (name, description, status) == (project.name, project.description, project.status):
             return project
         conn.execute(
-            "UPDATE projects SET name = ?, description = ?, updated_at = ? WHERE id = ?",
-            (name, description, _timestamp(), project_id),
+            "UPDATE projects SET name = ?, description = ?, status = ?, updated_at = ? WHERE id = ?",
+            (name, description, status, _timestamp(), project_id),
         )
         return _project(conn, project_id)
 

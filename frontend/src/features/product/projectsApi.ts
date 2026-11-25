@@ -1,7 +1,8 @@
 import { creationKinds, type CreationKind, type FetchCreationJson } from "./creationRecordsApi";
 
 export type ProjectKind = CreationKind | "library";
-export type Project = { id: string; name: string; description: string; created_at: string; updated_at: string };
+export type ProjectStatus = "active" | "archived";
+export type Project = { id: string; name: string; description: string; status: ProjectStatus; created_at: string; updated_at: string };
 export type ProjectItem = { kind: ProjectKind; source_id: string; title: string; conversation_id: number | null };
 export type ProjectDetail = Project & { items: ProjectItem[] };
 export type ProjectInput = { name: string; description: string };
@@ -16,7 +17,7 @@ export function createProjectsApi(fetchJson: FetchCreationJson) {
     list: (signal: AbortSignal) => fetchJson<{ items: Project[] }>("/projects", { signal }),
     detail: (id: string, signal: AbortSignal) => fetchJson<ProjectDetail>(path(id), { signal }),
     create: (input: ProjectInput) => fetchJson<Project>("/projects", body("POST", input)),
-    update: (id: string, input: ProjectInput) => fetchJson<Project>(path(id), body("PATCH", input)),
+    update: (id: string, input: Partial<ProjectInput & { status: ProjectStatus }>) => fetchJson<Project>(path(id), body("PATCH", input)),
     remove: (id: string) => fetchJson<void>(path(id), { method: "DELETE" }),
     addItem: (id: string, item: ProjectItem) => fetchJson<ProjectItem>(`${path(id)}/items`, body("POST", { kind: item.kind, source_id: item.source_id })),
     removeItem: (id: string, item: ProjectItem) => fetchJson<void>(`${path(id)}/items/${item.kind}/${encodeURIComponent(item.source_id)}`, { method: "DELETE" }),
