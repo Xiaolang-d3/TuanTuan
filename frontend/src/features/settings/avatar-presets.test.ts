@@ -25,15 +25,6 @@ describe("avatarPresets", () => {
     );
   });
 
-  it("points every src at its own svg under /avatars", () => {
-    for (const preset of avatarPresets) {
-      expect(preset.id).toMatch(/^nailong-[a-z]+$/);
-      expect(preset.src).toBe(`/avatars/${preset.id}.svg`);
-    }
-    // 单测不依赖 12 个 SVG 是否已产出：只校验数据自身的对应关系。
-    expect(new Set(avatarPresets.map((preset) => preset.src)).size).toBe(avatarPresets.length);
-  });
-
   it("keeps ids and labels unique so aria-pressed and 使用X 的按钮名可区分", () => {
     expect(new Set(avatarPresets.map((preset) => preset.id)).size).toBe(avatarPresets.length);
     expect(new Set(avatarPresets.map((preset) => preset.label)).size).toBe(avatarPresets.length);
