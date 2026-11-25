@@ -17,12 +17,18 @@ describe("product destination routes", () => {
   it.each([
     ["images", "#/images"],
     ["video", "#/video"],
-    ["works", "#/works"]
+    ["works", "#/works"],
+    ["history", "#/history"]
   ] as const)("keeps %s addressable after refresh", (section, hash) => {
     expect(parseAppHash(hash)).toEqual({ section });
     expect(initialAppRoute(hash)).toEqual({ section });
     expect(routeForSection(section)).toEqual({ section });
     expect(appRouteHash({ section })).toBe(hash);
+  });
+  it("preserves encoded image record links without changing the old workspace URL", () => {
+    const task = { section: "images", taskId: "a/b & c" } as const;
+    expect(parseAppHash(appRouteHash(task))).toEqual(task);
+    expect(parseAppHash("#/images?task=")).toEqual({ section: "images" });
   });
 });
 

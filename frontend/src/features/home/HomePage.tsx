@@ -23,6 +23,7 @@ type HomePageProps = {
   onLibraryChanged: () => Promise<void>;
   weixinLive?: { connected: boolean; unread_count: number } | null;
   creationEntry?: ReactNode;
+  recentRecords?: ReactNode;
 };
 
 function greetingPrefix(date: Date) { return date.getHours() < 12 ? "早上好" : date.getHours() < 18 ? "下午好" : "晚上好"; }
@@ -51,7 +52,7 @@ function publishedTime(article: HomeArticle) {
   return Number.isFinite(time) ? time : -Infinity;
 }
 
-export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive, creationEntry }: HomePageProps) {
+export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive, creationEntry, recentRecords }: HomePageProps) {
   const { feed, loading, error, refreshing, notice, setNotice, refresh, savePreferences, setItemState, generateDigest, regenerateCuration } = useHomeFeed(fetchJson);
   const { workspace, loading: workspaceLoading, error: workspaceError, refresh: refreshWorkspace } = useHomeWorkspace(fetchJson);
   const [now, setNow] = useState(() => new Date());
@@ -205,6 +206,7 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
     </header>
     {hasCreationEntry ? <>
       {creationEntry}
+      {recentRecords}
       <HomeNewsSummary
         articles={summaryNews}
         loading={moduleLoading("news", eligibleNews.length)}

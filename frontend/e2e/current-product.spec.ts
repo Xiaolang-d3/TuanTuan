@@ -43,6 +43,18 @@ async function mockCurrentProduct(page: Page) {
       conversations: { items: [], error: null }, jobs: { running: [], pending_confirmations: [] },
       changelog: { items: [], error: null }, skills: { items: [], error: null }, library_recent: { items: [], error: null }
     } });
+    if (path === "/creation-records") {
+      const records = [
+        { kind: "chat", id: "1", title: conversation.title, updated_at: conversation.updated_at, conversation_id: 1, status: "active" },
+        { kind: "image", id: "previous-image", title: "海边海报", updated_at: conversation.updated_at, conversation_id: 1, status: "uncertain" },
+      ];
+      const kind = url.searchParams.get("kind");
+      return route.fulfill({ json: { items: records.filter(record => !kind || record.kind === kind), has_more: false } });
+    }
+    if (path === "/image-studio/tasks/previous-image") return route.fulfill({ json: {
+      id: "previous-image", conversation_id: 1, prompt: "海边海报", status: "uncertain", profile_id: null,
+      model_name: "mock-model", size: "auto", created_at: conversation.updated_at, error: "", assets: []
+    } });
     if (path === "/library") return route.fulfill({ json: {
       profile: { name: "读者", privacy_mode: "redacted", knowledge_revision: 1 },
       facts: [{ id: 1, category: "knowledge", statement: "每周整理一次阅读笔记", status: "pending" }],
@@ -201,6 +213,37 @@ for (const theme of ["light", "dark", "blue"] as const) {
   });
 }
 
+test("recent records link to filtered creation history and open image results read-only", async ({ page }, testInfo) => {
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== "GET" && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  await page.goto("/#/home");
+  const recent = page.getByRole("region", { name: "最近记录" });
+  await expect(recent.getByRole("button", { name: /资料研究/ })).toBeVisible();
+  await recent.getByRole("button", { name: "查看全部创作记录" }).click();
+  await expect(page).toHaveURL(/#\/history$/);
+  const records = page.getByRole("region", { name: "创作记录" });
+  const filters = records.getByRole("group", { name: "创作类型" });
+  await filters.getByRole("button", { name: "图片", exact: true }).click();
+  const image = records.getByRole("button", { name: /海边海报/ });
+  await expect(image).toBeVisible();
+  await expect(records.getByRole("button", { name: /资料研究/ })).toHaveCount(0);
+  const screenshot = testInfo.outputPath("creation-records.png");
+  await page.screenshot({ path: screenshot, animations: "disabled" });
+  await testInfo.attach("创作记录", { path: screenshot, contentType: "image/png" });
+  await image.click();
+  await expect(page).toHaveURL(/#\/images\?task=previous-image$/);
+  const detail = page.getByRole("dialog", { name: "图片详情" });
+  await expect(detail.getByText("海边海报", { exact: true })).toBeVisible();
+  await expect(detail.getByText(/不会自动重新提交/)).toBeVisible();
+  await page.goBack();
+  await expect(records).toBeVisible();
+  await expect(detail).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
 test("mobile navigation keeps settings reachable through the account menu", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("tuantuan-sidebar:e2e@local.test", "collapsed"));
   for (const width of [390, 320]) {
@@ -232,6 +275,8 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await page.getByRole("button", { name: "去图片创作", exact: true }).click();
     await expect(page).toHaveURL(/#\/images$/);
     await navigation.getByRole("button", { name: "创作记录", exact: true }).click();
+    await expect(page).toHaveURL(/#\/history$/);
+    await page.getByRole("region", { name: "创作记录" }).getByRole("button", { name: /资料研究/ }).click();
     await expect(page).toHaveURL(/#\/chat\/1$/);
     await expect(page.getByRole("button", { name: /[收展][起开]侧边栏/ })).toBeHidden();
     await expect(page.locator("aside.sidebar")).toHaveClass(/collapsed/);

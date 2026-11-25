@@ -22,6 +22,7 @@ export const defaultAgentSettings: AgentSettings = {
 
 export const pageMeta: Record<ViewKey, { title: string; description: string }> = {
   dashboard: { title: "首页", description: "查看最近资料、文档和对话" },
+  history: { title: "创作记录", description: "查看对话、图片、文档和 PPT 的创作记录" },
   chat: { title: "对话", description: "基于你的资料进行问答、搜索、分析和内容生成" },
   images: { title: "图片", description: "生成与编辑图片" },
   video: { title: "视频", description: "视频创作" },
@@ -31,6 +32,7 @@ export const pageMeta: Record<ViewKey, { title: string; description: string }> =
 
 const sectionTitles: Record<ViewKey, string> = {
   dashboard: pageMeta.dashboard.title,
+  history: pageMeta.history.title,
   chat: "对话",
   images: "图片",
   video: "视频",
@@ -43,13 +45,13 @@ export function topbarSectionForPage(section: ViewKey, title: string): string | 
   return sectionTitles[section] === title ? undefined : sectionTitles[section];
 }
 
-export type SidebarHighlight = "dashboard" | "library" | "chat" | "images" | "video" | "works" | "settings" | null;
+export type SidebarHighlight = "dashboard" | "library" | "history" | "chat" | "images" | "video" | "works" | "settings" | null;
 
 export function sidebarHighlightForView(
   view: ViewKey,
   extras: { settingsPage?: SettingsPage; libraryOpen?: boolean } = {}
 ): SidebarHighlight {
-  if (view === "dashboard") return "dashboard";
+  if (view === "dashboard" || view === "history") return view;
   if (view === "chat") return extras.libraryOpen ? "library" : "chat";
   if (view === "images" || view === "video" || view === "works") return view;
   if (view === "settings" && extras.settingsPage) return "settings";

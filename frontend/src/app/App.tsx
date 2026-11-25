@@ -44,6 +44,8 @@ import type { ArtifactManifest } from "../features/chat/result-types";
 import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
 import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
+import { CreationRecords } from "../features/product/CreationRecords";
+import type { CreationRecord } from "../features/product/creationRecordsApi";
 import { defaultAgentSettings, pageMeta, topbarSectionForPage } from "../constants";
 import { createPagePrefetcher } from "../page-prefetch";
 import { createRouteDataCache, requiredDataForRoute, type RouteDataKey } from "../route-data";
@@ -1080,17 +1082,39 @@ export function App({
     />
   );
 
-  const [historyOpenRequest, setHistoryOpenRequest] = useState(0);
-
   function selectProductNav(key: ProductNavKey) {
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
-    else if (key === "history") {
-      navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
-      setHistoryOpenRequest(request => request + 1);
-    }
+    else if (key === "history") navigateRoute({ section: "history" });
     else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
+  }
+
+  const recordNavigation = useRef(0);
+  const recordClient = useRef(fetchJson);
+  recordClient.current = fetchJson;
+
+  function openCreationRecord(record: CreationRecord) {
+    const intent = ++recordNavigation.current;
+    if (record.kind === "image") navigateRoute({ section: "images", taskId: record.id });
+    else if (record.kind === "document") {
+      setInitialDocumentId(record.id);
+      setDocumentsOpen(true);
+    } else if (record.conversation_id !== null) {
+      const conversationId = record.conversation_id;
+      const origin = window.location.hash;
+      const stillOpening = () => recordNavigation.current === intent && recordClient.current === fetchJson && window.location.hash === origin;
+      void (async () => {
+        const available = await refreshConversations();
+        if (!stillOpening()) return;
+        if (!available.some(item => item.id === conversationId)) {
+          setErrorMessage("找不到这条记录的来源对话，请刷新创作记录后再试。");
+          return;
+        }
+        setCurrentConversationId(conversationId);
+        navigateRoute({ section: "chat", conversationId });
+      })().catch(() => { if (stillOpening()) setErrorMessage("暂时无法打开来源对话，请重试。"); });
+    } else setErrorMessage("这条记录没有可打开的来源对话。");
   }
 
   async function useLibraryForChat(sourceIds: number[]) {
@@ -1296,12 +1320,18 @@ export function App({
                 ready={databaseReady}
                 busy={activeCreationForm.mode === "chat" && (conversationBusy || chatBusy)}
               />}
+              recentRecords={databaseReady && <CreationRecords key={creationScope} fetchJson={fetchJson} onOpen={openCreationRecord}
+                onViewAll={() => navigateRoute({ section: "history" })} />}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
               weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}
             />
           </Suspense>
         ) : null}
+
+        {appRoute.section === "history" ? (databaseReady
+          ? <CreationRecords key={creationScope} fetchJson={fetchJson} onOpen={openCreationRecord} onCreate={() => navigateRoute({ section: "dashboard" })} />
+          : <PageLoading label="正在连接创作记录…" />) : null}
 
         {visitedImageWorkspace || appRoute.section === "images" ? <div hidden={appRoute.section !== "images"}>
           <ImageWorkspacePage
@@ -1311,6 +1341,8 @@ export function App({
             fetchJson={fetchJson}
             ready={databaseReady}
             active={appRoute.section === "images"}
+            initialTaskId={appRoute.section === "images" ? appRoute.taskId : undefined}
+            onCloseInitialTask={() => navigateRoute({ section: "images" }, true)}
             accountKey={userEmail}
             creationDraft={imageCreationDraft?.scope === creationScope ? imageCreationDraft : undefined}
             onCreationDraftConsumed={id => setImageCreationDraft(current => current?.id === id ? null : current)}
@@ -1501,7 +1533,6 @@ export function App({
             onDocumentArchived={() => { void refreshLibrary(); }}
             density={activeView === "chat" ? "page" : "dock"}
             focused={activeView === "chat" && !workspaceLibraryOpen}
-            historyOpenRequest={historyOpenRequest}
             conversationTitle={currentConversation?.title}
             currentModelName={currentModelName}
             defaultModelName={defaultModelProfile?.model_name || capabilities?.active_model_name}

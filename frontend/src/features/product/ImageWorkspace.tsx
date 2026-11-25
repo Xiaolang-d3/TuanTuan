@@ -23,7 +23,7 @@ export function ImageWorkspace(props: ImageWorkspaceProps) {
 }
 
 function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenWorks,onOpenConversation,refreshConversations,onLibraryChanged,
-  creationDraft,onCreationDraftConsumed,receipts}:ImageWorkspaceProps & {receipts: Map<string, DraftReceipt>}) {
+  creationDraft,onCreationDraftConsumed,initialTaskId,onCloseInitialTask,receipts}:ImageWorkspaceProps & {receipts: Map<string, DraftReceipt>}) {
   const storageKey=`tuantuan:image-studio:draft:${accountKey}`;
   const [draft,setDraft]=useState(()=>storedDraft(storageKey));const input=useRef<HTMLTextAreaElement>(null);
   const [canEdit,setCanEdit]=useState(true);
@@ -38,6 +38,29 @@ function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenW
   const detailQuery=useRef<AbortController|null>(null);
   const mounted=useRef(true);useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;detailQuery.current?.abort();};},[]);
   useEffect(()=>{if(!enabled){detailQuery.current?.abort();setFocusedTask(null);setGenerationId(null);}},[enabled]);
+  const [initialTaskError,setInitialTaskError]=useState("");
+  const routedTaskRef=useRef<string|undefined>(undefined);
+  useEffect(()=>{
+    setInitialTaskError("");
+    const priorTask=routedTaskRef.current;
+    routedTaskRef.current=enabled?initialTaskId:undefined;
+    if(!enabled||!initialTaskId){
+      if(priorTask){
+        detailQuery.current?.abort();
+        setFocusedTask(previous=>previous?.id===priorTask?null:previous);
+      }
+      return;
+    }
+    const c=new AbortController();
+    detailQuery.current?.abort();detailQuery.current=c;
+    setGenerationId(null);setFocusedTask(null);setEditId(null);setDetailError("");
+    api.task(initialTaskId,c.signal).then(task=>{
+      if(!c.signal.aborted)setFocusedTask(task);
+    }).catch(()=>{
+      if(!c.signal.aborted)setInitialTaskError("无法打开这条图片记录，记录可能已删除或暂时无法读取。");
+    });
+    return ()=>c.abort();
+  },[api,enabled,initialTaskId]);
   const selected = preview.data?.selection;
   const sizes = selected?.sizes ?? [];
   const size = selection.size ?? defaultSize(sizes);
@@ -183,6 +206,7 @@ function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenW
     : <><header className="studio-head"><div><p className="studio-kicker">创作空间</p><h1>图片创作</h1></div><button onClick={onOpenWorks}><GalleryHorizontalEnd size={16}/>我的作品</button></header>
     <div className="studio-tools"><input type="search" role="textbox" aria-label="搜索创作记录" placeholder="搜索创作描述…" value={history.query} onChange={e=>history.search(e.target.value)}/><select value={history.status} aria-label="任务状态" onChange={e=>history.filter(e.target.value as StatusFilter)}><option value="">全部状态</option>{Object.entries(statusText).map(([key,value])=><option key={key} value={key}>{value}</option>)}</select><button onClick={()=>{refreshHistory();run.check();}} aria-label="刷新创作记录"><RefreshCw size={16}/></button></div>
     <div className="studio-scroll" aria-label="创作历史" aria-busy={history.loading}>
+    {initialTaskError && <p className="studio-error" role="alert">{initialTaskError}</p>}
     {modelSetupNeeded && <section className="studio-model-onboarding" aria-labelledby="studio-model-onboarding-title">
       <div className="studio-model-onboarding-copy">
         <h2 id="studio-model-onboarding-title">{modelNotConfigured ? "尚未配置模型" : "请检查图片模型配置"}</h2>
@@ -249,6 +273,6 @@ function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenW
     {selected && selection.profile !== undefined && <label>画幅 {sizes.length === 1 && sizes.includes(size) ? <span>{sizeText(size)}</span> : <select aria-label="生成画幅" value={sizes.includes(size) ? size : ""} onChange={event => setSelection(old => ({ ...old, size: event.target.value }))}><option value="" disabled>请选择画幅</option>{sizes.map(option => <option key={option} value={option}>{sizeText(option)}</option>)}</select>}</label>}
     <button type="button" aria-label="设置图片模型" onClick={onOpenSettings}><Settings2 size={16}/></button></div>
     <button className="studio-primary" disabled={!canGenerate} type="submit"><ArrowUp size={16}/>{run.receipt||run.locked?"任务处理中":"生成图片"}</button></div>{optionError&&<p role="alert">模型配置读取失败：{optionError} <button type="button" onClick={()=>setRetryOptions(n=>n+1)}>重新读取</button></p>}</form></footer></>}
-    {current&&enabled&&<StudioTaskDetail key={current.id} {...detailProps} task={current} editInitially={editId===current.id} onClose={()=>setFocusedTask(null)} onQuery={()=>{run.check();void queryDetail(current);}} issue={detailError||run.issue}/>}
+    {current&&enabled&&<StudioTaskDetail key={current.id} {...detailProps} task={current} editInitially={editId===current.id} onClose={()=>{setFocusedTask(null);if(initialTaskId)onCloseInitialTask?.();}} onQuery={()=>{run.check();void queryDetail(current);}} issue={detailError||run.issue}/>}
     </section>;
 }
