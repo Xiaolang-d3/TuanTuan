@@ -129,22 +129,8 @@
 .home-page[data-mode="compact"] .home-card:hover { background: var(--home-hover); }
 .home-page[data-mode="compact"] .home-card:hover + .home-card { border-top-color: transparent; }
 .home-page[data-mode="compact"] .home-card::before { display: none; }
-/* Scoped shell colors preserve the existing brand and flat navigation. */
 .app-shell.has-chat-dock.developer-home-shell { background: var(--home-bg); }
 .app-shell.has-chat-dock.developer-home-shell .home-content { margin-right: 0; width: auto; min-height: 100dvh; padding: 24px 32px 48px; background: var(--home-bg); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light { background: var(--home-panel-2); border-color: var(--home-line); color: var(--home-text); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .brand strong { color: var(--home-text); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .brand small { color: var(--home-text-3); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item { color: var(--home-text-2); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item:hover { color: var(--home-text); background: var(--home-hover); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item.active { color: var(--home-accent-text); background: var(--home-accent-soft); box-shadow: inset 3px 0 var(--home-accent); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle-footer { border-top-color: var(--home-line); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle { color: var(--home-text-2); background: var(--home-panel); border-color: var(--home-line); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle:hover { color: var(--home-accent-text); background: var(--home-accent-soft); }
-.developer-home-shell .sidebar-identity { color: var(--home-accent-text); }
-.developer-home-shell .sidebar-identity:hover, .developer-home-shell .sidebar-identity.active { background: var(--home-accent-soft); }
-.developer-home-shell .sidebar-identity-avatar { color: var(--home-accent-text); background: var(--home-accent-soft); }
-.developer-home-shell .app-identity-chevron { color: var(--home-text-3); }
 @media (max-width: 1360px) { .app-shell.has-chat-dock.developer-home-shell .home-content { padding-inline: 24px; } }
 @media (max-width: 820px) { .app-shell.has-chat-dock.developer-home-shell .home-content { min-height: calc(100dvh - 62px); padding: 24px 16px 32px; } }
 

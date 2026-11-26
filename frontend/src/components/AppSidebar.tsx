@@ -1,6 +1,5 @@
 import {
   BookOpen,
-  Blocks,
   FolderKanban,
   GalleryThumbnails,
   History,
@@ -64,7 +63,6 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const highlighted = sidebarHighlightForView(activeView, { settingsPage, libraryOpen });
   const isActive = (key: SidebarHighlight) => highlighted === key;
-  const home = activeView === "dashboard";
 
   const primaryItems: SidebarItem[] = [
     { key: "dashboard", label: "新建创作", mobileLabel: "创作", icon: <Plus size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
@@ -76,7 +74,7 @@ export function AppSidebar({
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
   const [create, history, works, library, projects, skills, settings] = primaryItems;
-  const homeItems = [create, { ...history, label: "创作空间", icon: <Blocks size={18} /> }, works, skills, library];
+  const desktopItems = [create, history, works, skills, library];
 
   function renderItem(item: SidebarItem, extraClass = "") {
     return (
@@ -90,7 +88,7 @@ export function AppSidebar({
         aria-label={item.label}
         title={collapsed ? item.label : undefined}
       >
-        {item.icon}<span>{extraClass ? item.mobileLabel ?? item.label : item.label}</span>
+        {item.icon}<span>{extraClass === "mobile-nav-item" ? item.mobileLabel ?? item.label : item.label}</span>
       </button>
     );
   }
@@ -126,7 +124,9 @@ export function AppSidebar({
       </div>
 
       <nav className="nav nav-desktop" id="app-primary-navigation" aria-label="主导航">
-        {(home ? [...homeItems, ...(collapsed ? [projects, settings] : [])] : primaryItems).map((item) => renderItem(item))}
+        {desktopItems.map((item) => renderItem(item))}
+        {(collapsed || !shortcuts) && renderItem(projects)}
+        {collapsed && renderItem(settings)}
       </nav>
 
       <nav className="nav nav-mobile" aria-label="移动端主导航">
@@ -136,10 +136,10 @@ export function AppSidebar({
       {!collapsed && shortcuts}
 
       <div className="sidebar-identity-slot">
-        {home && !collapsed && <div className="sidebar-home-settings">{renderItem(settings)}</div>}
+        {!collapsed && renderItem(settings, "sidebar-footer-settings")}
         {identity}
         {weixinBot?.connected && onOpenWeixin && <WeixinBotEntry active={weixinActive} unreadCount={weixinBot.unread_count} enabled={weixinBot.enabled} error={weixinBot.error} onOpen={onOpenWeixin} />}
-        {!home && <ThemeToggleButton className="sidebar-theme-toggle" />}
+        <ThemeToggleButton className="sidebar-theme-toggle" />
       </div>
     </aside>
   );

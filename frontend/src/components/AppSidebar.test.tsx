@@ -117,8 +117,9 @@ describe("AppSidebar", () => {
     renderSidebar();
     const desktopNav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(desktopNav).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
+      "新建创作", "创作记录", "我的作品", "技能中心", "知识库", "我的项目"
     ]);
+    expect(within(desktopNav.closest("aside")!.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" })).toBeInTheDocument();
     expect(screen.queryByText("快速搜索…")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "机会中心" })).not.toBeInTheDocument();
   });
@@ -126,9 +127,10 @@ describe("AppSidebar", () => {
   it("opens each product destination from the sidebar", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"]) {
+    for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心"]) {
       fireEvent.click(navigation.getByRole("button", { name }));
     }
+    fireEvent.click(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" }));
     for (const key of ["dashboard", "history", "works", "library", "projects", "skills", "settings"]) {
       expect(props.onSelectNav).toHaveBeenCalledWith(key);
     }
@@ -140,7 +142,7 @@ describe("AppSidebar", () => {
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     fireEvent.mouseEnter(navigation.getByRole("button", { name: "创作记录" }));
     fireEvent.mouseEnter(navigation.getByRole("button", { name: "知识库" }));
-    fireEvent.mouseEnter(navigation.getByRole("button", { name: "设置" }));
+    fireEvent.mouseEnter(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" }));
     expect(props.onPrefetchPage).not.toHaveBeenCalledWith("chat");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("library");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("settings");
@@ -161,8 +163,8 @@ describe("AppSidebar", () => {
     ["dashboard", "新建创作"], ["chat", "创作记录"], ["works", "我的作品"], ["skills", "技能中心"], ["settings", "设置"]
   ] as const)("highlights the %s destination", (view, label) => {
     renderSidebar(undefined, false, view);
-    const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    expect(navigation.getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
+    const selector = view === "settings" ? ".sidebar-identity-slot" : ".nav-desktop";
+    expect(within(document.querySelector(selector)!).getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
   });
 
   it("does not mislabel the existing file library as works", () => {

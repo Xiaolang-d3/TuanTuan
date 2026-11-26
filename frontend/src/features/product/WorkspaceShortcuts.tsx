@@ -14,26 +14,27 @@ type Props = {
   onRecord: (record: CreationRecord) => void;
   projectsOpen: boolean;
   recordsOpen: boolean;
+  projectsActive: boolean;
   onOpenChange: (group: WorkspaceShortcutGroup, open: boolean) => void;
-  onViewProjects?: () => void;
-  onViewRecords?: () => void;
+  onViewProjects: () => void;
+  onViewRecords: () => void;
 };
 
-export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpen, recordsOpen, onOpenChange, onViewProjects, onViewRecords }: Props) {
+export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpen, recordsOpen, projectsActive, onOpenChange, onViewProjects, onViewRecords }: Props) {
   const projects = useShortcutItems(projectsOpen, fetchJson, loadProjects);
   const records = useShortcutItems(recordsOpen, fetchJson, loadRecords);
   return <nav className="workspace-shortcuts" aria-label="工作区快捷入口">
     <Collapsible.Root className="workspace-shortcut-group" open={projectsOpen} onOpenChange={open => onOpenChange("projects", open)}>
       <Collapsible.Trigger className="workspace-shortcut-trigger">
-        {onViewProjects ? "我的项目" : "常用项目"}
+        我的项目
         <ChevronRight size={14} aria-hidden="true" />
       </Collapsible.Trigger>
       <Collapsible.Panel className="workspace-shortcut-panel">
         <ShortcutList state={projects} empty="暂无进行中的项目。" label="最近更新的进行中项目"
           row={item => <ActionButton variant="ghost" size="sm" icon={<FolderKanban size={14} aria-hidden="true" />}
             title={item.name} onClick={() => onProject(item.id)}>{item.name}</ActionButton>} keyFor={item => item.id} />
-        {onViewProjects && <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm"
-          onClick={onViewProjects}>查看全部项目</ActionButton>}
+        <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm" aria-current={projectsActive ? "page" : undefined}
+          onClick={onViewProjects}>查看全部项目</ActionButton>
       </Collapsible.Panel>
     </Collapsible.Root>
     <Collapsible.Root className="workspace-shortcut-group" open={recordsOpen} onOpenChange={open => onOpenChange("records", open)}>
@@ -46,8 +47,8 @@ export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpe
           row={item => <ActionButton variant="ghost" size="sm" icon={<History size={14} aria-hidden="true" />}
             aria-label={`${creationKinds[item.kind]}：${item.title}`} title={item.title} onClick={() => onRecord(item)}>{item.title}</ActionButton>}
           keyFor={item => `${item.kind}:${item.id}`} />
-        {onViewRecords && <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm"
-          onClick={onViewRecords}>查看全部创作记录</ActionButton>}
+        <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm"
+          onClick={onViewRecords}>查看全部创作记录</ActionButton>
       </Collapsible.Panel>
     </Collapsible.Root>
   </nav>;

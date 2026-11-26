@@ -33,6 +33,9 @@ async function mockWorkspace(page: Page, theme: "light" | "dark", signedIn = tru
     if (path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/library") return route.fulfill({ json: { profile: { name: "主题预览", privacy_mode: "redacted" }, facts: [], sources: [] } });
     if (path === "/agent/capabilities") return route.fulfill({ json: { configured: true, active_model_provider: "openai_compatible", active_model_name: "mock-model", tools: [], model_providers: [], platforms: [] } });
+    if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
+    if (path === "/projects") return route.fulfill({ json: { items: [] } });
+    if (path === "/creation-records") return route.fulfill({ json: { items: [], has_more: false } });
     if (path === "/presentations") return route.fulfill({ json: { jobs: [], next_cursor: null } });
     if (path === "/document-reviews") return route.fulfill({ json: { jobs: [] } });
     if (path === "/agent/runs/current") return route.fulfill({ json: { run: null } });

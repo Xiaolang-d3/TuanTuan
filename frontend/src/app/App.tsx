@@ -39,7 +39,6 @@ import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
 import { ActionButton } from "../components/ui/ActionButton";
 import { WorkspaceShortcuts, type WorkspaceShortcutGroup } from "../features/product/WorkspaceShortcuts";
-import { ThemeToggleButton } from "../components/ThemeToggleButton";
 import { ConversationDialog } from "../components/ConversationDialog";
 import type { AttachmentConfig, ChatAttachment, ChatComposerDraft } from "../features/chat/types";
 import type { ModelParameterUpdate } from "../features/chat/ComposerModelParameters";
@@ -230,10 +229,8 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const creationScope = JSON.stringify([apiBase, userEmail]);
-  const shortcutsDefaultOpen = activeView === "dashboard";
-  const shortcutScope = JSON.stringify([creationScope, shortcutsDefaultOpen]);
   const [shortcutStates, setShortcutStates] = useState<Record<string, Partial<Record<WorkspaceShortcutGroup, boolean>>>>({});
-  const shortcutState = shortcutStates[shortcutScope];
+  const shortcutState = shortcutStates[creationScope];
   const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
   const [searchScope, setSearchScope] = useState<string | null>(null);
   const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
@@ -1397,14 +1394,15 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
-        shortcuts={databaseReady && <WorkspaceShortcuts key={shortcutScope} fetchJson={fetchJson}
-          projectsOpen={shortcutState?.projects ?? shortcutsDefaultOpen}
-          recordsOpen={shortcutState?.records ?? shortcutsDefaultOpen}
+        shortcuts={databaseReady && <WorkspaceShortcuts key={creationScope} fetchJson={fetchJson}
+          projectsOpen={shortcutState?.projects ?? true}
+          recordsOpen={shortcutState?.records ?? true}
           onOpenChange={(group, open) => setShortcutStates(previous => ({
-            ...previous, [shortcutScope]: { ...previous[shortcutScope], [group]: open },
+            ...previous, [creationScope]: { ...previous[creationScope], [group]: open },
           }))}
-          onViewProjects={activeView === "dashboard" ? () => selectProductNav("projects") : undefined}
-          onViewRecords={activeView === "dashboard" ? () => selectProductNav("history") : undefined}
+          projectsActive={activeView === "projects"}
+          onViewProjects={() => selectProductNav("projects")}
+          onViewRecords={() => selectProductNav("history")}
           onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}
         weixinBot={weixinBot}
         weixinActive={weixinActive}
@@ -1420,7 +1418,7 @@ export function App({
 
       <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${appRoute.section === "images" || appRoute.section === "works" ? " image-studio-host" : ""}${topbarTitle ? "" : " is-titleless"}`}>
         {activeView !== "chat" && <AppTopBar section={topbarSection} title={topbarTitle}>
-          {activeView === "dashboard" ? <>{workspaceActions}<ThemeToggleButton className="creation-theme-toggle" /></> : workspaceActions}
+          {workspaceActions}
         </AppTopBar>}
 
         {activeView === "dashboard" ? (

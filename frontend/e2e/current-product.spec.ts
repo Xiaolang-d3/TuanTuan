@@ -207,14 +207,10 @@ for (const theme of ["light", "dark", "blue"] as const) {
 
     for (const width of [874, 1280]) {
       await page.setViewportSize({ width, height: 770 });
-      await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText([
-        "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
-      ]);
-
       for (const collapsed of [false, true]) {
         const toggle = page.getByRole("button", { name: collapsed ? "展开侧边栏" : "收起侧边栏", exact: true });
         await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
-        await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(collapsed ? 72 : 232);
+        await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(collapsed ? 72 : 176);
         const themeShortcut = sidebar.getByRole("button", { name: /点击切换到/ });
         await expect(themeShortcut).toBeInViewport();
         const [sideBox, identityBox, accountBox, themeBox, toggleBox, brandBox] = await Promise.all([
@@ -330,27 +326,68 @@ test("recent records link to filtered creation history and open image results re
   expect(writes).toEqual([]);
 });
 
+test("desktop sidebar keeps its layout and shortcut groups across module navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/home");
+  const sidebar = page.locator("aside.sidebar");
+  const navigation = sidebar.getByRole("navigation", { name: "主导航", exact: true });
+  const shortcuts = sidebar.getByRole("navigation", { name: "工作区快捷入口" });
+  const projects = shortcuts.getByRole("button", { name: "我的项目", exact: true });
+  const recent = shortcuts.getByRole("button", { name: "最近记录" });
+  const settings = sidebar.getByRole("button", { name: "设置", exact: true });
+  await recent.click();
+
+  for (const collapsed of [false, true]) {
+    const toggle = sidebar.getByRole("button", { name: collapsed ? "展开侧边栏" : "收起侧边栏" });
+    const buttons = ["新建创作", "创作记录", "我的作品", "技能中心", "知识库"];
+    if (collapsed) buttons.push("我的项目", "设置");
+
+    for (const [button, route] of [
+      [navigation.getByRole("button", { name: "我的作品" }), /#\/works$/],
+      [navigation.getByRole("button", { name: "技能中心" }), /#\/skills$/],
+      [navigation.getByRole("button", { name: "知识库" }), /#\/chat\/library$/],
+      [collapsed ? navigation.getByRole("button", { name: "我的项目" }) : shortcuts.getByRole("button", { name: "查看全部项目" }), /#\/projects$/],
+      [settings, /#\/settings$/],
+      [navigation.getByRole("button", { name: "新建创作" }), /#\/home$/],
+    ] as const) {
+      await button.click();
+      await expect(page).toHaveURL(route);
+      await expect(button).toHaveAttribute("aria-current", "page");
+      await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
+      await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(collapsed ? 72 : 176);
+      await expect(navigation.getByRole("button")).toHaveText(buttons);
+      if (collapsed) await expect(shortcuts).toBeHidden();
+      else {
+        await expect(projects).toHaveAttribute("aria-expanded", "true");
+        await expect(recent).toHaveAttribute("aria-expanded", "false");
+      }
+    }
+
+    await toggle.click();
+  }
+  await expect(projects).toHaveAttribute("aria-expanded", "true");
+  await expect(recent).toHaveAttribute("aria-expanded", "false");
+});
+
 test("desktop shortcuts reuse the original project and creation lists", async ({ page }, testInfo) => {
   const project = { id: "press", name: "发布项目", description: "整理资料", status: "active", created_at: conversation.updated_at, updated_at: conversation.updated_at };
-  let loads = 0;
   await page.route("**/projects", route => {
-    loads += 1;
     return route.fulfill({ json: { items: [{ ...project, id: "archived", name: "已归档项目", status: "archived" }, project] } });
   });
   await page.route("**/projects/press", route => route.fulfill({ json: { ...project, items: [] } }));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/#/works");
   const shortcuts = page.getByRole("navigation", { name: "工作区快捷入口" });
-  const projects = shortcuts.getByRole("button", { name: "常用项目" });
+  const projects = shortcuts.getByRole("button", { name: "我的项目", exact: true });
   const records = shortcuts.getByRole("button", { name: "最近记录" });
   await expect(shortcuts).toBeVisible();
-  expect(loads).toBe(0);
+  await expect(projects).toHaveAttribute("aria-expanded", "true");
+  await projects.press("Enter");
   await expect(projects).toHaveAttribute("aria-expanded", "false");
   await projects.press("Enter");
   await expect(projects).toHaveAttribute("aria-expanded", "true");
   await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
   await expect(shortcuts.getByRole("button", { name: "已归档项目", exact: true })).toHaveCount(0);
-  await records.press("Space");
   await expect(records).toHaveAttribute("aria-expanded", "true");
   await projects.click();
   await expect(projects).toHaveAttribute("aria-expanded", "false");
