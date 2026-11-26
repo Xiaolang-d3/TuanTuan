@@ -38,7 +38,7 @@ import { useFirstRun } from "../features/onboarding/useFirstRun";
 import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
 import { ActionButton } from "../components/ui/ActionButton";
-import { WorkspaceShortcuts } from "../features/product/WorkspaceShortcuts";
+import { WorkspaceShortcuts, type WorkspaceShortcutGroup } from "../features/product/WorkspaceShortcuts";
 import { ThemeToggleButton } from "../components/ThemeToggleButton";
 import { ConversationDialog } from "../components/ConversationDialog";
 import type { AttachmentConfig, ChatAttachment, ChatComposerDraft } from "../features/chat/types";
@@ -221,6 +221,10 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const creationScope = JSON.stringify([apiBase, userEmail]);
+  const shortcutsDefaultOpen = activeView === "dashboard";
+  const shortcutScope = JSON.stringify([creationScope, shortcutsDefaultOpen]);
+  const [shortcutStates, setShortcutStates] = useState<Record<string, Partial<Record<WorkspaceShortcutGroup, boolean>>>>({});
+  const shortcutState = shortcutStates[shortcutScope];
   const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
   const [searchScope, setSearchScope] = useState<string | null>(null);
   const [creationForm, setCreationForm] = useState(() => emptyCreationForm(creationScope));
@@ -1395,8 +1399,12 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
-        shortcuts={databaseReady && <WorkspaceShortcuts key={JSON.stringify([creationScope, activeView === "dashboard"])} fetchJson={fetchJson}
-          expandedByDefault={activeView === "dashboard"}
+        shortcuts={databaseReady && <WorkspaceShortcuts key={shortcutScope} fetchJson={fetchJson}
+          projectsOpen={shortcutState?.projects ?? shortcutsDefaultOpen}
+          recordsOpen={shortcutState?.records ?? shortcutsDefaultOpen}
+          onOpenChange={(group, open) => setShortcutStates(previous => ({
+            ...previous, [shortcutScope]: { ...previous[shortcutScope], [group]: open },
+          }))}
           onViewProjects={activeView === "dashboard" ? () => selectProductNav("projects") : undefined}
           onViewRecords={activeView === "dashboard" ? () => selectProductNav("history") : undefined}
           onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}

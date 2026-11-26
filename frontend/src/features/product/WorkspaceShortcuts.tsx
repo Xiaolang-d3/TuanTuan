@@ -6,22 +6,24 @@ import { creationKinds, readCreationRecords, type CreationRecord, type FetchCrea
 import { createProjectsApi, type Project } from "./projectsApi";
 import "./WorkspaceShortcuts.css";
 
+export type WorkspaceShortcutGroup = "projects" | "records";
+
 type Props = {
   fetchJson: FetchCreationJson;
   onProject: (id: string) => void;
   onRecord: (record: CreationRecord) => void;
-  expandedByDefault?: boolean;
+  projectsOpen: boolean;
+  recordsOpen: boolean;
+  onOpenChange: (group: WorkspaceShortcutGroup, open: boolean) => void;
   onViewProjects?: () => void;
   onViewRecords?: () => void;
 };
 
-export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, expandedByDefault = false, onViewProjects, onViewRecords }: Props) {
-  const [projectsOpen, setProjectsOpen] = useState(expandedByDefault);
-  const [recordsOpen, setRecordsOpen] = useState(expandedByDefault);
+export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpen, recordsOpen, onOpenChange, onViewProjects, onViewRecords }: Props) {
   const projects = useShortcutItems(projectsOpen, fetchJson, loadProjects);
   const records = useShortcutItems(recordsOpen, fetchJson, loadRecords);
   return <nav className="workspace-shortcuts" aria-label="工作区快捷入口">
-    <Collapsible.Root className="workspace-shortcut-group" open={projectsOpen} onOpenChange={setProjectsOpen}>
+    <Collapsible.Root className="workspace-shortcut-group" open={projectsOpen} onOpenChange={open => onOpenChange("projects", open)}>
       <Collapsible.Trigger className="workspace-shortcut-trigger">
         {onViewProjects ? "我的项目" : "常用项目"}
         <ChevronRight size={14} aria-hidden="true" />
@@ -34,7 +36,7 @@ export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, expandedByD
           onClick={onViewProjects}>查看全部项目</ActionButton>}
       </Collapsible.Panel>
     </Collapsible.Root>
-    <Collapsible.Root className="workspace-shortcut-group" open={recordsOpen} onOpenChange={setRecordsOpen}>
+    <Collapsible.Root className="workspace-shortcut-group" open={recordsOpen} onOpenChange={open => onOpenChange("records", open)}>
       <Collapsible.Trigger className="workspace-shortcut-trigger">
         最近记录
         <ChevronRight size={14} aria-hidden="true" />

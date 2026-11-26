@@ -873,11 +873,40 @@ test("the creation homepage filters inspiration and carries its image settings i
   await entry.locator("form").screenshot({ path: testInfo.outputPath("creation-composer.png"), animations: "disabled" });
   await page.screenshot({ path: testInfo.outputPath("creation-home-dark.png"), animations: "disabled" });
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(projects).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "移动端主导航" })
+    .getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "添加资料", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "进入图片工作区" })).toBeInViewport();
   await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: testInfo.outputPath("creation-home-mobile-dark.png"), animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 900 });
+
+  const sidebar = page.locator("aside.sidebar");
+  const recentRecords = projects.getByRole("button", { name: "最近记录" });
+  await recentRecords.click();
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await sidebar.getByRole("button", { name: "收起侧边栏" }).click();
+  const expand = sidebar.getByRole("button", { name: "展开侧边栏" });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(72);
+  await expect(projects).toBeHidden();
+  await expect(sidebar.getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
+  await expect(sidebar.getByRole("button", { name: "设置", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "语音输入", exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("creation-home-sidebar-collapsed.png"), animations: "disabled" });
+  await expand.press("Enter");
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(176);
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await sidebar.getByRole("button", { name: "我的作品", exact: true }).click();
+  await expect(page).toHaveURL(/#\/works$/);
+  await page.goBack();
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await recentRecords.press("Space");
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: "图片：海边海报" })).toBeVisible();
 
   await imageMode.press("ArrowLeft");
   await expect(chatMode).toBeFocused();
