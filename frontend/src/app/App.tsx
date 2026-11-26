@@ -45,6 +45,7 @@ import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
 import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { CreationRecords } from "../features/product/CreationRecords";
+import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
 import type { CreationRecord } from "../features/product/creationRecordsApi";
 import { ProjectsPage } from "../features/product/ProjectsPage";
 import type { ProjectItem } from "../features/product/projectsApi";
@@ -205,6 +206,7 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const creationScope = JSON.stringify([apiBase, userEmail]);
+  const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
   const [creationForm, setCreationForm] = useState<{ scope: string; mode: CreationMode; drafts: CreationDrafts }>({ scope: creationScope, mode: "chat", drafts: { chat: "", images: "" } });
   const activeCreationForm = creationForm.scope === creationScope ? creationForm : { scope: creationScope, mode: "chat" as const, drafts: { chat: "", images: "" } };
   const [imageCreationDraft, setImageCreationDraft] = useState<{ scope: string; id: string; content: string } | null>(null);
@@ -1081,6 +1083,8 @@ export function App({
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
       onOpenAccount={() => navigateRoute({ section: "settings", page: "account" })}
       onOpenSettings={() => navigateRoute({ section: "settings", page: "overview" })}
+      onOpenTasks={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "tasks" }) : undefined}
+      onOpenNotifications={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "notifications" }) : undefined}
       onLogout={onLogout}
       onPrefetchPage={(page) => void pagePrefetcher.prefetch(page)}
     />
@@ -1132,6 +1136,15 @@ export function App({
         navigateRoute({ section: "chat", conversationId });
       })().catch(() => { if (stillOpening()) setErrorMessage("暂时无法打开来源对话，请重试。"); });
     } else setErrorMessage("这条记录没有可打开的来源对话。");
+  }
+
+  function openTaskSource(source: TaskSource) {
+    setTaskCenter(null);
+    if (source.kind === "image") openCreationRecord({ kind: "image", id: source.id, conversation_id: null });
+    else {
+      const conversationId = Number(source.id);
+      if (Number.isSafeInteger(conversationId) && conversationId > 0) openCreationRecord({ kind: "chat", id: source.id, conversation_id: conversationId });
+    }
   }
 
   async function useLibraryForChat(sourceIds: number[]) {
@@ -1691,6 +1704,8 @@ export function App({
       {noticeMessage ? (
         <div className="feedback-banner notice-banner global-notice-toast" role="status" aria-live="polite"><CheckCircle2 size={16} /><span>{noticeMessage}</span></div>
       ) : null}
+      {databaseReady && taskCenter?.scope === creationScope && <TaskCenter key={creationScope} view={taskCenter.view} fetchJson={fetchJson}
+        onClose={() => setTaskCenter(null)} onChange={view => setTaskCenter({ scope: creationScope, view })} onOpenSource={openTaskSource} />}
       {documentsOpen ? <DocumentLibraryDialog key={user.id ?? user.email} initialDocumentId={initialDocumentId} service={documentService} folders={libraryFolders} onClose={() => { setDocumentsOpen(false); setInitialDocumentId(null); }} onContinue={continueDocument} onArchived={() => { void refreshLibrary(); }} /> : null}
       {conversationDialog ? (
         <ConversationDialog

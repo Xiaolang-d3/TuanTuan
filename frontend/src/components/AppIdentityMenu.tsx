@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { Bell, ChevronDown, ListTodo, LogOut, Settings, ShieldCheck } from "lucide-react";
 import type { ViewKey } from "../types";
 import type { SettingsPage } from "../routing";
 import { DropdownMenu, DropdownMenuContent } from "./ui/DropdownMenu";
@@ -13,6 +13,8 @@ export type AppIdentityMenuProps = {
   settingsPage?: SettingsPage;
   onOpenAccount?: () => void;
   onOpenSettings?: () => void;
+  onOpenTasks?: () => void;
+  onOpenNotifications?: () => void;
   onLogout: () => void;
   onPrefetchPage?: (page: PrefetchPage) => void;
 };
@@ -29,6 +31,8 @@ export function AppIdentityMenu({
   settingsPage,
   onOpenAccount,
   onOpenSettings,
+  onOpenTasks,
+  onOpenNotifications,
   onLogout,
   onPrefetchPage
 }: AppIdentityMenuProps) {
@@ -87,6 +91,13 @@ export function AppIdentityMenu({
               <DropdownMenu.Separator className="app-identity-divider" />
             </>
           )}
+          {(onOpenTasks || onOpenNotifications) && <>
+            <DropdownMenu.Group aria-label="创作状态">
+              {onOpenTasks && <DropdownMenu.Item onClick={onOpenTasks}><ListTodo size={16} aria-hidden="true" />任务中心</DropdownMenu.Item>}
+              {onOpenNotifications && <DropdownMenu.Item onClick={onOpenNotifications}><Bell size={16} aria-hidden="true" />通知</DropdownMenu.Item>}
+            </DropdownMenu.Group>
+            <DropdownMenu.Separator className="app-identity-divider" />
+          </>}
           <DropdownMenu.Item className="danger" onClick={onLogout}>
             <LogOut size={16} aria-hidden="true" />
             退出登录
