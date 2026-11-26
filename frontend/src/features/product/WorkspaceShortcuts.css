@@ -2,11 +2,12 @@
   min-height: 0;
   min-width: 0;
   overflow: auto;
-  margin: 14px 0;
-  padding: 6px 3px 3px;
+  margin: 16px 0 0;
+  padding: 10px 0 12px;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
+  overscroll-behavior-y: contain;
 }
 .workspace-shortcut-group + .workspace-shortcut-group { margin-top: 6px; }
 .workspace-shortcut-trigger {
@@ -33,10 +34,20 @@
 .workspace-shortcut-panel { padding-inline-start: 6px; }
 .workspace-shortcuts p { margin: 4px 6px 8px; color: var(--color-text-muted); }
 .workspace-shortcuts ul { list-style: none; padding: 0; margin: 0; }
-.workspace-shortcuts li > button, .workspace-shortcut-index { width: 100%; min-width: 0; justify-content: flex-start; }
+.workspace-shortcuts :is(li > button, .workspace-shortcut-index) {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding-inline: 8px;
+  justify-content: flex-start;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.workspace-shortcut-index { max-width: 100%; font-size: 12px; }
+.workspace-shortcuts .workspace-shortcut-index[aria-current="page"] { background: var(--color-surface-subtle); color: var(--color-text); }
 .workspace-shortcuts .ui-button { border: 0; border-radius: 6px; }
 .workspace-shortcuts .ui-button:focus-visible { outline-offset: -2px; }
-.workspace-shortcuts li > button > svg { flex: 0 0 auto; }
+.workspace-shortcuts li > button > svg { display: none; }
 .workspace-shortcuts li > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .workspace-actions { display: flex; align-items: center; gap: 4px; }

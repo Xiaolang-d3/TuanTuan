@@ -290,7 +290,7 @@ describe("App identity placement", () => {
     fireEvent.change(draft, { target: { value: "尚未发送的计划" } });
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     expect(screen.queryByRole("navigation", { name: "AI 工作区模块" })).not.toBeInTheDocument();
-    expect(navigation.getByRole("button", { name: "设置" })).toBeInTheDocument();
+    expect(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" })).toBeInTheDocument();
     fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
     await screen.findByRole("heading", { name: "我的作品" });
     expect(navigation.getByRole("button", { name: "我的作品" })).toHaveAttribute("aria-current", "page");

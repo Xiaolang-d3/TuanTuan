@@ -775,14 +775,13 @@ button.composer-context-status {
 /* === Three-column shell (left nav + center + persistent chat dock) === */
 .app-shell.has-chat-dock {
   --chat-dock-width: 360px;
-  --sidebar-width: 232px;
+  --sidebar-width: 176px;
 }
 .app-shell.has-chat-dock.shell-light .sidebar.shell-light,
 .app-shell.has-chat-dock .sidebar.shell-light {
   width: var(--sidebar-width);
   color: var(--color-text);
-  background:
-    var(--color-bg);
+  background: var(--color-surface);
   border-right: 1px solid var(--color-border);
 }
 /* Keep the visual rail and the content offset in sync when navigation folds.
