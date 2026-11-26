@@ -5,6 +5,7 @@ import { createClientId } from "../../api/clientId";
 import { interruptedRunRetryDraft, type DurableAgentRunSummary } from "../../durable-agent-run";
 import type { AgentRunResult, ChatAttachment, ChatMessage, ChatRetryDraft, WebSearchSourcePreference, WebSearchTopic } from "../../features/chat/types";
 import { webSearchOptionsFromMessage, webSearchConfigurationIssue } from "./webSearchOptions";
+import { chatAttachmentKind } from "./attachment-formats";
 import type { AgentCapabilities } from "../../types";
 import type { RefObject } from "react";
 
@@ -51,8 +52,7 @@ export function useChatRun({ apiBase, accessToken, fetchJson, currentConversatio
 
   async function uploadChatAttachment(file: File): Promise<ChatAttachment> {
     if (!currentConversationId) throw new Error("请先选择一个对话");
-    const filename = file.name.toLowerCase();
-    const kind = /\.(png|jpe?g|webp)$/.test(filename) ? "image" : /\.(pdf|docx|txt|md)$/.test(filename) ? "document" : null;
+    const kind = chatAttachmentKind(file.name);
     if (!kind) throw new Error("仅支持图片（PNG、JPG、WEBP）或文档（PDF、DOCX、TXT、MD）");
     setChatAttachmentBusy(true);
     setErrorMessage("");

@@ -212,6 +212,8 @@ export type ChatWorkspaceProps = ResultServices & {
   libraryAttachments?: { conversationId: number; attachments: ChatAttachment[] } | null;
   onLibraryAttachmentsConsumed?: () => void;
   composerDraft?: ChatComposerDraft | null;
+  draftFiles?: File[];
+  onDraftFilesChange?: (conversationId: number, files: File[]) => void;
   composerDrafts?: Map<number, string>;
   onComposerDraftConsumed?: () => void;
   conversations: Conversation[];
