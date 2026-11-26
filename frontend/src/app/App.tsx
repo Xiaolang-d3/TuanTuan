@@ -336,7 +336,7 @@ export function App({
   const routeDataCacheRef = useRef(createRouteDataCache<RouteDataKey>(30_000));
   const modelCatalog = useModelCatalog({
     fetchJson, scope: modelSettingsScope,
-    enabled: databaseReady && ((appRoute.section === "chat" && !workspaceLibraryOpen) || (appRoute.section === "settings" && appRoute.page === "model")),
+    enabled: databaseReady && ((appRoute.section === "chat" && !workspaceLibraryOpen) || (appRoute.section === "settings" && appRoute.page === "model") || (appRoute.section === "projects" && Boolean(appRoute.projectId))),
     refreshKey: savedAgentSettings.config_revision
   });
   const currentConversation = conversations.find((item) => item.id === currentConversationId) ?? null;
@@ -1183,7 +1183,8 @@ export function App({
     } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
   }
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, skillId?: string) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal }: { skillId?: string; ownerSignal?: AbortSignal } = {}) {
+    if (ownerSignal?.aborted) return;
     if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
     }
@@ -1191,6 +1192,14 @@ export function App({
     const controller = new AbortController();
     const routeAtClick = window.location.hash;
     homeAnalysisControllerRef.current = controller;
+    const release = () => {
+      if (homeAnalysisControllerRef.current !== controller) return;
+      homeAnalysisControllerRef.current = null;
+      homeAnalysisBusyRef.current = false;
+      setConversationBusy(false);
+    };
+    const cancel = () => { controller.abort(); release(); };
+    ownerSignal?.addEventListener("abort", cancel, { once: true });
     setConversationBusy(true);
     try {
       const created = await create(controller.signal);
@@ -1210,11 +1219,8 @@ export function App({
       navigateRoute({ section: "chat", conversationId: created.id });
       setNoticeMessage(notice);
     } finally {
-      if (homeAnalysisControllerRef.current === controller) {
-        homeAnalysisControllerRef.current = null;
-        homeAnalysisBusyRef.current = false;
-        setConversationBusy(false);
-      }
+      ownerSignal?.removeEventListener("abort", cancel);
+      release();
     }
   }
 
@@ -1225,7 +1231,7 @@ export function App({
   function openNewChatDraft(content: string, notice: string, skillId?: string) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
-    }), content, notice, skillId);
+    }), content, notice, { skillId });
   }
 
   function openCreationWorkspace(mode: CreationMode, content: string) {
@@ -1357,7 +1363,13 @@ export function App({
 
         {appRoute.section === "projects" ? (databaseReady
           ? <ProjectsPage key={creationScope} id={appRoute.projectId} fetchJson={fetchJson}
-            onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem} />
+            modelOptions={activeModelProfiles.filter(profile => profile.supported_purposes?.includes("chat")).map(profile => ({
+              id: profile.id, label: `${profile.model_name} · ${modelCatalog.catalog.connections.find(connection => connection.id === profile.connection_id)?.name ?? "模型连接"}`,
+            }))}
+            modelLoading={modelCatalog.loading || (!modelCatalog.loaded && !modelCatalog.error)} modelError={modelCatalog.error}
+            onRetryModels={() => { void modelCatalog.reload(); }} conversationBusy={conversationBusy || chatBusy}
+            onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem}
+            onOpenConversation={(create, signal) => openHomeConversation(create, "", "已新建项目对话", { ownerSignal: signal })} />
           : <PageLoading label="正在连接项目…" />) : null}
 
         {appRoute.section === "skills" ? (databaseReady ? (

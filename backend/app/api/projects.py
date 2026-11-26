@@ -7,7 +7,12 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from ..agent.kernels.base import DEFAULT_KERNEL
+from ..agent.model_catalog import get_model_catalog
+from ..chat.conversations import insert_conversation
 from ..db import connect
+from ..library.project_scope import project_context
+from ..models.selection import purpose_exclusion
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -41,6 +46,12 @@ class ProjectPatch(ProjectCreate):
     # A default denotes omission, not a submitted value; explicit null fails validation.
     name: ProjectName = ""
     status: ProjectStatus = "active"
+    default_model_profile_id: Annotated[str, StringConstraints(min_length=1, max_length=_MAX_ID_LENGTH)] | None = None
+
+
+class ProjectConversationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_ids: list[Annotated[int, Field(strict=True, ge=1, le=2**63 - 1)]] = Field(default_factory=list, max_length=20)
 
 
 class ItemCreate(BaseModel):
@@ -54,6 +65,7 @@ class Project(BaseModel):
     name: str
     description: str
     status: ProjectStatus
+    default_model_profile_id: str | None
     updated_at: str
     created_at: str
 
@@ -119,7 +131,7 @@ def _timestamp() -> str:
 
 def _project(conn: sqlite3.Connection, project_id: str) -> Project:
     row = conn.execute(
-        "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = ?", (project_id,)
+        "SELECT id, name, description, status, default_model_profile_id, created_at, updated_at FROM projects WHERE id = ?", (project_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(404, "项目不存在")
@@ -130,7 +142,7 @@ def _project(conn: sqlite3.Connection, project_id: str) -> Project:
 def list_projects() -> ProjectList:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, name, description, status, created_at, updated_at FROM projects "
+            "SELECT id, name, description, status, default_model_profile_id, created_at, updated_at FROM projects "
             "ORDER BY updated_at DESC, id DESC LIMIT ?", (_MAX_PROJECTS,)
         )
         return ProjectList(items=[Project(**dict(row)) for row in rows])
@@ -165,8 +177,16 @@ def get_project(project_id: ProjectId) -> ProjectDetail:
         return ProjectDetail(**project.model_dump(), items=[ProjectItem(**dict(row)) for row in rows])
 
 
+def _is_chat_profile(catalog: dict, profile_id: str) -> bool:
+    profile = next((item for item in catalog["profiles"] if item["id"] == profile_id), None)
+    connection = next((item for item in catalog["connections"] if profile and item["id"] == profile["connection_id"]), None)
+    return profile is not None and purpose_exclusion(profile, connection, "chat") is None
+
+
 @router.patch("/{project_id}")
 def patch_project(project_id: ProjectId, payload: ProjectPatch) -> Project:
+    if payload.default_model_profile_id and not _is_chat_profile(get_model_catalog(), payload.default_model_profile_id):
+        raise HTTPException(422, "默认模型不可用或不支持对话")
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         project = _project(conn, project_id)
@@ -174,13 +194,53 @@ def patch_project(project_id: ProjectId, payload: ProjectPatch) -> Project:
         name = changes.get("name", project.name)
         description = changes.get("description", project.description)
         status = changes.get("status", project.status)
-        if (name, description, status) == (project.name, project.description, project.status):
+        profile_id = changes.get("default_model_profile_id", project.default_model_profile_id)
+        if (name, description, status, profile_id) == (project.name, project.description, project.status, project.default_model_profile_id):
             return project
         conn.execute(
-            "UPDATE projects SET name = ?, description = ?, status = ?, updated_at = ? WHERE id = ?",
-            (name, description, status, _timestamp(), project_id),
+            "UPDATE projects SET name = ?, description = ?, status = ?, default_model_profile_id = ?, updated_at = ? WHERE id = ?",
+            (name, description, status, profile_id, _timestamp(), project_id),
         )
         return _project(conn, project_id)
+
+
+@router.post("/{project_id}/conversations", status_code=201)
+def create_project_conversation(project_id: ProjectId, payload: ProjectConversationCreate) -> dict:
+    # Reading model availability can refresh local metadata; do it before the write transaction.
+    with connect() as conn:
+        initial = _project(conn, project_id)
+    catalog = get_model_catalog() if initial.default_model_profile_id else None
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        project = _project(conn, project_id)
+        if project.status != "active":
+            raise HTTPException(409, "请先恢复已归档项目")
+        if conn.execute("SELECT COUNT(*) FROM project_items WHERE project_id = ?", (project_id,)).fetchone()[0] >= _MAX_ITEMS:
+            raise HTTPException(409, "项目来源数量已达上限")
+        selected = set(payload.source_ids)
+        profile_id = project.default_model_profile_id
+        if profile_id != initial.default_model_profile_id:
+            raise HTTPException(409, "项目默认模型已更新，请重试")
+        if profile_id and not _is_chat_profile(catalog, profile_id):
+            profile_id = None
+        conversation_id = insert_conversation(conn, "新对话", DEFAULT_KERNEL, profile_id)
+        conn.execute("INSERT INTO conversation_project_scopes VALUES (?, ?)", (conversation_id, project_id))
+        # Validate the intersection before inserting to avoid FK errors for arbitrary input IDs.
+        for source_id in selected:
+            cursor = conn.execute("""
+                INSERT INTO conversation_project_sources (conversation_id, source_id)
+                SELECT ?, id FROM library_sources WHERE id = ?
+            """, (conversation_id, source_id))
+            if not cursor.rowcount:
+                raise HTTPException(422, "请选择当前项目中可用的资料")
+        context = project_context(conn, conversation_id)
+        if {source["id"] for source in context["sources"]} != selected:
+            raise HTTPException(422, "请选择当前项目中可用的资料")
+        now = _timestamp()
+        conn.execute("INSERT INTO project_items VALUES (?, 'chat', ?, ?)", (project_id, str(conversation_id), now))
+        conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        row = conn.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        return {**dict(row), "project_context": context}
 
 
 @router.delete("/{project_id}", status_code=204, response_class=Response)

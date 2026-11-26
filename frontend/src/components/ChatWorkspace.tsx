@@ -95,6 +95,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const aui = useAui();
   const composerText = useAuiState((state) => state.composer.text);
   const conversationId = props.currentConversationId;
+  const projectContext = props.conversations.find(conversation => conversation.id === conversationId)?.project_context;
   const pptSelected = props.selectedSkillId === "ppt-master";
   const modelScope = `${props.selectedModelProfileId ?? "default"}:${props.modelSettings?.profile.revision ?? 0}`;
   const [quickCheck, setQuickCheck] = useState<{ conversationId: number; modelScope: string; status: QuickPresentationCapabilities }>();
@@ -475,6 +476,14 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
       <DocumentActionsContext.Provider value={props.onEditDocument ?? (props.documentService && props.currentConversationId && props.onLoadResults ? messageId => setResultSelection({ messageId, selector: "answer", editing: true }) : null)}>
       <ThreadPrimitive.Root className="chat-main">
         <header className="chat-session-header" aria-label="对话操作栏">
+          {projectContext && <details key={conversationId} className="chat-project-scope">
+            <summary><span title={projectContext.name}>项目：{projectContext.name}</span><span className="chat-project-count">{projectContext.sources.length} 项资料</span></summary>
+            <div className="chat-project-sources">
+              <strong>本对话的项目资料范围</strong>
+              <p>项目：{projectContext.name}</p>
+              {projectContext.sources.length ? <ul>{projectContext.sources.map(source => <li key={source.id}>{source.title}</li>)}</ul> : <p>未选择项目资料</p>}
+            </div>
+          </details>}
           <div className="chat-session-tools" role="toolbar" aria-label="对话操作">
             <button
               className="chat-session-tool"

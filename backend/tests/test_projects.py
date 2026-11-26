@@ -78,6 +78,7 @@ def test_projects_crud_and_authentication(accounts):
     project_id = project["id"]
     path = f"/projects/{project_id}"
     assert project == {"id": project_id, "name": "我的项目", "description": "", "status": "active",
+                       "default_model_profile_id": None,
                        "updated_at": project["created_at"], "created_at": project["created_at"]}
     assert datetime.fromisoformat(project["created_at"]).utcoffset().total_seconds() == 0
     assert expect(owner.get(path), 200) == {**project, "items": []}
@@ -238,3 +239,83 @@ def test_project_fields_and_lists_are_bounded(accounts):
     link(owner, project_id, "library", "201", 409)
     expect(owner.delete(f"{path}/items/library/1"), 204)
     link(owner, project_id, "library", "201")
+
+
+def test_project_conversation_uses_only_selected_live_sources(accounts):
+    import asyncio
+
+    from app.library.project_scope import project_source_ids
+    from app.library.sources import create_text_source
+    from app.tools.base import ToolContext
+    from app.tools.library import GetLibraryContextTool, SearchLibraryTool
+
+    owner, other, _ = accounts
+    project_id = create_project(owner)["id"]
+    path = f"/projects/{project_id}"
+    owner_id = owner.get("/auth/me").json()["user"]["id"]
+    with use_workspace(owner_id):
+        selected = create_text_source(title="选择资料", content="zebra permitted material", enabled=True)
+        unselected = create_text_source(title="其他资料", content="zebra outside material", enabled=True)
+        unrelated = create_text_source(title="项目外资料", content="zebra unrelated material", enabled=True)
+    for source in (selected, unselected):
+        link(owner, project_id, "library", str(source["id"]))
+    create = f"{path}/conversations"
+    original = owner.get("/conversations").json()
+    expect(other.post(create, json={"source_ids": [selected["id"]]}), 404)
+    expect(owner.post(create, json={"source_ids": [unrelated["id"]]}), 422)
+    assert owner.get("/conversations").json() == original
+    chat = expect(owner.post(create, json={"source_ids": [selected["id"]]}), 201)
+    empty = expect(owner.post(create, json={"source_ids": []}), 201)
+    assert chat["project_context"] == {"id": project_id, "name": "项目", "sources": [{"id": selected["id"], "title": "选择资料"}]}
+    assert empty["project_context"]["sources"] == []
+    assert {row["source_id"] for row in expect(owner.get(path), 200)["items"] if row["kind"] == "chat"} == {str(chat["id"]), str(empty["id"])}
+    listed = {row["id"]: row for row in owner.get("/conversations").json()}
+    assert listed[chat["id"]]["project_context"] == chat["project_context"]
+    with workspace_db(owner) as conn:
+        for table in ("attachments", "chat_messages", "agent_execution_runs"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+    with use_workspace(owner_id):
+        context = ToolContext(platform_name="local", conversation_id=chat["id"])
+        empty_context = ToolContext(platform_name="local", conversation_id=empty["id"])
+        search = SearchLibraryTool()
+        summary = GetLibraryContextTool()
+        result = asyncio.run(search.execute({"query": "zebra"}, context))
+        assert {item["source_id"] for item in result.data["evidence"]} == {selected["id"]}
+        assert asyncio.run(summary.execute({}, context)).data["sources"][0]["id"] == selected["id"]
+        assert not asyncio.run(search.execute({"query": "zebra", "source_ids": [unselected["id"]]}, context)).ok
+        assert not asyncio.run(search.execute({"query": "zebra"}, empty_context)).data["excerpts"]
+
+    expect(owner.delete(f"{path}/items/library/{selected['id']}"), 204)
+    expect(owner.patch(path, json={"status": "archived"}), 200)
+    expect(owner.post(create, json={}), 409)
+    expect(owner.delete(path), 204)
+    with use_workspace(owner_id):
+        assert project_source_ids(chat["id"]) == set()
+        assert not asyncio.run(summary.execute({}, context)).data["sources"]
+        assert not asyncio.run(search.execute({"query": "zebra"}, context)).data["excerpts"]
+
+
+def test_project_model_preference_is_copied_on_create_but_can_be_overridden(accounts, monkeypatch):
+    from app.api import projects
+    from app.agent import model_catalog
+
+    owner, _, _ = accounts
+    connection = {"id": "byok", "protocol": "openai", "api_key_configured": True, "enabled": True}
+    profiles = [{"id": profile_id, "connection_id": "byok", "model_name": "gpt-4o", "capabilities": {"chat": "supported"}, "enabled": True}
+                for profile_id in ("first", "second")]
+    def catalog(_db_path=None):
+        return {"profiles": profiles, "connections": [connection]}
+    monkeypatch.setattr(projects, "get_model_catalog", catalog)
+    monkeypatch.setattr(model_catalog, "get_model_catalog", catalog)
+    path = f"/projects/{create_project(owner)['id']}"
+    expect(owner.patch(path, json={"default_model_profile_id": "missing"}), 422)
+    expect(owner.patch(path, json={"default_model_profile_id": "first"}), 200)
+    chat = expect(owner.post(f"{path}/conversations", json={}), 201)
+    assert chat["model_profile_id"] == "first"
+    response = owner.patch(f"/conversations/{chat['id']}", json={"model_profile_id": "second"})
+    assert response.status_code == 200, response.text
+    assert response.json()["model_profile_id"] == "second"
+    assert expect(owner.get(path), 200)["default_model_profile_id"] == "first"
+    profiles[0]["enabled"] = False
+    assert expect(owner.post(f"{path}/conversations", json={}), 201)["model_profile_id"] is None

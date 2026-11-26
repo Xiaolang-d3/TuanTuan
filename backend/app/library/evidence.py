@@ -12,7 +12,11 @@ TRUSTED_EVIDENCE_TOOLS = {"get_library_context", "search_library", "read_library
 
 def _resolve(target, db_path=None, *, conversation_id=None, automatic=False):
     if target.source_kind == "library":
+        from .project_scope import project_source_ids
         from .sources import get_source
+        selected = project_source_ids(conversation_id, db_path)
+        if selected is not None and target.source_id not in selected:
+            raise ValueError("未选择此项目资料，或资料已不可用")
         source = get_source(target.source_id, db_path)
         if automatic and not source["enabled"]:
             raise ValueError("来源已关闭长期使用")

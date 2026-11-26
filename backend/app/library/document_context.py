@@ -8,6 +8,7 @@ from ..documents.blocks import DocumentTarget
 from ..domain import AgentMessage
 from ..attachments.service import get_attachment
 from .source_versions import source_state
+from .project_scope import project_source_ids
 from .evidence import _resolve, _evidence_card, bounded_evidence_data, TRUSTED_EVIDENCE_TOOLS
 
 ATTACHMENT_PREFIX = "\n\n以下为用户主动上传附件的本地解析文本，请基于此内容回答：\n"
@@ -106,6 +107,7 @@ def document_targets_in_messages(messages, conversation_id):
 
 def bounded_document_messages(messages, conversation_id, *, library_read_allowed=True):
     remaining, result = DOCUMENT_CONTEXT_CHARACTERS, []
+    selected_sources = project_source_ids(conversation_id)
     for message in reversed(messages):
         payload = message.payload
         refs = document_targets_in_messages([message], conversation_id) if message.role == "user" else []
@@ -141,10 +143,11 @@ def bounded_document_messages(messages, conversation_id, *, library_read_allowed
                     used += len(card["excerpt"])
                 except (ValueError, KeyError, TypeError, StopIteration):
                     continue
-            if payload.get("tool_name") == "read_library_source" and len(permitted) == len(payload.get("evidence", [])) and permitted:
+            if selected_sources is None and payload.get("tool_name") == "read_library_source" and len(permitted) == len(payload.get("evidence", [])) and permitted:
                 remaining -= used
             else:
-                data = {**bounded_evidence_data(permitted, payload if library_read_allowed else {}), "tool_name": payload.get("tool_name"), "status": payload.get("status")}
+                extras = payload if library_read_allowed and selected_sources is None else {}
+                data = {**bounded_evidence_data(permitted, extras), "tool_name": payload.get("tool_name"), "status": payload.get("status")}
                 if payload.get("retained_evidence"):
                     data["retained_evidence"] = True
                 data["history_reassembled"] = True

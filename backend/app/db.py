@@ -18,7 +18,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(env("TUANTUAN_DATA_DIR", ROOT_DIR / "data")).expanduser()
 DB_PATH = DATA_DIR / "tuantuan.db"
 LEGACY_DB_PATH = DATA_DIR / LEGACY_DATABASE_NAMES[-1]
-DB_SCHEMA_VERSION = 48
+DB_SCHEMA_VERSION = 49
 
 
 def adopt_legacy_database() -> None:
