@@ -205,6 +205,24 @@ def test_http_session_protocol_mime_validation_and_account_context(monkeypatch):
     assert client.post(f"/speech/sessions/{key}/audio?sequence=1", files={"file": ("a.wav", wav(), "audio/wav")}).status_code == 410
 
 
+def test_http_finish_uses_the_next_sequence_and_releases_the_session(monkeypatch):
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    monkeypatch.setattr(speech, "_model", Mock())
+    monkeypatch.setattr(speech_sessions, "current_user_id", lambda: 1)
+    key = client.post("/speech/sessions").json()["id"]
+    updates = [{"segmentId": 0, "revision": 1, "text": "最后一句。", "final": True}]
+    speech_sessions._sessions[key].stream.finish.return_value = updates
+    endpoint = f"/speech/sessions/{key}/finish"
+    assert client.post(f"{endpoint}?sequence=1").status_code == 422
+    monkeypatch.setattr(speech_sessions, "current_user_id", lambda: 2)
+    assert client.post(f"{endpoint}?sequence=0").status_code == 410
+    monkeypatch.setattr(speech_sessions, "current_user_id", lambda: 1)
+    assert client.post(f"{endpoint}?sequence=0").json() == {"updates": updates}
+    assert client.post(f"{endpoint}?sequence=0").status_code == 410
+
+
 def test_speech_routes_require_login(monkeypatch, tmp_path):
     from app import db
     from app.main import app
@@ -215,6 +233,7 @@ def test_speech_routes_require_login(monkeypatch, tmp_path):
     assert client.post("/speech/sessions").status_code == 401
     assert client.delete("/speech/sessions/old").status_code == 401
     assert client.post("/speech/sessions/old/audio?sequence=0", files={"file": ("a.wav", wav(), "audio/wav")}).status_code == 401
+    assert client.post("/speech/sessions/old/finish?sequence=0").status_code == 401
 
 
 def test_authenticated_http_audio_reaches_the_same_account_context_in_threadpool(monkeypatch, tmp_path):

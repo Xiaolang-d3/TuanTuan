@@ -876,7 +876,7 @@ test("the creation homepage filters inspiration and carries its image settings i
   await expect(projects).toBeHidden();
   await expect(page.getByRole("navigation", { name: "移动端主导航" })
     .getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
-  await expect(entry.getByRole("button", { name: "添加资料", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "添加到对话", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "进入图片工作区" })).toBeInViewport();
   await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: testInfo.outputPath("creation-home-mobile-dark.png"), animations: "disabled" });
@@ -955,10 +955,27 @@ test("home voice input edits the current draft and stops when changing modes", a
   await page.route("**/speech/prepare", route => route.fulfill({ json: { state: "ready", error: "" } }));
   let sessions = 0;
   const closed: string[] = [];
+  let pendingAudio = false;
+  let releaseAudio!: () => void;
+  const audioGate = new Promise<void>(resolve => { releaseAudio = resolve; });
   await page.route("**/speech/sessions", route => route.fulfill({ json: { id: `home-${++sessions}` } }));
-  await page.route(/\/speech\/sessions\/home-\d+\/audio\?/, route => {
-    const imageSession = route.request().url().includes("/home-1/");
+  await page.route(/\/speech\/sessions\/home-\d+\/audio\?/, async route => {
+    const url = route.request().url();
+    if (url.includes("/home-3/")) {
+      pendingAudio = true;
+      await audioGate;
+      return route.fulfill({ json: { updates: [{ segmentId: 0, revision: 1, text: "最后", final: false }] } });
+    }
+    const imageSession = url.includes("/home-1/");
     return route.fulfill({ json: { updates: [{ segmentId: 0, revision: 1, text: imageSession ? "晚霞" : "会议纪要", final: true }] } });
+  });
+  await page.route(/\/speech\/sessions\/home-[23]\/finish\?/, route => {
+    const url = new URL(route.request().url());
+    const id = url.pathname.split("/")[3];
+    expect(Number(url.searchParams.get("sequence"))).toBeGreaterThan(0);
+    closed.push(id);
+    const updates = id === "home-3" ? [{ segmentId: 0, revision: 2, text: "最后一句。", final: true }] : [];
+    return route.fulfill({ json: { updates } });
   });
   await page.route(/\/speech\/sessions\/home-\d+$/, route => {
     expect(route.request().method()).toBe("DELETE");
@@ -997,7 +1014,58 @@ test("home voice input edits the current draft and stops when changing modes", a
 
   await entry.getByRole("button", { name: "图片", exact: true }).click();
   await expect(image).toHaveValue("画面：晚霞海边");
+  await image.fill("海报：");
+  await mic.click();
+  try {
+    await expect.poll(() => pendingAudio).toBe(true);
+    await entry.getByRole("button", { name: "进入图片工作区" }).click();
+    await expect(entry.getByText("正在完成转写…")).toBeVisible();
+    await expect(page).toHaveURL(/#\/home$/);
+  } finally {
+    releaseAudio();
+  }
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue("海报：最后一句。");
+  expect(closed).toEqual(["home-1", "home-2", "home-3"]);
   expect(writes).toEqual([]);
+});
+
+test("home restores both drafts after refresh and requires a new choice for a removed model", async ({ page }) => {
+  const defaultModel = { id: "skill-image", name: "默认图片服务", sizes: ["1024x1024"] };
+  let models = [defaultModel, { id: "old-model", name: "旧图片服务", sizes: ["1024x1536"] }];
+  const requestedProfiles: unknown[] = [];
+  await page.route("**/image-studio/options", route => route.fulfill({ json: { default_profile_id: defaultModel.id, models } }));
+  await page.route("**/agent/model-selection/preview", route => {
+    requestedProfiles.push(route.request().postDataJSON().profile_id);
+    return route.fulfill({ json: imageSkillPreview });
+  });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const image = entry.getByRole("textbox", { name: "图片草稿" });
+  const chat = entry.getByRole("textbox", { name: "对话草稿" });
+  await image.fill("海边夜景");
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await chat.fill("整理访谈");
+  await page.reload();
+  await expect(chat).toHaveValue("整理访谈");
+  await entry.getByRole("button", { name: "图片", exact: true }).click();
+  await expect(image).toHaveValue("海边夜景");
+
+  const model = entry.getByRole("combobox", { name: "选择模型" });
+  const open = entry.getByRole("button", { name: "进入图片工作区" });
+  await model.selectOption("old-model");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings$/);
+  models = [defaultModel];
+  await page.goBack();
+  await expect(entry.getByRole("alert")).toHaveText("原选图片模型已不可用，请重新选择。");
+  await expect(model.locator("option:checked")).toHaveText("原选模型已不可用");
+  await expect(open).toBeDisabled();
+  await model.selectOption("");
+  await open.click();
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue("海边夜景");
+  await expect(page.getByRole("button", { name: "生成图片", exact: true })).toBeEnabled();
+  expect(requestedProfiles).toContain(null);
+  expect(requestedProfiles).not.toContain("old-model");
 });
 
 test("the unified entry passes separate drafts without requesting generation", async ({ page }) => {
@@ -1049,6 +1117,7 @@ test("home keeps draft files when switching modes and uploads only on request", 
   await page.goto("/#/home");
   const entry = page.getByRole("region", { name: "新建创作" });
   await expect(entry.getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(entry.getByRole("button", { name: "添加到对话", exact: true })).toBeVisible();
   await entry.locator('input[type="file"]').setInputFiles([
     { name: "资料.md", mimeType: "text/markdown", buffer: Buffer.from("# 测试资料") },
     { name: "不支持.exe", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") },

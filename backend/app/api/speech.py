@@ -66,3 +66,11 @@ async def speech_audio(session_id: str, sequence: int = Query(ge=0), file: Uploa
         raise _speech_error(exc) from exc
     finally:
         await file.close()
+
+
+@router.post("/sessions/{session_id}/finish")
+def finish_speech_session(session_id: str, sequence: int = Query(ge=0)) -> dict:
+    try:
+        return {"updates": speech_sessions.feed(session_id, sequence, None)}
+    except (ValueError, RuntimeError, PermissionError) as exc:
+        raise _speech_error(exc) from exc

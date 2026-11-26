@@ -1,4 +1,4 @@
-import { readStorageItem } from "../storage";
+import { readStorageItem, writeStorageItem } from "../storage";
 import { useModelCatalog } from "../features/settings/useModelCatalog";
 import { useComposerModelDiscovery } from "../features/chat/useComposerModelDiscovery";
 import { useModelDiscovery } from "../features/settings/useModelDiscovery";
@@ -46,7 +46,7 @@ import type { ModelParameterUpdate } from "../features/chat/ComposerModelParamet
 import type { ArtifactManifest } from "../features/chat/result-types";
 import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
-import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
+import { CreationEntry, MAX_CREATION_DRAFT_LENGTH, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { CreationRecords } from "../features/product/CreationRecords";
 import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
 import { GlobalSearch, type SearchHit } from "../features/product/GlobalSearch";
@@ -71,8 +71,17 @@ type CreationForm = {
   imageSettings: ImageDraftSettings;
 };
 
-function emptyCreationForm(scope: string): CreationForm {
-  return { scope, mode: "images", drafts: { chat: "", images: "" }, imageSettings: {} };
+function restoreCreationForm(scope: string): CreationForm {
+  const form: CreationForm = { scope, mode: "images", drafts: { chat: "", images: "" }, imageSettings: {} };
+  try {
+    const saved = JSON.parse(readStorageItem(`tuantuan-home-draft:${scope}`, "sessionStorage") ?? "null");
+    if (saved?.mode === "chat") form.mode = "chat";
+    for (const mode of ["chat", "images"] as const) {
+      const draft = saved?.drafts?.[mode];
+      if (typeof draft === "string") form.drafts[mode] = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
+    }
+  } catch { /* Invalid saved drafts are ignored. */ }
+  return form;
 }
 
 type ModelSaveReceipt = { committed: boolean; saved_revision: number | null; settings: AgentSettings };
@@ -227,8 +236,12 @@ export function App({
   const shortcutState = shortcutStates[shortcutScope];
   const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
   const [searchScope, setSearchScope] = useState<string | null>(null);
-  const [creationForm, setCreationForm] = useState(() => emptyCreationForm(creationScope));
-  const activeCreationForm = creationForm.scope === creationScope ? creationForm : emptyCreationForm(creationScope);
+  const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
+  const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
+  const { mode: savedCreationMode, drafts: savedCreationDrafts } = activeCreationForm;
+  useEffect(() => {
+    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ mode: savedCreationMode, drafts: savedCreationDrafts }), "sessionStorage");
+  }, [creationScope, savedCreationMode, savedCreationDrafts]);
   const [imageCreationDraft, setImageCreationDraft] = useState<(ImageCreationDraft & { scope: string }) | null>(null);
   const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string }) | null>(null);
   const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
@@ -241,7 +254,7 @@ export function App({
   }, [creationScope]);
 
   function updateCreationForm(update: (form: CreationForm) => CreationForm) {
-    setCreationForm(previous => update(previous.scope === creationScope ? previous : emptyCreationForm(creationScope)));
+    setCreationForm(previous => update(previous.scope === creationScope ? previous : activeCreationForm));
   }
 
   function setConversationDraftFiles(conversationId: number, files: File[]) {
@@ -1320,7 +1333,7 @@ export function App({
   function openCreationWorkspace(mode: CreationMode, content: string, settings?: ImageDraftSettings) {
     if (!databaseReady) return;
     if (mode === "images") {
-      const explicitSettings = settings && (settings.profileId !== undefined || settings.size) ? settings : undefined;
+      const explicitSettings = settings && (settings.profileId !== undefined || settings.size !== undefined) ? settings : undefined;
       if (content.trim() || explicitSettings) {
         setImageCreationDraft({ scope: creationScope, id: crypto.randomUUID(), content, settings: explicitSettings });
       }

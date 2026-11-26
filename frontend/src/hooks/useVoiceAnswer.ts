@@ -2,15 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createVoiceCapture, voiceCaptureSupported, VOICE_CHUNK_MS, type VoiceCapture } from "../features/chat/voiceCapture";
 import type { VoiceInputService, VoiceInputSession, VoiceTranscript } from "../features/chat/voiceInput";
 
-type VoiceStatus = "idle" | "preparing" | "starting" | "listening";
+type VoiceStatus = "idle" | "preparing" | "starting" | "listening" | "finishing";
 const MAX_RECORDING_MS = 10 * 60_000;
 const MAX_QUEUED_AUDIO_MS = 8000;
 const MAX_PREPARING_AUDIO_MS = 60_000;
+const FINISH_TIMEOUT_MS = 25_000;
 
 export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => void, service?: VoiceInputService, onAudioLevel?: (level: number) => void) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState("");
-  const sessionRef = useRef<{ cancel: () => void } | null>(null);
+  const sessionRef = useRef<{ cancel: () => void; finish: () => Promise<boolean> } | null>(null);
   const onFinalTranscriptRef = useRef(onFinalTranscript);
   onFinalTranscriptRef.current = onFinalTranscript;
   const onAudioLevelRef = useRef(onAudioLevel);
@@ -44,9 +45,15 @@ export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => v
     let stream: MediaStream | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const pending: Blob[] = [];
-    let transcribing = false;
+    let draining: Promise<void> | undefined;
+    let finishing: Promise<boolean> | undefined;
+    let releaseReady!: () => void;
+    const ready = new Promise<void>(resolve => { releaseReady = resolve; });
     let preparationBacklog = 0;
-    const releaseMic = () => { stream?.getTracks().forEach(track => { track.onended = null; track.stop(); }); };
+    const releaseMic = () => {
+      stream?.getTracks().forEach(track => { track.onended = null; track.stop(); });
+      stream = undefined;
+    };
     const cancel = () => {
       controller.abort();
       clearTimeout(timer);
@@ -55,6 +62,7 @@ export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => v
       capture?.close();
       void inputSession?.close();
       releaseMic();
+      releaseReady();
       onAudioLevelRef.current?.(0);
       sessionRef.current = null;
     };
@@ -64,27 +72,66 @@ export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => v
       setStatus("idle");
       setError(message);
     };
-    const drain = async () => {
-      if (!inputSession || transcribing || controller.signal.aborted) return;
-      transcribing = true;
-      try {
-        while (pending.length && !controller.signal.aborted) {
-          const audio = pending.shift()!;
-          if (preparationBacklog > 0) preparationBacklog -= 1;
-          const updates = await inputSession!.accept(audio, controller.signal);
-          if (controller.signal.aborted) return;
-          for (const update of updates) {
-            if (controller.signal.aborted) return;
-            onFinalTranscriptRef.current(update);
-          }
-        }
-      } catch (reason) {
-        fail(reason instanceof Error ? reason.message : "离线识别未能完成，请重试。");
-      } finally {
-        transcribing = false;
+    const deliver = (updates: VoiceTranscript[]) => {
+      for (const update of updates) {
+        if (controller.signal.aborted) return;
+        onFinalTranscriptRef.current(update);
       }
     };
-    sessionRef.current = { cancel };
+    const drain = () => {
+      const session = inputSession;
+      if (!session || !pending.length || controller.signal.aborted) return draining;
+      if (!draining) {
+        draining = (async () => {
+          try {
+            while (pending.length && !controller.signal.aborted) {
+              const audio = pending.shift()!;
+              if (preparationBacklog > 0) preparationBacklog -= 1;
+              deliver(await session.accept(audio, controller.signal));
+            }
+          } catch (reason) {
+            fail(reason instanceof Error ? reason.message : "离线识别未能完成，请重试。");
+          }
+        })().finally(() => {
+          draining = undefined;
+          void drain();
+        });
+      }
+      return draining;
+    };
+    const finish = () => {
+      if (finishing) return finishing;
+      if (!stream) {
+        // Permission may still be pending. No audio has been captured yet.
+        cancel();
+        setStatus("idle");
+        return Promise.resolve(true);
+      }
+      setStatus("finishing");
+      clearTimeout(timer);
+      releaseMic();
+      timer = setTimeout(() => fail("语音收尾超时，已显示的文字已保留。请检查后继续。"), FINISH_TIMEOUT_MS);
+      finishing = (async () => {
+        try {
+          await capture?.finish();
+          await ready;
+          const session = inputSession;
+          if (!session || controller.signal.aborted) return false;
+          while (!controller.signal.aborted && (draining || pending.length)) await drain();
+          if (controller.signal.aborted) return false;
+          deliver(await session.finish(controller.signal));
+          if (controller.signal.aborted) return false;
+          cancel();
+          setStatus("idle");
+          return true;
+        } catch (reason) {
+          fail(reason instanceof Error ? reason.message : "语音收尾失败，已显示的文字已保留。");
+          return false;
+        }
+      })();
+      return finishing;
+    };
+    sessionRef.current = { cancel, finish };
     setStatus("preparing");
     try {
       capture = createVoiceCapture(audio => {
@@ -108,17 +155,18 @@ export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => v
       for (const track of stream.getTracks()) track.onended = () => fail("麦克风已断开，请重新打开语音输入。");
       await capture.start(stream);
       if (controller.signal.aborted) return;
-      timer = setTimeout(() => fail("已完成 10 分钟连续语音输入，文字已保留。点击语音可以继续。"), MAX_RECORDING_MS);
+      if (!finishing) timer = setTimeout(() => fail("已完成 10 分钟连续语音输入，文字已保留。点击语音可以继续。"), MAX_RECORDING_MS);
       await preparation;
       if (controller.signal.aborted) return;
-      setStatus("starting");
+      if (!finishing) setStatus("starting");
       // Create the short-idle server session after permission and preparation.
       inputSession = await currentService.open(controller.signal);
       if (controller.signal.aborted) { void inputSession.close(); return; }
       preparationBacklog = pending.length;
+      releaseReady();
       void drain();
       if (controller.signal.aborted) return;
-      setStatus("listening");
+      if (!finishing) setStatus("listening");
     } catch (reason) {
       if (reason instanceof DOMException && ["NotAllowedError", "SecurityError"].includes(reason.name)) {
         fail("无法使用麦克风。请在浏览器和系统设置中允许麦克风权限后重试。");
@@ -136,5 +184,7 @@ export function useVoiceAnswer(onFinalTranscript: (update: VoiceTranscript) => v
     setError("");
   }, []);
 
-  return { status, listening: status !== "idle", error, startListening, stopListening: cancelListening, cancelListening };
+  const finishListening = useCallback(() => sessionRef.current?.finish() ?? Promise.resolve(true), []);
+
+  return { status, listening: status !== "idle", error, startListening, stopListening: cancelListening, cancelListening, finishListening };
 }

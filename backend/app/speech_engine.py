@@ -146,12 +146,19 @@ class DictationStream:
         self._reset_online()
         return updates
 
-    def push(self, audio: Any) -> list[dict]:
+    def finish(self) -> list[dict]:
         import numpy as np
 
-        self.audio = np.concatenate((self.audio, audio))
-        self.received += len(audio)
-        segments = self.engine.vad(audio, param_dict=self.vad_cache)
+        if not self.received:
+            return []
+        # Flush the VAD's buffered frames without adding silence to the transcript audio.
+        self.vad_cache["is_final"] = True
+        updates = self._apply_vad(self.engine.vad(np.zeros(SAMPLE_RATE // 10, dtype=np.float32), param_dict=self.vad_cache))
+        if self.start is not None and self.received > self.start:
+            updates.extend(self._finish(self.received))
+        return updates
+
+    def _apply_vad(self, segments: Any) -> list[dict]:
         updates = []
         # The wrapper returns one list of [start_ms, end_ms] pairs per batch.
         for batch in segments:
@@ -169,6 +176,14 @@ class DictationStream:
                     end = min(self.received, int(end_ms * SAMPLE_RATE / 1000))
                     if end > self.start:
                         updates.extend(self._finish(end))
+        return updates
+
+    def push(self, audio: Any) -> list[dict]:
+        import numpy as np
+
+        self.audio = np.concatenate((self.audio, audio))
+        self.received += len(audio)
+        updates = self._apply_vad(self.engine.vad(audio, param_dict=self.vad_cache))
         if self.start is not None:
             while self.received - self.start >= MAX_SENTENCE:
                 boundary = self.start + MAX_SENTENCE

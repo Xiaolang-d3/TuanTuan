@@ -17,7 +17,7 @@ type ImageWorkspaceProps = ImagePageActions & { api: StudioApi; enabled: boolean
 type DraftReceipt = { accountKey: ImagePageActions["accountKey"]; consumed: boolean };
 
 function hasCreationDraft(draft?: ImageCreationDraft): draft is ImageCreationDraft {
-  return !!draft && (!!draft.content.trim() || draft.settings?.profileId !== undefined || !!draft.settings?.size);
+  return !!draft && (!!draft.content.trim() || draft.settings?.profileId !== undefined || draft.settings?.size !== undefined);
 }
 
 export function ImageWorkspace(props: ImageWorkspaceProps) {

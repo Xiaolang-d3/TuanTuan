@@ -97,7 +97,7 @@
 .home-page .creation-entry-form textarea:focus-visible { outline: 0; }
 .creation-entry-form textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
 .creation-entry-form p { margin: 0; padding-inline: 8px; font-size: 13px; color: var(--color-text-muted); }
-.creation-entry-form .creation-voice-error { color: var(--color-danger); }
+.creation-entry-form [role="alert"] { color: var(--color-danger); }
 .creation-entry-files { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; padding: 0 8px; margin: 0; list-style: none; }
 .creation-entry-files li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .creation-entry-files li span { min-width: 0; overflow-wrap: anywhere; }

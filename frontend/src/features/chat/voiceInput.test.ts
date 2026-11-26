@@ -65,3 +65,16 @@ it("releases a session created while its start request was being cancelled", asy
   await expect(service.open(controller.signal)).rejects.toMatchObject({ name: "AbortError" });
   expect(client.mock.calls[1][0]).toBe("/speech/sessions/late");
 });
+
+it("finalizes at the next audio sequence and uses the returned transcript", async () => {
+  const { client, service } = setup();
+  const updates = [{ segmentId: 0, revision: 2, text: "语音尾句。", final: true }];
+  client.mockResolvedValueOnce({ id: "session-1" }).mockResolvedValueOnce({ updates: [] }).mockResolvedValueOnce({ updates });
+  const signal = new AbortController().signal;
+  const session = await service.open(signal);
+  await session.accept(new Blob(["audio"]), signal);
+  await expect(session.finish(signal)).resolves.toEqual(updates);
+  await session.close();
+  expect(client.mock.calls[2]).toEqual(["/speech/sessions/session-1/finish?sequence=1", { method: "POST", signal }, 10_000]);
+  expect(client).toHaveBeenCalledTimes(3);
+});
