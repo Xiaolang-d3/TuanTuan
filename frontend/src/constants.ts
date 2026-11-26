@@ -24,6 +24,7 @@ export const pageMeta: Record<ViewKey, { title: string; description: string }> =
   dashboard: { title: "首页", description: "查看最近资料、文档和对话" },
   history: { title: "创作记录", description: "查看对话、图片、文档和 PPT 的创作记录" },
   projects: { title: "我的项目", description: "管理项目及其关联的创作和资料" },
+  skills: { title: "技能中心", description: "查看当前账号可使用的技能和所需条件" },
   chat: { title: "对话", description: "基于你的资料进行问答、搜索、分析和内容生成" },
   images: { title: "图片", description: "生成与编辑图片" },
   video: { title: "视频", description: "视频创作" },
@@ -35,6 +36,7 @@ const sectionTitles: Record<ViewKey, string> = {
   dashboard: pageMeta.dashboard.title,
   history: pageMeta.history.title,
   projects: pageMeta.projects.title,
+  skills: pageMeta.skills.title,
   chat: "对话",
   images: "图片",
   video: "视频",
@@ -53,7 +55,7 @@ export function sidebarHighlightForView(
   view: ViewKey,
   extras: { settingsPage?: SettingsPage; libraryOpen?: boolean } = {}
 ): SidebarHighlight {
-  if (view === "dashboard" || view === "history" || view === "projects") return view;
+  if (view === "dashboard" || view === "history" || view === "projects" || view === "skills") return view;
   if (view === "chat") return extras.libraryOpen ? "library" : "chat";
   if (view === "images" || view === "video" || view === "works") return view;
   if (view === "settings" && extras.settingsPage) return "settings";

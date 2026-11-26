@@ -109,6 +109,64 @@ test.beforeEach(async ({ page }) => {
   await mockCurrentProduct(page);
 });
 
+const imageSkillPreview = {
+  eligible: true, comparison_key: "skills-image", requires_confirmation: false,
+  selection: { profile_id: "skill-image", model_name: "Fixture Image", service_name: "Fixture", reason: "default", sizes: ["1024x1024"] },
+  candidates: [{ profile_id: "skill-image", model_name: "Fixture Image", service_name: "Fixture", eligible: true }],
+};
+
+async function mockSkillCenter(page: Page) {
+  const weekly = { id: "weekly", kind: "skill", name: "周报助手", description: "整理周报", source: "user", enabled: true, permissions: [], status: "installed", user_invocable: true };
+  await page.route("http://127.0.0.1:4173/extensions", route => route.fulfill({ json: {
+    extensions: [weekly, { ...weekly, id: "ppt-master", name: "PPT Master", source: "builtin" }],
+    connections: [], execution: { available: false, reason: "缺少隔离运行环境", adapter: "quick-ppt" },
+  } }));
+  await page.route("http://127.0.0.1:4173/agent/model-selection/preview", route => route.fulfill({ json: imageSkillPreview }));
+  const writes: string[] = [];
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.origin === "http://127.0.0.1:4173" && request.method() === "POST" && url.pathname !== "/agent/model-selection/preview") writes.push(url.pathname);
+  });
+  return writes;
+}
+
+test("skills center preselects a real skill in a new chat without starting a task", async ({ page }) => {
+  const writes = await mockSkillCenter(page);
+  await page.goto("/#/history");
+  const nav = page.getByRole("navigation", { name: "主导航", exact: true });
+  const entry = nav.getByRole("button", { name: "技能中心" });
+  await entry.click();
+  await expect(page).toHaveURL(/#\/skills$/);
+  await expect(entry).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "技能中心" })).toBeVisible();
+  const unavailable = page.getByRole("article", { name: "PPT Master" });
+  await expect(unavailable.getByText("缺少隔离运行环境")).toBeVisible();
+  await expect(unavailable.getByRole("button", { name: "在新对话中选择" })).toBeDisabled();
+  expect(writes).toEqual([]);
+
+  await page.getByRole("article", { name: "周报助手" }).getByRole("button", { name: "在新对话中选择" }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await page.getByRole("button", { name: "技能", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "可用技能" }).getByRole("button", { name: "周报助手" })).toHaveAttribute("aria-pressed", "true");
+  expect(writes).toEqual(["/conversations"]);
+});
+
+test("skills center opens image creation from mobile without changing the existing draft or generating", async ({ page }) => {
+  const writes = await mockSkillCenter(page);
+  await page.setViewportSize({ width: 390, height: 820 });
+  await page.goto("/#/images");
+  await page.getByRole("textbox", { name: "画面描述" }).fill("尚未提交的图片草稿");
+  const mobileNav = page.getByRole("navigation", { name: "移动端主导航" });
+  await mobileNav.getByRole("button", { name: "技能中心" }).click();
+  await expect(page).toHaveURL(/#\/skills$/);
+  await expect(mobileNav.getByRole("button", { name: "技能中心" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "技能中心" })).toBeVisible();
+  await page.getByRole("button", { name: "打开图片工作区" }).click();
+  await expect(page).toHaveURL(/#\/images$/);
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue("尚未提交的图片草稿");
+  expect(writes).toEqual([]);
+});
+
 for (const theme of ["light", "dark", "blue"] as const) {
   test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
     await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
@@ -122,7 +180,7 @@ for (const theme of ["light", "dark", "blue"] as const) {
     for (const width of [874, 1280]) {
       await page.setViewportSize({ width, height: 770 });
       await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("button")).toHaveText([
-        "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "设置"
+        "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
       ]);
 
       for (const collapsed of [false, true]) {

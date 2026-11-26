@@ -15,6 +15,8 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
     case "chat":
       if (route.page === "library") return ["library"];
       return ["conversations", "capabilities", "attachmentConfig"];
+    case "skills":
+      return ["capabilities"];
     case "dashboard":
     case "history":
     case "projects":
