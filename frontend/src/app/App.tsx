@@ -1,4 +1,4 @@
-import { readStorageItem } from "../storage";
+import { readStorageItem, writeStorageItem } from "../storage";
 import { useModelCatalog } from "../features/settings/useModelCatalog";
 import { useComposerModelDiscovery } from "../features/chat/useComposerModelDiscovery";
 import { useModelDiscovery } from "../features/settings/useModelDiscovery";
@@ -23,7 +23,7 @@ import { useConversations } from "../features/chat/useConversations";
 import { useConversationWebSearch } from "../features/chat/useConversationWebSearch";
 import { useKernels } from "../features/chat/useKernels";
 import { VideoPage, WorksPage } from "../features/product/ProductPages";
-import { ImageWorkspacePage } from "../features/product/ImageWorkspacePage";
+import { ImageWorkspacePage, type ImageCreationDraft, type ImageDraftSettings } from "../features/product/ImageWorkspacePage";
 import { useLibrary } from "../features/library/useLibrary";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
@@ -38,14 +38,15 @@ import { useFirstRun } from "../features/onboarding/useFirstRun";
 import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
 import { ActionButton } from "../components/ui/ActionButton";
-import { WorkspaceShortcuts } from "../features/product/WorkspaceShortcuts";
+import { WorkspaceShortcuts, type WorkspaceShortcutGroup } from "../features/product/WorkspaceShortcuts";
+import { ThemeToggleButton } from "../components/ThemeToggleButton";
 import { ConversationDialog } from "../components/ConversationDialog";
 import type { AttachmentConfig, ChatAttachment, ChatComposerDraft } from "../features/chat/types";
 import type { ModelParameterUpdate } from "../features/chat/ComposerModelParameters";
 import type { ArtifactManifest } from "../features/chat/result-types";
 import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
-import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
+import { CreationEntry, MAX_CREATION_DRAFT_LENGTH, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { CreationRecords } from "../features/product/CreationRecords";
 import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
 import { GlobalSearch, type SearchHit } from "../features/product/GlobalSearch";
@@ -62,6 +63,26 @@ import type { AgentCapabilities, AgentOperationsSnapshot, AgentSettings, Convers
 import { Bell, CheckCircle2, ListTodo, Search, TriangleAlert, X } from "lucide-react";
 import "../styles/foundations.css";
 import "../AppStyles";
+
+type CreationForm = {
+  scope: string;
+  mode: CreationMode;
+  drafts: CreationDrafts;
+  imageSettings: ImageDraftSettings;
+};
+
+function restoreCreationForm(scope: string): CreationForm {
+  const form: CreationForm = { scope, mode: "images", drafts: { chat: "", images: "" }, imageSettings: {} };
+  try {
+    const saved = JSON.parse(readStorageItem(`tuantuan-home-draft:${scope}`, "sessionStorage") ?? "null");
+    if (saved?.mode === "chat") form.mode = "chat";
+    for (const mode of ["chat", "images"] as const) {
+      const draft = saved?.drafts?.[mode];
+      if (typeof draft === "string") form.drafts[mode] = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
+    }
+  } catch { /* Invalid saved drafts are ignored. */ }
+  return form;
+}
 
 type ModelSaveReceipt = { committed: boolean; saved_revision: number | null; settings: AgentSettings };
 function matchesModelConfiguration(result: { connection_id?: string; config_revision?: number }, saved: AgentSettings) {
@@ -209,11 +230,19 @@ export function App({
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const creationScope = JSON.stringify([apiBase, userEmail]);
+  const shortcutsDefaultOpen = activeView === "dashboard";
+  const shortcutScope = JSON.stringify([creationScope, shortcutsDefaultOpen]);
+  const [shortcutStates, setShortcutStates] = useState<Record<string, Partial<Record<WorkspaceShortcutGroup, boolean>>>>({});
+  const shortcutState = shortcutStates[shortcutScope];
   const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
   const [searchScope, setSearchScope] = useState<string | null>(null);
-  const [creationForm, setCreationForm] = useState<{ scope: string; mode: CreationMode; drafts: CreationDrafts }>({ scope: creationScope, mode: "chat", drafts: { chat: "", images: "" } });
-  const activeCreationForm = creationForm.scope === creationScope ? creationForm : { scope: creationScope, mode: "chat" as const, drafts: { chat: "", images: "" } };
-  const [imageCreationDraft, setImageCreationDraft] = useState<{ scope: string; id: string; content: string } | null>(null);
+  const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
+  const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
+  const { mode: savedCreationMode, drafts: savedCreationDrafts } = activeCreationForm;
+  useEffect(() => {
+    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ mode: savedCreationMode, drafts: savedCreationDrafts }), "sessionStorage");
+  }, [creationScope, savedCreationMode, savedCreationDrafts]);
+  const [imageCreationDraft, setImageCreationDraft] = useState<(ImageCreationDraft & { scope: string }) | null>(null);
   const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string }) | null>(null);
   const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
   const [conversationFiles, setConversationFiles] = useState<{ scope: string; drafts: Map<number, File[]> } | null>(null);
@@ -223,6 +252,10 @@ export function App({
     setHomeFiles(previous => previous?.scope === creationScope ? previous : null);
     setConversationFiles(previous => previous?.scope === creationScope ? previous : null);
   }, [creationScope]);
+
+  function updateCreationForm(update: (form: CreationForm) => CreationForm) {
+    setCreationForm(previous => update(previous.scope === creationScope ? previous : activeCreationForm));
+  }
 
   function setConversationDraftFiles(conversationId: number, files: File[]) {
     setConversationFiles(previous => {
@@ -1297,10 +1330,13 @@ export function App({
     }), content, notice, { skillId, files });
   }
 
-  function openCreationWorkspace(mode: CreationMode, content: string) {
+  function openCreationWorkspace(mode: CreationMode, content: string, settings?: ImageDraftSettings) {
     if (!databaseReady) return;
     if (mode === "images") {
-      if (content.trim()) setImageCreationDraft({ scope: creationScope, id: crypto.randomUUID(), content });
+      const explicitSettings = settings && (settings.profileId !== undefined || settings.size !== undefined) ? settings : undefined;
+      if (content.trim() || explicitSettings) {
+        setImageCreationDraft({ scope: creationScope, id: crypto.randomUUID(), content, settings: explicitSettings });
+      }
       navigateRoute({ section: "images" });
       return;
     }
@@ -1376,7 +1412,14 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
-        shortcuts={databaseReady && <WorkspaceShortcuts key={creationScope} fetchJson={fetchJson}
+        shortcuts={databaseReady && <WorkspaceShortcuts key={shortcutScope} fetchJson={fetchJson}
+          projectsOpen={shortcutState?.projects ?? shortcutsDefaultOpen}
+          recordsOpen={shortcutState?.records ?? shortcutsDefaultOpen}
+          onOpenChange={(group, open) => setShortcutStates(previous => ({
+            ...previous, [shortcutScope]: { ...previous[shortcutScope], [group]: open },
+          }))}
+          onViewProjects={activeView === "dashboard" ? () => selectProductNav("projects") : undefined}
+          onViewRecords={activeView === "dashboard" ? () => selectProductNav("history") : undefined}
           onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}
         weixinBot={weixinBot}
         weixinActive={weixinActive}
@@ -1391,12 +1434,14 @@ export function App({
       />
 
       <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${appRoute.section === "images" || appRoute.section === "works" ? " image-studio-host" : ""}${topbarTitle ? "" : " is-titleless"}`}>
-        {activeView !== "chat" && <AppTopBar section={topbarSection} title={topbarTitle}>{workspaceActions}</AppTopBar>}
+        {activeView !== "chat" && <AppTopBar section={topbarSection} title={topbarTitle}>
+          {activeView === "dashboard" ? <>{workspaceActions}<ThemeToggleButton className="creation-theme-toggle" /></> : workspaceActions}
+        </AppTopBar>}
 
         {activeView === "dashboard" ? (
           <Suspense fallback={<PageLoading label="正在加载首页…" />}>
             <HomePage
-              key={userEmail}
+              key={creationScope}
               fetchJson={fetchJson}
               accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
@@ -1405,15 +1450,20 @@ export function App({
                 drafts={activeCreationForm.drafts}
                 files={activeHomeFiles}
                 onFiles={files => setHomeFiles({ scope: creationScope, files })}
-                onMode={mode => setCreationForm({ ...activeCreationForm, mode })}
-                onDraft={(mode, text) => setCreationForm({ ...activeCreationForm, drafts: { ...activeCreationForm.drafts, [mode]: text } })}
+                onMode={mode => updateCreationForm(form => ({ ...form, mode }))}
+                onDraft={(mode, text) => updateCreationForm(form => ({ ...form, drafts: { ...form.drafts, [mode]: text } }))}
                 onOpen={openCreationWorkspace}
                 onOpenVideo={() => navigateRoute({ section: "video" })}
+                onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
+                onOpenSkills={() => navigateRoute({ section: "skills" })}
+                onOpenImageSettings={() => navigateRoute({ section: "settings", page: "model", purpose: "image" })}
+                imageSettings={activeCreationForm.imageSettings}
+                onImageSettings={imageSettings => updateCreationForm(form => ({ ...form, imageSettings }))}
+                fetchJson={fetchJson}
+                voiceInput={voiceInput}
                 ready={databaseReady}
                 busy={activeCreationForm.mode === "chat" && (conversationBusy || chatBusy)}
               />}
-              recentRecords={databaseReady && <CreationRecords key={creationScope} fetchJson={fetchJson} onOpen={openCreationRecord}
-                onViewAll={() => navigateRoute({ section: "history" })} />}
               onAnalyze={analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
               weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}

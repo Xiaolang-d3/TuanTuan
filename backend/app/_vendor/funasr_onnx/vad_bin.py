@@ -294,6 +294,7 @@ class Fsmn_vad_online:
             in_cache = param_dict.get("in_cache", list())
             in_cache = self.prepare_cache(in_cache)
             vad_scorer = param_dict.get("vad_scorer", E2EVadModel(self.config["model_conf"]))
+            param_dict["vad_scorer"] = vad_scorer
             try:
                 inputs = [feats]
                 inputs.extend(in_cache)
@@ -308,7 +309,7 @@ class Fsmn_vad_online:
                 # logging.warning(traceback.format_exc())
                 logging.warning("input wav is silence or noise")
                 segments = []
-        param_dict.update({"frontend": frontend, "vad_scorer": vad_scorer})
+        param_dict["frontend"] = frontend
         return segments
 
     def load_data(self, wav_content: Union[str, np.ndarray, List[str]], fs: int = None) -> List:

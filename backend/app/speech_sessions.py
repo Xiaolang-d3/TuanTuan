@@ -102,7 +102,7 @@ def close_session(key: str) -> None:
             del _sessions[key]
 
 
-def feed(key: str, sequence: int, content: bytes) -> list[dict]:
+def feed(key: str, sequence: int, content: bytes | None) -> list[dict]:
     owner = _owner()
     with _registry_lock:
         _prune()
@@ -116,21 +116,26 @@ def feed(key: str, sequence: int, content: bytes) -> list[dict]:
             raise SessionGoneError("语音会话已结束，请重新打开语音输入。")
         if sequence != session.sequence:
             raise ValueError("语音片段顺序异常，请重新打开语音输入。")
-        if not content or len(content) > MAX_CHUNK_BYTES:
-            raise ValueError("语音片段大小异常，请重新打开语音输入。")
-        audio = speech._decode_audio(content, max_seconds=2)
+        audio = None
+        if content is not None:
+            if not content or len(content) > MAX_CHUNK_BYTES:
+                raise ValueError("语音片段大小异常，请重新打开语音输入。")
+            audio = speech._decode_audio(content, max_seconds=2)
         if not speech._inference_lock.acquire(timeout=2):
             raise speech.SpeechBusyError("当前设备处理语音较慢，请稍后重试。")
         try:
             if session.closed.is_set():
                 raise SessionGoneError("语音会话已结束，请重新打开语音输入。")
-            updates = session.stream.push(audio)
+            updates = session.stream.finish() if audio is None else session.stream.push(audio)
         finally:
             speech._inference_lock.release()
         if session.closed.is_set():
             raise SessionGoneError("语音会话已结束，请重新打开语音输入。")
-        session.sequence += 1
-        session.touched = time.monotonic()
+        if content is None:
+            close_session(key)
+        else:
+            session.sequence += 1
+            session.touched = time.monotonic()
         return updates
     finally:
         session.lock.release()

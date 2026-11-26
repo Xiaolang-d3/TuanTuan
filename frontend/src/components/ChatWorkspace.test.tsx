@@ -537,7 +537,7 @@ describe("ChatWorkspace", () => {
     voiceCaptureMocks.supported = true;
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
     try {
-      const session = { close: vi.fn().mockResolvedValue(undefined), accept: vi.fn().mockResolvedValueOnce([{ segmentId: 0, revision: 1, text: "第一自", final: false }]).mockResolvedValueOnce([{ segmentId: 0, revision: 2, text: "第一句。", final: true }]).mockResolvedValueOnce([{ segmentId: 1, revision: 1, text: "第二句。", final: true }]) };
+      const session = { close: vi.fn().mockResolvedValue(undefined), finish: vi.fn().mockResolvedValue([]), accept: vi.fn().mockResolvedValueOnce([{ segmentId: 0, revision: 1, text: "第一自", final: false }]).mockResolvedValueOnce([{ segmentId: 0, revision: 2, text: "第一句。", final: true }]).mockResolvedValueOnce([{ segmentId: 1, revision: 1, text: "第二句。", final: true }]) };
       const voiceInput = { prepare: vi.fn().mockResolvedValue(undefined), open: vi.fn().mockResolvedValue(session) };
       const p = renderChat([], { voiceInput });
       fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "原有草稿" } });

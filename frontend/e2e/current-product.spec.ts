@@ -306,7 +306,7 @@ test("recent records link to filtered creation history and open image results re
     if (request.method() !== "GET" && path !== "/agent/model-selection/preview") writes.push(path);
   });
   await page.goto("/#/home");
-  const recent = page.getByRole("region", { name: "最近记录" });
+  const recent = page.getByRole("navigation", { name: "工作区快捷入口" });
   await expect(recent.getByRole("button", { name: /资料研究/ })).toBeVisible();
   await recent.getByRole("button", { name: "查看全部创作记录" }).click();
   await expect(page).toHaveURL(/#\/history$/);
@@ -339,15 +339,25 @@ test("desktop shortcuts reuse the original project and creation lists", async ({
   });
   await page.route("**/projects/press", route => route.fulfill({ json: { ...project, items: [] } }));
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/#/home");
+  await page.goto("/#/works");
   const shortcuts = page.getByRole("navigation", { name: "工作区快捷入口" });
+  const projects = shortcuts.getByRole("button", { name: "常用项目" });
+  const records = shortcuts.getByRole("button", { name: "最近记录" });
   await expect(shortcuts).toBeVisible();
   expect(loads).toBe(0);
-  await shortcuts.getByText("常用项目", { exact: true }).press("Enter");
+  await expect(projects).toHaveAttribute("aria-expanded", "false");
+  await projects.press("Enter");
+  await expect(projects).toHaveAttribute("aria-expanded", "true");
   await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
   await expect(shortcuts.getByRole("button", { name: "已归档项目", exact: true })).toHaveCount(0);
-  await shortcuts.getByText("最近记录", { exact: true }).click();
+  await records.press("Space");
+  await expect(records).toHaveAttribute("aria-expanded", "true");
+  await projects.click();
+  await expect(projects).toHaveAttribute("aria-expanded", "false");
+  await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeHidden();
   await expect(shortcuts.getByRole("button", { name: "图片：海边海报" })).toBeVisible();
+  await projects.click();
+  await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
   const shot = testInfo.outputPath("workspace-shortcuts.png");
   await page.screenshot({ path: shot, animations: "disabled" });
   await testInfo.attach("工作区快捷入口", { path: shot, contentType: "image/png" });
@@ -802,11 +812,261 @@ test("retired career routes are not recognized and open home", async ({ page }) 
   for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/knowledge"]) {
     await page.goto(legacyRoute);
     await expect(page).toHaveURL(/#\/home$/);
-    await expect(page.getByRole("region", { name: "开发者首页" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "团团首页" })).toBeVisible();
   }
   await expect(page.getByText("职位机会", { exact: true })).toHaveCount(0);
 });
 
+
+test("the creation homepage filters inspiration and carries its image settings into the studio", async ({ page }, testInfo) => {
+  const sizes = ["auto", "1536x1024", "768x512", "1024x1536"];
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  await page.route("**/projects", route => route.fulfill({ json: { items: [
+    { id: "game-ui", name: "游戏 UI 设计", status: "active" },
+    { id: "archived", name: "已归档项目", status: "archived" },
+  ] } }));
+  await page.route("**/image-studio/options", route => route.fulfill({ json: {
+    default_profile_id: "skill-image", models: [{ id: "skill-image", name: "Fixture Image", sizes }],
+  } }));
+  await page.route("**/documents", route => route.fulfill({ json: { documents: [] } }));
+  await page.route("**/agent/model-selection/preview", route => route.fulfill({ json: {
+    ...imageSkillPreview, selection: { ...imageSkillPreview.selection, sizes },
+  } }));
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const inspiration = entry.getByRole("region", { name: "探索创作灵感" });
+  const projects = page.getByRole("navigation", { name: "工作区快捷入口" });
+  const modes = entry.getByRole("group", { name: "创作方式" });
+  const imageMode = modes.getByRole("button", { name: "图片", exact: true });
+  const chatMode = modes.getByRole("button", { name: "对话", exact: true });
+  const shortcuts = entry.getByRole("group", { name: "创作快捷入口" });
+  await expect(projects.getByRole("button", { name: "我的项目" })).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: "最近记录" })).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await expect(projects.getByText("已归档项目")).toHaveCount(0);
+  await expect(inspiration.locator("img")).toHaveCount(3);
+  await expect.poll(() => inspiration.locator("img").evaluateAll(images =>
+    images.every(image => (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  await expect(imageMode).toHaveAttribute("aria-pressed", "true");
+  await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
+  const draft = entry.getByRole("textbox", { name: "图片草稿" });
+  const initialHeight = await draft.evaluate(element => element.getBoundingClientRect().height);
+  const multilinePrompt = "一座面朝大海的灯塔\n清晨薄雾\n远处有帆船\n用低饱和色表现光线";
+  await draft.fill(multilinePrompt);
+  await expect.poll(() => draft.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight);
+  await entry.locator("form").screenshot({ path: testInfo.outputPath("creation-composer-focused.png"), animations: "disabled" });
+  await draft.press("End");
+  await draft.press("Enter");
+  await expect(draft).toHaveValue(`${multilinePrompt}\n`);
+  await expect(page).toHaveURL(/#\/home$/);
+  await draft.fill(Array.from({ length: 20 }, () => "灯塔").join("\n"));
+  await expect.poll(() => draft.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await draft.fill("");
+  await draft.blur();
+  await expect.poll(() => draft.evaluate(element => element.getBoundingClientRect().height)).toBe(initialHeight);
+  await entry.locator("form").screenshot({ path: testInfo.outputPath("creation-composer.png"), animations: "disabled" });
+  await page.screenshot({ path: testInfo.outputPath("creation-home-dark.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(projects).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "移动端主导航" })
+    .getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "添加到对话", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "进入图片工作区" })).toBeInViewport();
+  await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath("creation-home-mobile-dark.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  const sidebar = page.locator("aside.sidebar");
+  const recentRecords = projects.getByRole("button", { name: "最近记录" });
+  await recentRecords.click();
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await sidebar.getByRole("button", { name: "收起侧边栏" }).click();
+  const expand = sidebar.getByRole("button", { name: "展开侧边栏" });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(72);
+  await expect(projects).toBeHidden();
+  await expect(sidebar.getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
+  await expect(sidebar.getByRole("button", { name: "设置", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "语音输入", exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("creation-home-sidebar-collapsed.png"), animations: "disabled" });
+  await expand.press("Enter");
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(176);
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await sidebar.getByRole("button", { name: "我的作品", exact: true }).click();
+  await expect(page).toHaveURL(/#\/works$/);
+  await page.goBack();
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await recentRecords.press("Space");
+  await expect(recentRecords).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: "图片：海边海报" })).toBeVisible();
+
+  await imageMode.press("ArrowLeft");
+  await expect(chatMode).toBeFocused();
+  await expect(imageMode).toHaveAttribute("aria-pressed", "true");
+  await chatMode.press("Space");
+  await expect(imageMode).toHaveAttribute("aria-pressed", "false");
+  await chatMode.press("Enter");
+  await expect(chatMode).toHaveAttribute("aria-pressed", "true");
+  await expect(entry.getByRole("textbox", { name: "对话草稿" })).toBeVisible();
+  await shortcuts.getByRole("button", { name: "文档" }).click();
+  const documents = page.getByRole("dialog", { name: "文档成果" });
+  await expect(documents).toBeVisible();
+  await documents.getByRole("button", { name: "关闭文档成果" }).click();
+  await inspiration.getByRole("button", { name: "电商设计" }).click();
+  await expect(inspiration.locator("img")).toHaveCount(1);
+  await inspiration.getByRole("button", { name: "商品宣传设计" }).click();
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue(/浅鼠尾草绿/);
+  await entry.getByRole("combobox", { name: "选择模型" }).selectOption("skill-image");
+  await entry.getByRole("combobox", { name: "比例" }).selectOption("3:2");
+  await entry.getByRole("combobox", { name: "分辨率" }).selectOption("768x512");
+  await entry.getByRole("button", { name: "进入图片工作区" }).click();
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue(/浅鼠尾草绿/);
+  await expect(page.getByRole("combobox", { name: "生成画幅" })).toHaveValue("768x512");
+  await page.goBack();
+  await shortcuts.getByRole("button", { name: "智能体" }).click();
+  await expect(page).toHaveURL(/#\/skills$/);
+  expect(writes).toEqual([]);
+});
+
+test("home voice input edits the current draft and stops when changing modes", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
+      const context = new AudioContext({ sampleRate: 16_000 });
+      await context.resume();
+      const destination = context.createMediaStreamDestination();
+      const oscillator = context.createOscillator();
+      oscillator.connect(destination);
+      oscillator.start();
+      const track = destination.stream.getTracks()[0];
+      const stop = track.stop.bind(track);
+      track.stop = () => { stop(); void context.close(); };
+      return destination.stream;
+    } });
+  });
+  await page.route("**/speech/prepare", route => route.fulfill({ json: { state: "ready", error: "" } }));
+  let sessions = 0;
+  const closed: string[] = [];
+  let pendingAudio = false;
+  let releaseAudio!: () => void;
+  const audioGate = new Promise<void>(resolve => { releaseAudio = resolve; });
+  await page.route("**/speech/sessions", route => route.fulfill({ json: { id: `home-${++sessions}` } }));
+  await page.route(/\/speech\/sessions\/home-\d+\/audio\?/, async route => {
+    const url = route.request().url();
+    if (url.includes("/home-3/")) {
+      pendingAudio = true;
+      await audioGate;
+      return route.fulfill({ json: { updates: [{ segmentId: 0, revision: 1, text: "最后", final: false }] } });
+    }
+    const imageSession = url.includes("/home-1/");
+    return route.fulfill({ json: { updates: [{ segmentId: 0, revision: 1, text: imageSession ? "晚霞" : "会议纪要", final: true }] } });
+  });
+  await page.route(/\/speech\/sessions\/home-[23]\/finish\?/, route => {
+    const url = new URL(route.request().url());
+    const id = url.pathname.split("/")[3];
+    expect(Number(url.searchParams.get("sequence"))).toBeGreaterThan(0);
+    closed.push(id);
+    const updates = id === "home-3" ? [{ segmentId: 0, revision: 2, text: "最后一句。", final: true }] : [];
+    return route.fulfill({ json: { updates } });
+  });
+  await page.route(/\/speech\/sessions\/home-\d+$/, route => {
+    expect(route.request().method()).toBe("DELETE");
+    closed.push(new URL(route.request().url()).pathname.split("/").pop()!);
+    return route.fulfill({ json: { closed: true } });
+  });
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && !path.startsWith("/speech/") && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const mic = entry.getByRole("button", { name: "语音输入", exact: true });
+  const stop = entry.getByRole("button", { name: "停止语音输入", exact: true });
+  const image = entry.getByRole("textbox", { name: "图片草稿" });
+  await image.fill("画面：海边");
+  await image.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(3, 3));
+  await expect(mic).toBeInViewport();
+  await mic.click();
+  await expect(stop).toHaveAttribute("aria-pressed", "true");
+  await expect(image).toHaveValue("画面：晚霞海边");
+
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => closed).toEqual(["home-1"]);
+  const chat = entry.getByRole("textbox", { name: "对话草稿" });
+  await expect(chat).toHaveValue("");
+  await chat.fill("请整理");
+  await mic.click();
+  await expect(chat).toHaveValue("请整理会议纪要");
+  await stop.click();
+  await expect.poll(() => closed).toEqual(["home-1", "home-2"]);
+
+  await entry.getByRole("button", { name: "图片", exact: true }).click();
+  await expect(image).toHaveValue("画面：晚霞海边");
+  await image.fill("海报：");
+  await mic.click();
+  try {
+    await expect.poll(() => pendingAudio).toBe(true);
+    await entry.getByRole("button", { name: "进入图片工作区" }).click();
+    await expect(entry.getByText("正在完成转写…")).toBeVisible();
+    await expect(page).toHaveURL(/#\/home$/);
+  } finally {
+    releaseAudio();
+  }
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue("海报：最后一句。");
+  expect(closed).toEqual(["home-1", "home-2", "home-3"]);
+  expect(writes).toEqual([]);
+});
+
+test("home restores both drafts after refresh and requires a new choice for a removed model", async ({ page }) => {
+  const defaultModel = { id: "skill-image", name: "默认图片服务", sizes: ["1024x1024"] };
+  let models = [defaultModel, { id: "old-model", name: "旧图片服务", sizes: ["1024x1536"] }];
+  const requestedProfiles: unknown[] = [];
+  await page.route("**/image-studio/options", route => route.fulfill({ json: { default_profile_id: defaultModel.id, models } }));
+  await page.route("**/agent/model-selection/preview", route => {
+    requestedProfiles.push(route.request().postDataJSON().profile_id);
+    return route.fulfill({ json: imageSkillPreview });
+  });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const image = entry.getByRole("textbox", { name: "图片草稿" });
+  const chat = entry.getByRole("textbox", { name: "对话草稿" });
+  await image.fill("海边夜景");
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await chat.fill("整理访谈");
+  await page.reload();
+  await expect(chat).toHaveValue("整理访谈");
+  await entry.getByRole("button", { name: "图片", exact: true }).click();
+  await expect(image).toHaveValue("海边夜景");
+
+  const model = entry.getByRole("combobox", { name: "选择模型" });
+  const open = entry.getByRole("button", { name: "进入图片工作区" });
+  await model.selectOption("old-model");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings$/);
+  models = [defaultModel];
+  await page.goBack();
+  await expect(entry.getByRole("alert")).toHaveText("原选图片模型已不可用，请重新选择。");
+  await expect(model.locator("option:checked")).toHaveText("原选模型已不可用");
+  await expect(open).toBeDisabled();
+  await model.selectOption("");
+  await open.click();
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue("海边夜景");
+  await expect(page.getByRole("button", { name: "生成图片", exact: true })).toBeEnabled();
+  expect(requestedProfiles).toContain(null);
+  expect(requestedProfiles).not.toContain("old-model");
+});
 
 test("the unified entry passes separate drafts without requesting generation", async ({ page }) => {
   const writes: string[] = [];
@@ -818,6 +1078,7 @@ test("the unified entry passes separate drafts without requesting generation", a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/home");
   const entry = page.getByRole("region", { name: "新建创作" });
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
   await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理调研结果");
   await entry.getByRole("button", { name: "图片", exact: true }).click();
   await entry.getByRole("textbox", { name: "图片草稿" }).fill("留白的海边旅行海报");
@@ -855,12 +1116,14 @@ test("home keeps draft files when switching modes and uploads only on request", 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/home");
   const entry = page.getByRole("region", { name: "新建创作" });
-  await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理这份资料");
+  await expect(entry.getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(entry.getByRole("button", { name: "添加到对话", exact: true })).toBeVisible();
   await entry.locator('input[type="file"]').setInputFiles([
     { name: "资料.md", mimeType: "text/markdown", buffer: Buffer.from("# 测试资料") },
     { name: "不支持.exe", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") },
   ]);
   await expect(entry.getByRole("alert")).toContainText("不支持的文件未添加");
+  await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理这份资料");
   await entry.getByRole("button", { name: "图片", exact: true }).click();
   await expect(entry.getByRole("status")).toContainText("已选文件保留");
   await entry.getByRole("button", { name: "进入图片工作区" }).click();
@@ -895,7 +1158,7 @@ test("home and library use current sources and stay usable on narrow screens", a
   for (const width of [375, 960, 1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/#/dashboard");
-    await expect(page.getByRole("heading", { name: /测试用户/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "让想法成为现实", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "查看完整资讯" }).click();
     const aiTab = page.getByRole("tab", { name: /AI 动态/ });
     await aiTab.click();

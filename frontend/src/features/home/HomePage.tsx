@@ -23,7 +23,6 @@ type HomePageProps = {
   onLibraryChanged: () => Promise<void>;
   weixinLive?: { connected: boolean; unread_count: number } | null;
   creationEntry?: ReactNode;
-  recentRecords?: ReactNode;
 };
 
 function greetingPrefix(date: Date) { return date.getHours() < 12 ? "早上好" : date.getHours() < 18 ? "下午好" : "晚上好"; }
@@ -52,7 +51,7 @@ function publishedTime(article: HomeArticle) {
   return Number.isFinite(time) ? time : -Infinity;
 }
 
-export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive, creationEntry, recentRecords }: HomePageProps) {
+export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibraryChanged, weixinLive, creationEntry }: HomePageProps) {
   const { feed, loading, error, refreshing, notice, setNotice, refresh, savePreferences, setItemState, generateDigest, regenerateCuration } = useHomeFeed(fetchJson);
   const { workspace, loading: workspaceLoading, error: workspaceError, refresh: refreshWorkspace } = useHomeWorkspace(fetchJson);
   const [now, setNow] = useState(() => new Date());
@@ -196,17 +195,16 @@ export function HomePage({ fetchJson, accountName, accountKey, onAnalyze, onLibr
   const infoTabsSection = <HomeInfoTabs accountKey={accountKey} tabs={infoTabs} panels={infoPanels} />;
   const infoNotice = notice && <div className={hasCreationEntry ? "home-news-summary-notice" : "home-toast"} role="status"><span>{notice}</span>{undoItem && <button type="button" onClick={() => { void changeState(undoItem, { hidden: false }); }}>撤销</button>}<button type="button" aria-label="关闭提示" onClick={() => { setNotice(null); setUndoItem(null); }}><X size={14} /></button></div>;
 
-  return <section className="home-page" aria-label="开发者首页" data-mode={mode}>
-    <header className="home-head">
+  return <section className={hasCreationEntry ? "home-page home-page--creation" : "home-page"} aria-label={hasCreationEntry ? "团团首页" : "开发者首页"} data-mode={mode}>
+    {!hasCreationEntry && <header className="home-head">
       <div className="home-hello">
         <div className="home-eyebrow"><span>{now.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</span><span>·</span><time className="home-time" aria-label="当前时间" dateTime={now.toISOString()}>{now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })}</time></div>
         <h1 className="home-welcome">{greetingPrefix(now)}，{accountName.trim() || "欢迎回来"}</h1>
       </div>
-      {!hasCreationEntry && infoControls}
-    </header>
+      {infoControls}
+    </header>}
     {hasCreationEntry ? <>
       {creationEntry}
-      {recentRecords}
       <HomeNewsSummary
         articles={summaryNews}
         loading={moduleLoading("news", eligibleNews.length)}
