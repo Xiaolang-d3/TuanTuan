@@ -8,12 +8,34 @@
   color: var(--color-text-secondary);
   font-size: 12px;
 }
-.workspace-shortcuts summary { padding: 7px 6px; border-radius: 6px; cursor: pointer; font-weight: 600; }
-.workspace-shortcuts summary:hover { background: var(--color-brand-soft); }
-.workspace-shortcuts summary:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.workspace-shortcut-group + .workspace-shortcut-group { margin-top: 6px; }
+.workspace-shortcut-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-shortcut-trigger:hover { background: var(--color-surface-subtle); }
+.workspace-shortcut-trigger:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.workspace-shortcut-trigger svg { flex: none; color: var(--color-text-muted); }
+.workspace-shortcut-trigger[data-panel-open] svg { transform: rotate(90deg); }
+.workspace-shortcut-panel { padding-inline-start: 6px; }
 .workspace-shortcuts p { margin: 4px 6px 8px; color: var(--color-text-muted); }
 .workspace-shortcuts ul { list-style: none; padding: 0; margin: 0; }
-.workspace-shortcuts li > button { width: 100%; min-width: 0; justify-content: flex-start; }
+.workspace-shortcuts li > button, .workspace-shortcut-index { width: 100%; min-width: 0; justify-content: flex-start; }
+.workspace-shortcuts .ui-button { border: 0; border-radius: 6px; }
+.workspace-shortcuts .ui-button:focus-visible { outline-offset: -2px; }
 .workspace-shortcuts li > button > svg { flex: 0 0 auto; }
 .workspace-shortcuts li > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

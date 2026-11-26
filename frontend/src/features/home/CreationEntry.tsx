@@ -1,3 +1,5 @@
+import { Toggle } from "@base-ui/react/toggle";
+import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { useRef, useState } from "react";
 import { ArrowUp, Bot, FileText, Image, MessageCircle, Plus, Video } from "lucide-react";
 import { CHAT_ATTACHMENT_ACCEPT, chatAttachmentKind, MAX_CHAT_ATTACHMENTS } from "../chat/attachment-formats";
@@ -100,15 +102,21 @@ export function CreationEntry({
           </button>
         </div>
       </form>
-      <div className="creation-entry-modes" role="group" aria-label="创作方式">
-        {modes.map(({ id, label, icon: Icon }) => (
-          <button type="button" key={id} aria-pressed={mode === id} onClick={() => onMode(id)}>
-            <Icon size={15} aria-hidden="true" />{label}
-          </button>
-        ))}
-        <button type="button" aria-label="查看视频工作区" onClick={onOpenVideo}><Video size={15} aria-hidden="true" />视频</button>
-        <button type="button" onClick={onOpenDocuments} disabled={!ready}><FileText size={15} aria-hidden="true" />文档</button>
-        <button type="button" onClick={onOpenSkills}><Bot size={15} aria-hidden="true" />智能体</button>
+      <div className="creation-entry-modes">
+        <ToggleGroup<CreationMode> className="creation-mode-toggle-group" aria-label="创作方式" value={[mode]}
+          onValueChange={([nextMode], details) => {
+            if (nextMode) onMode(nextMode);
+            else details.cancel();
+          }}>
+          {modes.map(({ id, label, icon: Icon }) => (
+            <Toggle key={id} value={id}><Icon size={15} aria-hidden="true" />{label}</Toggle>
+          ))}
+        </ToggleGroup>
+        <div className="creation-mode-shortcuts" role="group" aria-label="创作快捷入口">
+          <button type="button" aria-label="查看视频工作区" onClick={onOpenVideo}><Video size={15} aria-hidden="true" />视频</button>
+          <button type="button" onClick={onOpenDocuments} disabled={!ready}><FileText size={15} aria-hidden="true" />文档</button>
+          <button type="button" onClick={onOpenSkills}><Bot size={15} aria-hidden="true" />智能体</button>
+        </div>
       </div>
       <CreationInspiration onChoose={useInspiration} />
     </section>

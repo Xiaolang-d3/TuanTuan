@@ -341,13 +341,23 @@ test("desktop shortcuts reuse the original project and creation lists", async ({
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/#/works");
   const shortcuts = page.getByRole("navigation", { name: "工作区快捷入口" });
+  const projects = shortcuts.getByRole("button", { name: "常用项目" });
+  const records = shortcuts.getByRole("button", { name: "最近记录" });
   await expect(shortcuts).toBeVisible();
   expect(loads).toBe(0);
-  await shortcuts.getByText("常用项目", { exact: true }).press("Enter");
+  await expect(projects).toHaveAttribute("aria-expanded", "false");
+  await projects.press("Enter");
+  await expect(projects).toHaveAttribute("aria-expanded", "true");
   await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
   await expect(shortcuts.getByRole("button", { name: "已归档项目", exact: true })).toHaveCount(0);
-  await shortcuts.getByText("最近记录", { exact: true }).click();
+  await records.press("Space");
+  await expect(records).toHaveAttribute("aria-expanded", "true");
+  await projects.click();
+  await expect(projects).toHaveAttribute("aria-expanded", "false");
+  await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeHidden();
   await expect(shortcuts.getByRole("button", { name: "图片：海边海报" })).toBeVisible();
+  await projects.click();
+  await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
   const shot = testInfo.outputPath("workspace-shortcuts.png");
   await page.screenshot({ path: shot, animations: "disabled" });
   await testInfo.attach("工作区快捷入口", { path: shot, contentType: "image/png" });
@@ -818,6 +828,7 @@ test("the creation homepage filters inspiration and carries its image settings i
   await page.route("**/image-studio/options", route => route.fulfill({ json: {
     default_profile_id: "skill-image", models: [{ id: "skill-image", name: "Fixture Image", sizes }],
   } }));
+  await page.route("**/documents", route => route.fulfill({ json: { documents: [] } }));
   await page.route("**/agent/model-selection/preview", route => route.fulfill({ json: {
     ...imageSkillPreview, selection: { ...imageSkillPreview.selection, sizes },
   } }));
@@ -831,12 +842,18 @@ test("the creation homepage filters inspiration and carries its image settings i
   const entry = page.getByRole("region", { name: "新建创作" });
   const inspiration = entry.getByRole("region", { name: "探索创作灵感" });
   const projects = page.getByRole("navigation", { name: "工作区快捷入口" });
+  const modes = entry.getByRole("group", { name: "创作方式" });
+  const imageMode = modes.getByRole("button", { name: "图片", exact: true });
+  const chatMode = modes.getByRole("button", { name: "对话", exact: true });
+  const shortcuts = entry.getByRole("group", { name: "创作快捷入口" });
+  await expect(projects.getByRole("button", { name: "我的项目" })).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: "最近记录" })).toHaveAttribute("aria-expanded", "true");
   await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
   await expect(projects.getByText("已归档项目")).toHaveCount(0);
   await expect(inspiration.locator("img")).toHaveCount(3);
   await expect.poll(() => inspiration.locator("img").evaluateAll(images =>
     images.every(image => (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
-  await expect(entry.getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(imageMode).toHaveAttribute("aria-pressed", "true");
   await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
   const draft = entry.getByRole("textbox", { name: "图片草稿" });
   const initialHeight = await draft.evaluate(element => element.getBoundingClientRect().height);
@@ -862,7 +879,18 @@ test("the creation homepage filters inspiration and carries its image settings i
   await page.screenshot({ path: testInfo.outputPath("creation-home-mobile-dark.png"), animations: "disabled" });
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await imageMode.press("ArrowLeft");
+  await expect(chatMode).toBeFocused();
+  await expect(imageMode).toHaveAttribute("aria-pressed", "true");
+  await chatMode.press("Space");
+  await expect(imageMode).toHaveAttribute("aria-pressed", "false");
+  await chatMode.press("Enter");
+  await expect(chatMode).toHaveAttribute("aria-pressed", "true");
+  await expect(entry.getByRole("textbox", { name: "对话草稿" })).toBeVisible();
+  await shortcuts.getByRole("button", { name: "文档" }).click();
+  const documents = page.getByRole("dialog", { name: "文档成果" });
+  await expect(documents).toBeVisible();
+  await documents.getByRole("button", { name: "关闭文档成果" }).click();
   await inspiration.getByRole("button", { name: "电商设计" }).click();
   await expect(inspiration.locator("img")).toHaveCount(1);
   await inspiration.getByRole("button", { name: "商品宣传设计" }).click();
@@ -874,6 +902,9 @@ test("the creation homepage filters inspiration and carries its image settings i
   await entry.getByRole("button", { name: "进入图片工作区" }).click();
   await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue(/浅鼠尾草绿/);
   await expect(page.getByRole("combobox", { name: "生成画幅" })).toHaveValue("768x512");
+  await page.goBack();
+  await shortcuts.getByRole("button", { name: "智能体" }).click();
+  await expect(page).toHaveURL(/#\/skills$/);
   expect(writes).toEqual([]);
 });
 
