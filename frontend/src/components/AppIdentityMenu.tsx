@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, ListTodo, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { Bell, ChevronDown, ListTodo, LogOut, Search, Settings, ShieldCheck } from "lucide-react";
 import type { ViewKey } from "../types";
 import type { SettingsPage } from "../routing";
 import { DropdownMenu, DropdownMenuContent } from "./ui/DropdownMenu";
@@ -11,6 +11,7 @@ export type AppIdentityMenuProps = {
   avatarUrl?: string | null;
   activeView?: ViewKey;
   settingsPage?: SettingsPage;
+  onOpenSearch?: () => void;
   onOpenAccount?: () => void;
   onOpenSettings?: () => void;
   onOpenTasks?: () => void;
@@ -29,6 +30,7 @@ export function AppIdentityMenu({
   avatarUrl,
   activeView,
   settingsPage,
+  onOpenSearch,
   onOpenAccount,
   onOpenSettings,
   onOpenTasks,
@@ -62,6 +64,7 @@ export function AppIdentityMenu({
             <strong title={displayName}>{displayName}</strong>
             <small title={userEmail}>{userEmail}</small>
           </div>
+          {onOpenSearch && <DropdownMenu.Item onClick={onOpenSearch}><Search size={16} aria-hidden="true" />全局搜索</DropdownMenu.Item>}
           {(onOpenAccount || onOpenSettings) && (
             <>
               <DropdownMenu.Group aria-label="账户与设置">

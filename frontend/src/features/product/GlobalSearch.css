@@ -1,0 +1,19 @@
+.global-search-backdrop { position: fixed; inset: 0; z-index: 89; background: rgb(0 0 0 / 36%); }
+.global-search {
+  display: grid; gap: 14px; box-sizing: border-box; width: min(100%, 620px); max-height: 100%;
+  overflow: auto; overscroll-behavior: contain; padding: clamp(14px, 4vw, 24px);
+  border: 1px solid var(--color-border); border-radius: 16px;
+  background: var(--color-surface); color: var(--color-text);
+}
+.global-search > header, .global-search > nav { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.global-search :is(h2, p) { margin: 0; }
+.global-search h2 { margin-bottom: 4px; font-size: 20px; }
+.global-search :is(p, small) { color: var(--color-text-muted); font-size: 13px; line-height: 1.5; }
+.global-search form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.global-search form label { display: grid; gap: 4px; min-width: 0; font-size: 13px; }
+.global-search form label:first-child { flex: 1 0 min(100%, 200px); }
+.global-search form :is(input, select) { min-width: 0; min-height: 36px; border: 1px solid var(--color-border); border-radius: 8px; padding: 4px 8px; background: var(--color-surface); color: inherit; font: inherit; }
+.global-search ul { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.global-search li button { width: 100%; min-height: 44px; height: auto; justify-content: space-between; gap: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.global-search li small, .global-search header button { flex-shrink: 0; }
+.global-search > nav { align-items: center; }

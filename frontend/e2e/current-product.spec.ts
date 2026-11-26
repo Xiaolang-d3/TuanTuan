@@ -247,7 +247,7 @@ for (const theme of ["light", "dark", "blue"] as const) {
         await account.click();
         const menu = page.getByRole("menu", { name: "账号菜单" });
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "任务中心", "通知", "退出登录"]);
+        await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "设置", "任务中心", "通知", "退出登录"]);
         const menuBox = (await menu.boundingBox())!;
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
@@ -300,6 +300,30 @@ test("recent records link to filtered creation history and open image results re
   await expect(records).toBeVisible();
   await expect(detail).toHaveCount(0);
   expect(writes).toEqual([]);
+});
+
+test("global search opens a source without starting a task", async ({ page }, testInfo) => {
+  await page.route("**/search?*", async route => {
+    expect(route.request().method()).toBe("GET");
+    expect(new URL(route.request().url()).searchParams.get("q")).toBe("海边");
+    return route.fulfill({ json: { items: [{ kind: "image", id: "previous-image", title: "图片记录", updated_at: conversation.updated_at, conversation_id: 1, status: "uncertain" }], has_more: false } });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/home");
+  await page.getByRole("button", { name: "账号菜单", exact: true }).click();
+  await page.getByRole("menuitem", { name: "全局搜索", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "全局搜索" });
+  const field = dialog.getByRole("textbox", { name: "关键词" });
+  await field.fill("海边");
+  await field.press("Enter");
+  const result = dialog.getByRole("button", { name: "图片记录 图片记录" });
+  await expect(result).toBeVisible();
+  const shot = testInfo.outputPath("global-search-mobile.png");
+  await page.screenshot({ path: shot, animations: "disabled" });
+  await testInfo.attach("全局搜索", { path: shot, contentType: "image/png" });
+  await result.click();
+  await expect(page).toHaveURL(/#\/images\?task=previous-image$/);
+  await expect(page.getByRole("dialog", { name: "图片详情" }).getByText("海边海报", { exact: true })).toBeVisible();
 });
 
 test("projects open linked final works without generating or copying them", async ({ page }, testInfo) => {
@@ -365,13 +389,13 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await page.goto("/#/chat/1");
     const navigation = page.getByRole("navigation", { name: "移动端主导航" });
     await expect(navigation.getByRole("button")).toHaveText([
-      "创作", "记录", "作品", "知识库", "项目", "设置"
+      "创作", "记录", "作品", "知识库", "项目", "技能", "设置"
     ]);
     const labels = await navigation.locator(".mobile-nav-item span").evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect();
       return { left: rect.left, right: rect.right };
     }));
-    expect(labels).toHaveLength(6);
+    expect(labels).toHaveLength(7);
     for (let index = 1; index < labels.length; index += 1) {
       expect(labels[index].left).toBeGreaterThanOrEqual(labels[index - 1].right - 1);
     }
@@ -399,7 +423,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await expect(account).toBeInViewport();
     await account.click();
     const menu = page.getByRole("menu", { name: "账号菜单" });
-    await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "任务中心", "通知", "退出登录"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "设置", "任务中心", "通知", "退出登录"]);
     const menuBox = (await menu.boundingBox())!;
     expect(menuBox.x).toBeGreaterThanOrEqual(0);
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width);
