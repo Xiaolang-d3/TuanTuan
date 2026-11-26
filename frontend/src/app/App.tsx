@@ -213,6 +213,23 @@ export function App({
   const activeCreationForm = creationForm.scope === creationScope ? creationForm : { scope: creationScope, mode: "chat" as const, drafts: { chat: "", images: "" } };
   const [imageCreationDraft, setImageCreationDraft] = useState<{ scope: string; id: string; content: string } | null>(null);
   const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string }) | null>(null);
+  const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
+  const [conversationFiles, setConversationFiles] = useState<{ scope: string; drafts: Map<number, File[]> } | null>(null);
+  const activeHomeFiles = homeFiles?.scope === creationScope ? homeFiles.files : [];
+  const activeConversationFiles = conversationFiles?.scope === creationScope ? conversationFiles.drafts.get(currentConversationId ?? 0) : undefined;
+  useEffect(() => {
+    setHomeFiles(previous => previous?.scope === creationScope ? previous : null);
+    setConversationFiles(previous => previous?.scope === creationScope ? previous : null);
+  }, [creationScope]);
+
+  function setConversationDraftFiles(conversationId: number, files: File[]) {
+    setConversationFiles(previous => {
+      const drafts = new Map(previous?.scope === creationScope ? previous.drafts : undefined);
+      if (files.length) drafts.set(conversationId, files);
+      else drafts.delete(conversationId);
+      return { scope: creationScope, drafts };
+    });
+  }
   const composerDrafts = useMemo(() => readStringMap(preferenceKey("tuantuan-composer-drafts", userEmail)), [userEmail]);
   const persistComposerDrafts = useCallback(() => {
     writeStringMap(preferenceKey("tuantuan-composer-drafts", userEmail), composerDrafts);
@@ -1212,7 +1229,7 @@ export function App({
     } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
   }
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal }: { skillId?: string; ownerSignal?: AbortSignal } = {}) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[] } = {}) {
     if (ownerSignal?.aborted) return;
     if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
@@ -1243,6 +1260,10 @@ export function App({
         conversationId: created.id,
         content,
       } : null);
+      if (files?.length) {
+        setConversationDraftFiles(created.id, files);
+        setHomeFiles(previous => previous?.scope === creationScope && previous.files === files ? null : previous);
+      }
       if (skillId) setChatSkillSelection({ id: skillId, scope: skillSelectionScopeFor(created.id) });
       setCurrentConversationId(created.id);
       navigateRoute({ section: "chat", conversationId: created.id });
@@ -1257,10 +1278,10 @@ export function App({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
-  function openNewChatDraft(content: string, notice: string, skillId?: string) {
+  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[]) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
-    }), content, notice, { skillId });
+    }), content, notice, { skillId, files });
   }
 
   function openCreationWorkspace(mode: CreationMode, content: string) {
@@ -1270,7 +1291,7 @@ export function App({
       navigateRoute({ section: "images" });
       return;
     }
-    void openNewChatDraft(content, content.trim() ? "对话草稿已准备，编辑后发送" : "已新建对话").catch((error: unknown) => {
+    void openNewChatDraft(content, content.trim() || activeHomeFiles.length ? "对话草稿已准备，编辑后发送" : "已新建对话", undefined, activeHomeFiles).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setErrorMessage(error instanceof Error ? error.message : "打开对话工作区失败");
     });
   }
@@ -1370,6 +1391,8 @@ export function App({
               creationEntry={<CreationEntry
                 mode={activeCreationForm.mode}
                 drafts={activeCreationForm.drafts}
+                files={activeHomeFiles}
+                onFiles={files => setHomeFiles({ scope: creationScope, files })}
                 onMode={mode => setCreationForm({ ...activeCreationForm, mode })}
                 onDraft={(mode, text) => setCreationForm({ ...activeCreationForm, drafts: { ...activeCreationForm.drafts, [mode]: text } })}
                 onOpen={openCreationWorkspace}
@@ -1663,6 +1686,8 @@ export function App({
             libraryAttachments={libraryAttachments}
             onLibraryAttachmentsConsumed={() => setLibraryAttachments(null)}
             composerDraft={homeComposerDraft?.scope === creationScope ? homeComposerDraft : null}
+            draftFiles={activeConversationFiles}
+            onDraftFilesChange={setConversationDraftFiles}
             composerDrafts={composerDrafts}
             onComposerDraftConsumed={() => setHomeComposerDraft(current => current === homeComposerDraft ? null : current)}
             conversations={conversations}

@@ -810,6 +810,59 @@ test("the unified entry passes separate drafts without requesting generation", a
   expect(writes).toEqual(["/conversations"]);
 });
 
+test("home keeps draft files when switching modes and uploads only on request", async ({ page }, testInfo) => {
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  const attachment = { id: "draft-note", kind: "document", original_filename: "资料.md", parse_status: "parsed" };
+  let attempts = 0;
+  await page.route("**/attachments", route => {
+    expect(route.request().postDataBuffer()?.toString()).toContain('name="conversation_id"\r\n\r\n2');
+    if (++attempts === 1) return route.fulfill({ status: 400, json: { detail: "测试上传失败" } });
+    return route.fulfill({ json: attachment });
+  });
+  await page.route("**/attachments/draft-note/parse", route => route.fulfill({ json: attachment }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理这份资料");
+  await entry.locator('input[type="file"]').setInputFiles([
+    { name: "资料.md", mimeType: "text/markdown", buffer: Buffer.from("# 测试资料") },
+    { name: "不支持.exe", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") },
+  ]);
+  await expect(entry.getByRole("alert")).toContainText("不支持的文件未添加");
+  await entry.getByRole("button", { name: "图片", exact: true }).click();
+  await expect(entry.getByRole("status")).toContainText("已选文件保留");
+  await entry.getByRole("button", { name: "进入图片工作区" }).click();
+  await expect(page).toHaveURL(/#\/images$/);
+  expect(writes).toEqual([]);
+  await page.goBack();
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await expect(entry.getByRole("list", { name: "对话草稿附件" })).toContainText("资料.md");
+  const screenshot = testInfo.outputPath("creation-draft-attachments.png");
+  await page.screenshot({ path: screenshot, animations: "disabled" });
+  await testInfo.attach("首页附件草稿", { path: screenshot, contentType: "image/png" });
+  await entry.getByRole("button", { name: "进入对话工作区" }).click();
+  const editor = page.getByRole("textbox", { name: "输入消息" });
+  await expect(editor).toHaveText("整理这份资料");
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+  await editor.press("Enter");
+  await expect(editor).toHaveText("整理这份资料");
+  const upload = page.getByRole("button", { name: "上传 资料.md" });
+  await expect(upload).toBeVisible();
+  expect(writes).toEqual(["/conversations"]);
+  await upload.click();
+  await expect(page.getByText("测试上传失败", { exact: true })).toBeVisible();
+  await expect(upload).toBeEnabled();
+  await upload.click();
+  await expect(page.getByRole("button", { name: "预览 资料.md" })).toBeVisible();
+  await expect(upload).toHaveCount(0);
+  await expect(editor).toHaveText("整理这份资料");
+  expect(writes).toEqual(["/conversations", "/attachments", "/attachments", "/attachments/draft-note/parse"]);
+});
+
 test("home and library use current sources and stay usable on narrow screens", async ({ page }) => {
   for (const width of [375, 960, 1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });

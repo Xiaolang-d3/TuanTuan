@@ -35,7 +35,8 @@ import { useAui, useAuiState } from "@assistant-ui/store";
 
 import { ArrowDown, ArrowUp, ArrowUpRight, CheckCircle2, Download, FileText, Globe, History, ImagePlus, LoaderCircle, Mic, Plug, Plus, RefreshCw, Square, TriangleAlert, X } from "lucide-react";
 
-const MAX_ATTACHMENTS = 8;
+import { CHAT_ATTACHMENT_ACCEPT, DOCUMENT_ATTACHMENT_ACCEPT, chatAttachmentKind, MAX_CHAT_ATTACHMENTS } from "../features/chat/attachment-formats";
+import { ActionButton } from "./ui/ActionButton";
 
 function currentWebSearch(props: ChatWorkspaceProps): boolean {
   return props.webSearchAvailable !== false && props.webSearchEnabled === true;
@@ -75,7 +76,7 @@ type ChatWorkspaceContentProps = ChatWorkspaceProps & {
   previewUrls: Record<string, string>;
   localFiles: Record<string, File>;
   uploadingPreview: { filename: string; url: string } | null;
-  onUpload: (file?: File) => Promise<void>;
+  onUpload: (file?: File) => Promise<boolean>;
   onRemovePendingAttachment: (attachmentId: string) => Promise<void>;
   onClearSubmittedAttachments: (conversationId: number, ids: string[]) => void;
 };
@@ -112,10 +113,12 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   const quickStatus = quickCheck?.conversationId === conversationId && quickCheck.modelScope === modelScope ? quickCheck.status : undefined;
   const quickMode = pptSelected && quickStatus?.composer !== false;
   const quickBusy = conversationId !== null && quickPending.has(conversationId);
+  const draftFiles = props.draftFiles ?? [];
+  const hasDraftFiles = draftFiles.length > 0;
   const validPptAttachments = props.pendingAttachments.every(item => item.kind === "document" && /\.(docx|pdf|txt|md)$/i.test(item.original_filename));
   const pptProblem = !validPptAttachments ? "请移除图片或不支持的附件。PPT 可使用 Word、文字版 PDF、TXT 或 Markdown。"
     : [...composerText.trim()].length > 16_000 ? "主题或粘贴内容最多 16,000 字，请精简后发送。" : "";
-  const quickDisabled = !quickStatus?.available || quickBusy || Boolean(pptProblem) || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable || (!composerText.trim() && !props.pendingAttachments.length);
+  const quickDisabled = !quickStatus?.available || quickBusy || Boolean(pptProblem) || hasDraftFiles || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable || (!composerText.trim() && !props.pendingAttachments.length);
   useEffect(() => {
     if (!pptSelected || !conversationId || !presentationService) return;
     const controller = new AbortController();
@@ -131,7 +134,8 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
     return () => controller.abort();
   }, [conversationId, modelScope, pptSelected, presentationService, quickCheckAttempt]);
   const [composerFocused, setComposerFocused] = useState(false);
-  const sendTitle = props.attachmentBusy ? "资料处理完成后即可发送"
+  const sendTitle = hasDraftFiles ? "请先上传或移除草稿附件"
+    : props.attachmentBusy ? "资料处理完成后即可发送"
     : props.modelSelectionBusy ? "模型选择保存后即可发送"
     : props.modelProfileUnavailable ? "当前模型已停用，请切换模型"
     : quickMode ? (quickBusy ? "正在提交 PPT" : pptProblem || quickStatus?.reason || "生成 PPT")
@@ -390,27 +394,33 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
   }
 
   async function acceptAttachment(file: File): Promise<"added" | "invalid" | "failed"> {
-    const filename = file.name.toLowerCase();
-    if (quickMode && !/\.(pdf|docx|txt|md)$/.test(filename)) {
+    const kind = chatAttachmentKind(file.name);
+    if (quickMode && kind !== "document") {
       props.onAttachmentInvalid("PPT 制作支持 Word（DOCX）、文字版 PDF、TXT 或 Markdown。");
       return "invalid";
     }
-    const supported = file.type.startsWith("image/") || /\.(png|jpe?g|webp|pdf|docx|txt|md)$/.test(filename);
-    if (!supported) {
+    if (!kind) {
       props.onAttachmentInvalid("仅支持图片（PNG、JPG、WEBP）或文档（PDF、DOCX、TXT、MD）。");
       return "invalid";
     }
     try {
-      await props.onUpload(file);
-      return "added";
+      return await props.onUpload(file) ? "added" : "failed";
     } catch {
       return "failed";
     }
   }
 
+  async function uploadDraftFile(index: number) {
+    const file = draftFiles[index];
+    if (!file || !conversationId || props.attachmentBusy || props.chatBusy || quickBusy) return;
+    if (await acceptAttachment(file) === "added") {
+      props.onDraftFilesChange?.(conversationId, draftFiles.filter((_, itemIndex) => itemIndex !== index));
+    }
+  }
+
   async function selectAttachments(files: File[]) {
     if (!files.length || props.attachmentBusy) return;
-    const room = MAX_ATTACHMENTS - props.pendingAttachments.length;
+    const room = MAX_CHAT_ATTACHMENTS - props.pendingAttachments.length - draftFiles.length;
     if (room <= 0) {
       props.onAttachmentInvalid("一次最多附加 8 个文件。");
       return;
@@ -656,9 +666,18 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               className="composer-file-input"
               type="file"
               multiple
-              accept={quickMode ? ".pdf,.docx,.txt,.md,application/pdf" : ".png,.jpg,.jpeg,.webp,.pdf,.docx,.txt,.md,image/png,image/jpeg,image/webp,application/pdf"}
+              accept={quickMode ? DOCUMENT_ATTACHMENT_ACCEPT : CHAT_ATTACHMENT_ACCEPT}
               onChange={handleAttachmentChange}
             />
+            {hasDraftFiles && conversationId !== null && <div className="composer-attachments" aria-label="尚未上传的草稿附件">
+              {draftFiles.map((file, index) => <article key={index} className="composer-file-attachment composer-draft-file">
+                <span className="composer-draft-file-name">{file.name}</span>
+                {quickMode && chatAttachmentKind(file.name) !== "document" ? <small>PPT 不支持此附件</small>
+                  : <ActionButton size="sm" disabled={Boolean(props.attachmentBusy || props.chatBusy || quickBusy)} onClick={() => void uploadDraftFile(index)} aria-label={`上传 ${file.name}`}>上传附件</ActionButton>}
+                <ActionButton size="sm" disabled={Boolean(props.attachmentBusy || quickBusy)} onClick={() => props.onDraftFilesChange?.(conversationId, draftFiles.filter((_, itemIndex) => itemIndex !== index))} aria-label={`移除草稿附件 ${file.name}`}>移除</ActionButton>
+              </article>)}
+              <p className="composer-draft-file-hint">请先上传或移除草稿附件，再发送消息。</p>
+            </div>}
             {props.uploadingPreview ? (
               <div className="composer-attachments" aria-label="正在处理的附件">
                 <article className="composer-image-attachment uploading">
@@ -700,7 +719,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setComposerFocused(false); }}
               onSubmit={(event) => {
                 if (quickMode) { event.preventDefault(); if (!props.chatBusy) void submitQuickPpt(); }
-                else if (props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable) event.preventDefault();
+                else if (hasDraftFiles || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable) event.preventDefault();
               }}
             >
               <ComposerPrimitive.Input
@@ -775,7 +794,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
                     <span className="composer-send-tooltip" title={sendTitle}>
                       {quickMode ? <button type="submit" className="send-button" aria-label="生成 PPT" disabled={quickDisabled} title={sendTitle}>
                         {quickBusy ? <LoaderCircle className="spinning" size={18} aria-hidden="true" /> : <ArrowUp size={18} aria-hidden="true" />}<span>发送</span>
-                      </button> : <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
+                      </button> : <ComposerPrimitive.Send className="send-button" aria-label="发送" disabled={hasDraftFiles || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
                         <ArrowUp size={18} aria-hidden="true" /><span>发送</span>
                       </ComposerPrimitive.Send>}
                     </span>
@@ -895,14 +914,15 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
   }, []);
 
   const uploadAttachment = useCallback(async (file?: File) => {
-    if (!file) return;
+    if (!file || currentConversationRef.current !== props.currentConversationId) return false;
     const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
     if (previewUrl) setUploadingPreview({ filename: file.name || "粘贴的图片", url: previewUrl });
     try {
       const attachment = await props.onUploadAttachment(file);
       if (currentConversationRef.current !== props.currentConversationId) {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
-        return;
+        void props.onRemoveAttachment(attachment.id).catch(() => undefined);
+        return false;
       }
       if (previewUrl) {
         previewUrlsRef.current[attachment.id] = previewUrl;
@@ -914,6 +934,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
         setVisionAttachmentIds((current) => [...current, attachment.id]);
       }
       setUploadingPreview(null);
+      return true;
     } catch (error) {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setUploadingPreview(null);
@@ -948,6 +969,7 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
     isRunning: props.chatBusy,
     isDisabled: !props.currentConversationId,
     onNew: async (message) => {
+      if (props.draftFiles?.length) return;
       const content = textFromAppendMessage(message);
       if (content) {
         const sent = await props.onSend(

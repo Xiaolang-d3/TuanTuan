@@ -28,5 +28,9 @@
   resize: vertical;
 }
 .creation-entry textarea:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.creation-entry-files { display: grid; justify-items: start; gap: 6px; min-width: 0; }
+.creation-entry-files ul { display: grid; gap: 4px; width: 100%; padding: 0; margin: 0; list-style: none; }
+.creation-entry-files li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.creation-entry-files li span { min-width: 0; overflow-wrap: anywhere; }
 .creation-entry-footer { justify-content: space-between; }
 .creation-entry-legacy { border-top: 1px solid var(--color-border); padding-top: 8px; }
