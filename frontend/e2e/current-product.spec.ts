@@ -247,7 +247,7 @@ for (const theme of ["light", "dark", "blue"] as const) {
         await account.click();
         const menu = page.getByRole("menu", { name: "账号菜单" });
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "退出登录"]);
+        await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "任务中心", "通知", "退出登录"]);
         const menuBox = (await menu.boundingBox())!;
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
@@ -331,6 +331,33 @@ test("projects open linked final works without generating or copying them", asyn
   await expect(page.getByRole("button", { name: /^发布说明\.md/ })).toBeVisible();
 });
 
+test("task notifications open the original receipt without resubmitting", async ({ page }, testInfo) => {
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== "GET" && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  await page.route("**/task-center", route => route.fulfill({ json: { items: [{
+    kind: "image", id: "previous-image", title: "图片生成", status: "outcome_unknown", updated_at: conversation.updated_at,
+    source: { kind: "image", id: "previous-image" }, notification_key: "image:previous-image:outcome_unknown",
+  }], has_more: false } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/home");
+  await page.getByRole("button", { name: "账号菜单", exact: true }).click();
+  await page.getByRole("menuitem", { name: "任务中心" }).click();
+  const tasks = page.getByRole("dialog", { name: "任务中心" });
+  await expect(tasks.getByText(/结果待核实/)).toBeVisible();
+  await tasks.getByRole("button", { name: "通知", exact: true }).click();
+  const notification = page.getByRole("dialog", { name: "通知" });
+  await expect(notification.getByText(/不会自动重新提交/)).toBeVisible();
+  const screenshot = testInfo.outputPath("task-notifications-mobile.png");
+  await page.screenshot({ path: screenshot, animations: "disabled" });
+  await testInfo.attach("任务通知", { path: screenshot, contentType: "image/png" });
+  await notification.getByRole("button", { name: "查看来源：图片生成" }).click();
+  await expect(page.getByRole("dialog", { name: "图片详情" }).getByText("海边海报", { exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+});
+
 test("mobile navigation keeps settings reachable through the account menu", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("tuantuan-sidebar:e2e@local.test", "collapsed"));
   for (const width of [390, 320]) {
@@ -372,7 +399,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await expect(account).toBeInViewport();
     await account.click();
     const menu = page.getByRole("menu", { name: "账号菜单" });
-    await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "退出登录"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "设置", "任务中心", "通知", "退出登录"]);
     const menuBox = (await menu.boundingBox())!;
     expect(menuBox.x).toBeGreaterThanOrEqual(0);
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width);
