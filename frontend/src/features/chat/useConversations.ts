@@ -23,10 +23,10 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
     return clientRef.current<Conversation[]>(`/conversations?q=${encodeURIComponent(query)}`);
   }, []);
 
-  async function refreshConversations() {
+  async function refreshConversations(signal?: AbortSignal) {
     const generation = ++readGeneration.current;
-    const next = await fetchJson<Conversation[]>("/conversations");
-    if (clientRef.current === fetchJson && readGeneration.current === generation) setConversations(next);
+    const next = await fetchJson<Conversation[]>("/conversations", signal ? { signal } : undefined);
+    if (!signal?.aborted && clientRef.current === fetchJson && readGeneration.current === generation) setConversations(next);
     return next;
   }
 

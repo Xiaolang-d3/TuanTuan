@@ -1,30 +1,17 @@
-import {
-  Activity,
-  Bot,
-  CheckCircle2,
-  CircleAlert,
-  Clock3,
-  Route,
-  Sparkles,
-  Wrench
-} from "lucide-react";
-import { StatusBadge } from "../../components/ui";
-import type { AgentOperationsSnapshot } from "../../types";
+import { useEffect, useRef, useState } from "react";
+import { Activity, ArrowUpRight, Bot, CheckCircle2, CircleAlert, Clock3, Route, Sparkles, Wrench } from "lucide-react";
+import type { createApiClient } from "../../api/client";
+import { ActionButton, StatusBadge } from "../../components/ui";
+import type { AgentOperationsSnapshot, AgentRunStatus } from "../../types";
+import type { ResolvedTheme } from "../appearance/ThemeProvider";
+import { RunTrendChart, ToolRankingChart, runStatuses as statuses, runStatusMeta as statusMeta } from "./AgentOperationsCharts";
+import { OPERATIONS_PAGE_SIZE, type OperationsDays, useAgentOperations } from "./useAgentOperations";
 import "./agent-operations-dashboard.css";
 
-
 type Props = {
-  snapshot: AgentOperationsSnapshot | null;
-  days: 7 | 30 | 90;
-  loading: boolean;
-  onDaysChange: (days: 7 | 30 | 90) => void;
-};
-
-const statusMeta = {
-  done: { label: "已完成", tone: "success" as const },
-  failed: { label: "失败", tone: "danger" as const },
-  waiting_user: { label: "等待确认", tone: "warning" as const },
-  cancelled: { label: "已取消", tone: "neutral" as const }
+  fetchJson: ReturnType<typeof createApiClient>;
+  onOpenConversation: (conversationId: number, signal: AbortSignal) => Promise<boolean>;
+  theme: ResolvedTheme;
 };
 
 const routeLabels: Record<string, string> = {
@@ -50,10 +37,11 @@ function formatTokens(value: number) {
 
 function formatTime(value: string | null) {
   if (!value) return "暂无记录";
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const date = new Date(normalized);
+  const iso = value.replace(" ", "T");
+  const date = new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(iso) ? iso : `${iso}Z`);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", {
+    timeZone: "UTC",
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -61,73 +49,79 @@ function formatTime(value: string | null) {
   });
 }
 
-function TrendChart({ data }: { data: AgentOperationsSnapshot["trend"] }) {
-  const maxTotal = Math.max(1, ...data.map((item) => item.total));
-  const labelEvery = data.length > 30 ? 10 : data.length > 14 ? 5 : 1;
-  return (
-    <div className="agent-trend-chart" aria-label="Agent 运行状态趋势图">
-      <div className="agent-trend-grid" aria-hidden="true"><i /><i /><i /></div>
-      <div className="agent-trend-columns">
-        {data.map((item, index) => {
-          const height = item.total ? Math.max(8, item.total / maxTotal * 100) : 2;
-          return (
-            <div className="agent-trend-column" key={item.date} title={`${item.label}：${item.total} 次运行`}>
-              <div className="agent-trend-value">{item.total || ""}</div>
-              <div className="agent-trend-bar" style={{ height: `${height}%` }}>
-                {item.total ? (
-                  <>
-                    <i className="done" style={{ flexGrow: item.done }} />
-                    <i className="failed" style={{ flexGrow: item.failed }} />
-                    <i className="waiting" style={{ flexGrow: item.waiting_user }} />
-                    <i className="cancelled" style={{ flexGrow: item.cancelled }} />
-                  </>
-                ) : <i className="empty" />}
-              </div>
-              <span>{index % labelEvery === 0 || index === data.length - 1 ? item.label : ""}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+function dayDescription(day: AgentOperationsSnapshot["trend"][number]) {
+  return `${day.date}：${day.total} 次运行，${statuses.map((status) => `${statusMeta[status].label} ${day[status]}`).join("，")}`;
 }
 
-function ToolBars({ data }: { data: AgentOperationsSnapshot["tool_breakdown"] }) {
-  const maxCount = Math.max(1, ...data.map((item) => item.count));
-  if (!data.length) {
-    return <div className="agent-chart-empty"><Wrench size={18} />暂无工具调用</div>;
+function RunConversation({ run, onOpenConversation }: {
+  run: AgentOperationsSnapshot["recent_runs"][number];
+  onOpenConversation: Props["onOpenConversation"];
+}) {
+  const request = useRef<AbortController | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function open() {
+    if (request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setOpening(true);
+    setError("");
+    try {
+      const available = await onOpenConversation(run.conversation_id, controller.signal);
+      if (!controller.signal.aborted && !available) setError("原对话已不可用。");
+    } catch {
+      if (!controller.signal.aborted) setError("暂时无法打开原对话，请重试。");
+    } finally {
+      request.current = null;
+      if (!controller.signal.aborted) setOpening(false);
+    }
   }
+
+  if (!run.conversation_available) return <small>原对话已不可用。</small>;
   return (
-    <div className="agent-tool-bars">
-      {data.slice(0, 6).map((item) => (
-        <div key={item.name}>
-          <span title={item.label}>{item.label}</span>
-          <div><i style={{ width: `${Math.max(4, item.count / maxCount * 100)}%` }} /></div>
-          <strong>{item.count}</strong>
-        </div>
-      ))}
-    </div>
+    <footer className="agent-run-actions">
+      <ActionButton size="sm" icon={<ArrowUpRight size={13} aria-hidden="true" />} disabled={opening} onClick={() => void open()}>
+        {opening ? "正在打开…" : "打开原对话"}
+      </ActionButton>
+      {error ? <small role="alert">{error}</small> : null}
+    </footer>
   );
 }
 
-export function AgentOperationsDashboard({ snapshot, days, loading, onDaysChange }: Props) {
-  const summary = snapshot?.summary;
+export function AgentOperationsDashboard({ fetchJson, onOpenConversation, theme }: Props) {
+  const [days, setDays] = useState<OperationsDays>(7);
+  const [status, setStatus] = useState<AgentRunStatus | null>(null);
+  const [date, setDate] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const { overview, records, failed, refresh } = useAgentOperations(fetchJson, { days, status, date, page });
+  const summary = overview?.summary;
+  const offset = page * OPERATIONS_PAGE_SIZE;
+  const filtered = !!(status || date);
+  const loading = !records && !failed;
+
+  function selectDate(next: string | null) {
+    setDate(next);
+    setPage(0);
+  }
+
   return (
     <section className="settings-card agent-operations-card">
       <header className="agent-operations-heading">
         <div className="settings-card-heading">
           <span><Bot size={18} /></span>
-          <div>
-            <p>回看 Agent 做过的工作、使用的工具和需要处理的异常。</p>
-          </div>
+          <div><h3>Agent 运行概览</h3><p>回看执行结果、工具调用和需要处理的异常。</p></div>
         </div>
         <div className="agent-operations-controls">
-          <div className="agent-window-switch" aria-label="统计时间范围">
+          <div className="agent-window-switch" role="group" aria-label="统计时间范围">
             {([7, 30, 90] as const).map((option) => (
               <button
+                type="button"
                 className={days === option ? "active" : ""}
+                aria-pressed={days === option}
                 key={option}
-                onClick={() => onDaysChange(option)}
+                onClick={() => { if (days !== option) { setDays(option); setDate(null); setPage(0); } }}
               >
                 {option} 天
               </button>
@@ -138,71 +132,111 @@ export function AgentOperationsDashboard({ snapshot, days, loading, onDaysChange
 
       <div className="agent-operations-freshness">
         <Activity size={13} />
-          <span>{loading && !snapshot ? "正在读取 Agent 执行记录…" : `数据更新至 ${formatTime(snapshot?.freshness_at ?? null)}`}</span>
-        <em>本机数据</em>
+        <span>{overview ? `数据更新至 ${formatTime(overview.freshness_at)}` : failed ? "暂未读取到数据" : "正在读取 Agent 运行记录…"}</span>
+        <em>本机数据 · UTC</em>
       </div>
 
       <div className="agent-kpi-grid">
         <article>
           <span><Activity size={14} />运行次数</span>
           <strong>{summary?.total_runs ?? "—"}</strong>
-          <small>{summary ? `${summary.successful_runs} 次完成 · ${summary.failed_runs} 次失败` : "等待数据"}</small>
+          <small>所选范围内的总数</small>
         </article>
         <article>
-          <span><CheckCircle2 size={14} />运行成功率</span>
+          <span><CheckCircle2 size={14} />Agent 完成率</span>
           <strong>{summary?.success_rate == null ? "—" : `${summary.success_rate}%`}</strong>
-          <small>{summary?.waiting_runs ? `${summary.waiting_runs} 次等待确认` : "完成状态占全部运行"}</small>
+          <small>已完成运行 / 全部运行</small>
         </article>
         <article>
           <span><Wrench size={14} />工具调用</span>
           <strong>{summary?.total_tool_calls ?? "—"}</strong>
-          <small>{summary?.average_rounds == null ? "等待数据" : `平均 ${summary.average_rounds} 轮 / 运行`}</small>
+          <small>{summary?.average_rounds == null ? "暂无运行轮次" : `平均 ${summary.average_rounds} 轮 / 运行`}</small>
         </article>
         <article>
           <span><Clock3 size={14} />模型 P95 耗时</span>
           <strong>{formatLatency(summary?.model_p95_latency_ms ?? null)}</strong>
-          <small>{summary ? `${summary.model_requests} 次同期模型请求` : "等待数据"}</small>
+          <small>{summary ? `${summary.model_requests} 次同期模型请求` : "暂无请求数据"}</small>
         </article>
         <article>
           <span><Sparkles size={14} />模型 Token</span>
           <strong>{summary ? formatTokens(summary.total_tokens) : "—"}</strong>
-          <small>{summary?.model_success_rate == null ? "暂无模型调用" : `模型请求成功率 ${summary.model_success_rate}%`}</small>
+          <small>{summary?.model_success_rate == null ? "暂无模型请求成功率" : `模型请求成功率 ${summary.model_success_rate}%`}</small>
         </article>
+      </div>
+
+      <div className="agent-status-controls" role="group" aria-label="按运行状态筛选">
+        <ActionButton className="agent-status-filter" size="sm" aria-pressed={status === null} onClick={() => { setStatus(null); setPage(0); }}>
+          全部 <strong>{summary?.total_runs ?? "—"}</strong>
+        </ActionButton>
+        {statuses.map((item) => (
+          <ActionButton
+            className={`agent-status-filter agent-status-dot ${item}`}
+            size="sm"
+            key={item}
+            aria-pressed={status === item}
+            onClick={() => { setStatus(status === item ? null : item); setPage(0); }}
+          >
+            {statusMeta[item].label} <strong>{overview?.status_breakdown.find((entry) => entry.status === item)?.count ?? (overview ? 0 : "—")}</strong>
+          </ActionButton>
+        ))}
       </div>
 
       <div className="agent-charts-grid">
         <article className="agent-chart-panel trend-panel">
           <header>
-            <div><strong>运行状态趋势</strong><span>按天统计，柱内展示状态构成</span></div>
-            <div className="agent-chart-legend">
-              <span className="done">完成</span><span className="failed">失败</span><span className="waiting">等待</span>
-            </div>
+            <div><strong>运行状态趋势</strong><span>按 UTC 日期统计，点击图表或选择日期来筛选</span></div>
           </header>
-          <TrendChart data={snapshot?.trend ?? []} />
+          {overview ? (
+            <>
+              <RunTrendChart key={days} data={overview.trend} date={date} theme={theme} onDateChange={(next) => selectDate(date === next ? null : next)} />
+              <label className="agent-trend-date-select">
+                按日期筛选
+                <select value={date ?? ""} onChange={(event) => selectDate(event.currentTarget.value || null)}>
+                  <option value="">全部日期</option>
+                  {overview.trend.slice().reverse().map((day) => <option key={day.date} value={day.date} aria-label={dayDescription(day)}>{day.date}</option>)}
+                </select>
+              </label>
+            </>
+          ) : <div className="agent-chart-empty">{failed ? "暂无趋势数据" : "正在读取趋势…"}</div>}
         </article>
         <article className="agent-chart-panel">
           <header>
             <div><strong>工具使用排行</strong><span>按去重后的真实工具调用计数</span></div>
           </header>
-          <ToolBars data={snapshot?.tool_breakdown ?? []} />
+          {overview?.tool_breakdown.length ? <ToolRankingChart data={overview.tool_breakdown} theme={theme} /> : (
+            <div className="agent-chart-empty">{overview ? "暂无工具调用" : failed ? "暂无排行数据" : "正在读取工具排行…"}</div>
+          )}
         </article>
       </div>
 
       <div className="agent-run-log">
         <header>
-          <div><strong>最近运行记录</strong><span>点击记录可查看目标、工具和错误原因</span></div>
-          <StatusBadge tone="info" icon={<Route size={12} />}>{snapshot?.recent_runs.length ?? 0} 条</StatusBadge>
+          <div>
+            <strong>运行记录</strong>
+            <span>{filtered ? `筛选：${status ? statusMeta[status].label : "全部状态"}${date ? ` · ${date}（UTC）` : ""}` : "展开记录可查看目标、调用工具与错误原因"}</span>
+          </div>
+          <div className="agent-run-log-actions">
+            {filtered ? <ActionButton size="sm" onClick={() => { setStatus(null); selectDate(null); }}>清除筛选</ActionButton> : null}
+            {records ? <StatusBadge tone="info" icon={<Route size={12} />}>{records.matching_runs} 条</StatusBadge> : null}
+          </div>
         </header>
-        {snapshot?.recent_runs.length ? (
+        {failed ? (
+          <div className="agent-run-feedback" role="alert">
+            <span>{records ? "刷新失败，当前显示上一次的数据。" : "无法读取 Agent 运行记录。"}</span>
+            <ActionButton size="sm" onClick={() => void refresh()}>重试</ActionButton>
+          </div>
+        ) : null}
+        {loading ? <div className="agent-run-empty" role="status">正在读取符合条件的运行记录…</div> : null}
+        {records?.recent_runs.length ? (
           <div className="agent-run-list">
-            {snapshot.recent_runs.map((run) => {
+            {records.recent_runs.map((run) => {
               const meta = statusMeta[run.status];
               return (
                 <details key={run.id}>
                   <summary>
                     <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>
                     <div><strong>{run.conversation_title}</strong><span>{routeLabels[run.route] || run.route}</span></div>
-                    <span>{run.tool_call_count} 个工具 · {run.rounds} 轮</span>
+                    <span className="agent-run-meta">{run.tool_call_count} 个工具 · {run.rounds} 轮</span>
                     <time>{formatTime(run.created_at)}</time>
                   </summary>
                   <div className="agent-run-detail">
@@ -215,19 +249,27 @@ export function AgentOperationsDashboard({ snapshot, days, loading, onDaysChange
                       </div>
                     ) : null}
                     <small>记录 ID {run.id} · {run.provider || "本地"} / {run.platform || "manual"}</small>
+                    <RunConversation run={run} onOpenConversation={onOpenConversation} />
                   </div>
                 </details>
               );
             })}
           </div>
-        ) : (
-          <div className="agent-run-empty"><Bot size={22} /><span>这个时间范围内还没有 Agent 运行记录。</span></div>
-        )}
+        ) : records ? (
+          <div className="agent-run-empty"><Bot size={22} /><span>{page > 0 ? "此页没有记录，可以返回上一页。" : filtered ? "没有符合当前筛选条件的运行记录。" : "这个时间范围内还没有 Agent 运行记录。"}</span></div>
+        ) : null}
+        {(page > 0 || (records && records.matching_runs > OPERATIONS_PAGE_SIZE)) ? (
+          <nav className="agent-run-pagination" aria-label="运行记录分页">
+            <ActionButton size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</ActionButton>
+            <span>{records?.recent_runs.length ? `第 ${offset + 1}–${offset + records.recent_runs.length} 条，共 ${records.matching_runs} 条` : `第 ${page + 1} 页`}</span>
+            <ActionButton size="sm" disabled={!records || offset + OPERATIONS_PAGE_SIZE >= records.matching_runs} onClick={() => setPage(page + 1)}>下一页</ActionButton>
+          </nav>
+        ) : null}
       </div>
 
       <footer className="agent-coverage-note">
         <CircleAlert size={13} />
-        <span>模型耗时与 Token 为同期请求汇总；单次运行精确耗时和 Token 将随 Agent v1 审计底座接入。</span>
+        <span>模型耗时、Token 与请求成功率为同期模型请求汇总，不代表单次 Agent 运行的指标。</span>
       </footer>
     </section>
   );

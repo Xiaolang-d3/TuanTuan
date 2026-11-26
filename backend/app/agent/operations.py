@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ from ..db import connect
 
 
 WINDOW_OPTIONS = {7, 30, 90}
+RUN_STATUSES = ("done", "failed", "waiting_user", "cancelled")
 TERMINAL_TOOL_STATUSES = {"done", "failed", "blocked", "waiting_approval", "cancelled"}
 SYSTEM_EVENT_TOOLS = {
     "agent_thinking",
@@ -83,40 +84,59 @@ def get_agent_operations_snapshot(
     days: int = 7,
     limit: int = 20,
     db_path: str | Path | None = None,
+    *,
+    run_status: str | None = None,
+    run_date: str | None = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     if days not in WINDOW_OPTIONS:
         raise ValueError("运行统计仅支持 7、30 或 90 天")
+    if run_status is not None and run_status not in RUN_STATUSES:
+        raise ValueError("run_status 必须是 done、failed、waiting_user 或 cancelled")
+    if run_date is not None:
+        try:
+            if date.fromisoformat(run_date).isoformat() != run_date:
+                raise ValueError
+        except ValueError as exc:
+            raise ValueError("run_date 必须是有效的 YYYY-MM-DD UTC 日期") from exc
+    if offset < 0:
+        raise ValueError("offset 必须大于或等于 0")
     limit = max(1, min(limit, 100))
-    cutoff_modifier = f"-{days} days"
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    first_day = today - timedelta(days=days - 1)
+    # Both tables store UTC timestamps; compare date prefixes via half-open bounds.
+    window = (first_day.isoformat(), (today + timedelta(days=1)).isoformat())
 
     with connect(db_path) as conn:
         rows = conn.execute(
             """
             SELECT m.id, m.conversation_id, m.task_id, m.payload_json, m.created_at,
-                   COALESCE(c.title, '已删除对话') AS conversation_title
+                   COALESCE(c.title, '已删除对话') AS conversation_title,
+                   c.id IS NOT NULL AS conversation_available
             FROM chat_messages m
             LEFT JOIN conversations c ON c.id = m.conversation_id
             WHERE m.role = 'assistant'
               AND json_extract(m.payload_json, '$.agent') IS NOT NULL
-              AND m.created_at >= datetime('now', ?)
-            ORDER BY m.id DESC
+              AND m.created_at >= ? AND m.created_at < ?
+            ORDER BY m.created_at DESC, m.id DESC
             """,
-            (cutoff_modifier,),
+            window,
         ).fetchall()
         model_rows = conn.execute(
             """
             SELECT status, latency_ms, total_tokens, created_at
             FROM model_service_events
-            WHERE created_at >= datetime('now', ?)
-            ORDER BY id DESC
+            WHERE created_at >= ? AND created_at < ?
+            ORDER BY created_at DESC, id DESC
             """,
-            (cutoff_modifier,),
+            window,
         ).fetchall()
 
-    today = datetime.now(timezone.utc).date()
     trend_by_date: dict[str, dict[str, Any]] = {}
-    for offset in range(days - 1, -1, -1):
-        day = today - timedelta(days=offset)
+    for day_offset in range(days):
+        day = first_day + timedelta(days=day_offset)
         key = day.isoformat()
         trend_by_date[key] = {
             "date": key,
@@ -133,6 +153,7 @@ def get_agent_operations_snapshot(
     tool_counts: Counter[str] = Counter()
     tool_failures: Counter[str] = Counter()
     recent_runs: list[dict[str, Any]] = []
+    matching_runs = 0
     total_rounds = 0
     total_tool_calls = 0
 
@@ -141,8 +162,13 @@ def get_agent_operations_snapshot(
         agent = payload.get("agent")
         if not isinstance(agent, dict):
             continue
+        created_at = row["created_at"]
+        day_key = created_at[:10]
+        trend_day = trend_by_date.get(day_key)
+        if trend_day is None:
+            continue
         status = str(agent.get("status") or "failed")
-        if status not in {"done", "failed", "waiting_user", "cancelled"}:
+        if status not in RUN_STATUSES:
             status = "failed"
         route = _route_from_agent(agent)
         calls = _tool_calls(agent)
@@ -155,13 +181,15 @@ def get_agent_operations_snapshot(
             if call["status"] in {"failed", "blocked", "waiting_approval", "cancelled"}:
                 tool_failures[call["name"]] += 1
 
-        created_at = str(row["created_at"] or "")
-        day_key = created_at[:10]
-        if day_key in trend_by_date:
-            trend_by_date[day_key]["total"] += 1
-            trend_by_date[day_key][status] += 1
+        trend_day["total"] += 1
+        trend_day[status] += 1
 
-        if len(recent_runs) < limit:
+        if run_status is not None and run_status != status:
+            continue
+        if run_date is not None and run_date != day_key:
+            continue
+        matching_runs += 1
+        if matching_runs > offset and len(recent_runs) < limit:
             plan = agent.get("plan") if isinstance(agent.get("plan"), dict) else {}
             error = agent.get("error") if isinstance(agent.get("error"), dict) else {}
             recent_runs.append(
@@ -170,6 +198,7 @@ def get_agent_operations_snapshot(
                     "message_id": row["id"],
                     "conversation_id": row["conversation_id"],
                     "conversation_title": row["conversation_title"],
+                    "conversation_available": bool(row["conversation_available"]),
                     "task_id": row["task_id"],
                     "status": status,
                     "stop_reason": str(agent.get("stop_reason") or error.get("code") or status),
@@ -208,7 +237,7 @@ def get_agent_operations_snapshot(
 
     return {
         "window_days": days,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": now.isoformat(),
         "freshness_at": max(latest_timestamps) if latest_timestamps else None,
         "summary": {
             "total_runs": total_runs,
@@ -226,12 +255,13 @@ def get_agent_operations_snapshot(
         },
         "status_breakdown": [
             {"status": status, "count": status_counts[status]}
-            for status in ("done", "failed", "waiting_user", "cancelled")
+            for status in RUN_STATUSES
         ],
         "trend": list(trend_by_date.values()),
         "tool_breakdown": tool_breakdown,
         "route_breakdown": route_breakdown,
         "recent_runs": recent_runs,
+        "matching_runs": matching_runs,
         "coverage": {
             "run_source": "chat_messages.payload_json.agent",
             "model_source": "model_service_events",
