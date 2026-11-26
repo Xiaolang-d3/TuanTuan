@@ -46,6 +46,7 @@ import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/h
 import { CreationEntry, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
 import { CreationRecords } from "../features/product/CreationRecords";
 import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
+import { GlobalSearch, type SearchHit } from "../features/product/GlobalSearch";
 import type { CreationRecord } from "../features/product/creationRecordsApi";
 import { ProjectsPage } from "../features/product/ProjectsPage";
 import type { ProjectItem } from "../features/product/projectsApi";
@@ -207,6 +208,7 @@ export function App({
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
   const creationScope = JSON.stringify([apiBase, userEmail]);
   const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
+  const [searchScope, setSearchScope] = useState<string | null>(null);
   const [creationForm, setCreationForm] = useState<{ scope: string; mode: CreationMode; drafts: CreationDrafts }>({ scope: creationScope, mode: "chat", drafts: { chat: "", images: "" } });
   const activeCreationForm = creationForm.scope === creationScope ? creationForm : { scope: creationScope, mode: "chat" as const, drafts: { chat: "", images: "" } };
   const [imageCreationDraft, setImageCreationDraft] = useState<{ scope: string; id: string; content: string } | null>(null);
@@ -1085,6 +1087,7 @@ export function App({
       onOpenSettings={() => navigateRoute({ section: "settings", page: "overview" })}
       onOpenTasks={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "tasks" }) : undefined}
       onOpenNotifications={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "notifications" }) : undefined}
+      onOpenSearch={databaseReady ? () => setSearchScope(creationScope) : undefined}
       onLogout={onLogout}
       onPrefetchPage={(page) => void pagePrefetcher.prefetch(page)}
     />
@@ -1145,6 +1148,19 @@ export function App({
       const conversationId = Number(source.id);
       if (Number.isSafeInteger(conversationId) && conversationId > 0) openCreationRecord({ kind: "chat", id: source.id, conversation_id: conversationId });
     }
+  }
+
+  function openSearchHit(hit: SearchHit) {
+    setSearchScope(null);
+    if (hit.kind === "project") navigateRoute({ section: "projects", projectId: hit.id });
+    else if (hit.kind === "image_work" || hit.kind === "final_work") {
+      navigateRoute({ section: "works", work: `${hit.kind}:${hit.id}` });
+    } else if (hit.kind === "knowledge") {
+      const id = Number(hit.id);
+      if (!Number.isSafeInteger(id) || id < 1) return;
+      setOpenLibraryResultId(id);
+      navigateRoute({ section: "chat", page: "library" });
+    } else openCreationRecord({ kind: hit.kind, id: hit.id, conversation_id: hit.conversation_id });
   }
 
   async function useLibraryForChat(sourceIds: number[]) {
@@ -1706,6 +1722,8 @@ export function App({
       ) : null}
       {databaseReady && taskCenter?.scope === creationScope && <TaskCenter key={creationScope} view={taskCenter.view} fetchJson={fetchJson}
         onClose={() => setTaskCenter(null)} onChange={view => setTaskCenter({ scope: creationScope, view })} onOpenSource={openTaskSource} />}
+      {databaseReady && searchScope === creationScope && <GlobalSearch key={creationScope} fetchJson={fetchJson}
+        onClose={() => setSearchScope(null)} onOpen={openSearchHit} />}
       {documentsOpen ? <DocumentLibraryDialog key={user.id ?? user.email} initialDocumentId={initialDocumentId} service={documentService} folders={libraryFolders} onClose={() => { setDocumentsOpen(false); setInitialDocumentId(null); }} onContinue={continueDocument} onArchived={() => { void refreshLibrary(); }} /> : null}
       {conversationDialog ? (
         <ConversationDialog

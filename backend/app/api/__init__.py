@@ -5,8 +5,9 @@ from . import authentication, attachments, chat, conversations, home, library, m
 router = APIRouter()
 from . import extensions
 router.include_router(extensions.router)
-from . import artifacts, creation_records, final_works, jobs, model_selection, presentations, projects, studio_generate, studio_library, task_center
+from . import artifacts, creation_records, final_works, global_search, jobs, model_selection, presentations, projects, studio_generate, studio_library, task_center
 router.include_router(creation_records.router)
+router.include_router(global_search.router)
 router.include_router(projects.router)
 router.include_router(studio_generate.router)
 router.include_router(studio_library.router)
