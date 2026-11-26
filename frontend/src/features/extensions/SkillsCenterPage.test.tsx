@@ -23,12 +23,13 @@ function setup({ live = true, capabilities = configured }: { live?: boolean; cap
   const onOpenSkill = vi.fn(async (_id: string) => {});
   const onOpenImage = vi.fn();
   const onOpenExtensions = vi.fn();
+  const onOpenAgentSettings = vi.fn();
   const onOpenModelSettings = vi.fn();
   render(<ExtensionPreviewProvider apiBase={live ? "/service" : undefined} accessToken={live ? "test-token" : undefined}>
     <SkillsCenterPage apiBase="/service" accessToken="test-token" fetchJson={createApiClient("/service", "test-token")}
-      conversationBusy={false} capabilities={capabilities} {...{ onOpenSkill, onOpenImage, onOpenExtensions, onOpenModelSettings }} />
+      conversationBusy={false} capabilities={capabilities} {...{ onOpenSkill, onOpenImage, onOpenExtensions, onOpenAgentSettings, onOpenModelSettings }} />
   </ExtensionPreviewProvider>);
-  return { onOpenSkill, onOpenImage, onOpenExtensions, onOpenModelSettings };
+  return { onOpenSkill, onOpenImage, onOpenExtensions, onOpenAgentSettings, onOpenModelSettings };
 }
 
 const imageCard = () => within(screen.getByRole("article", { name: "图片生成" }));
@@ -60,6 +61,9 @@ it("reads only real capabilities and disables unavailable skills with their depe
     { ...report, id: "preview", name: "预览数据", source: "example" },
   ]), imageMissing);
   const actions = setup();
+  fireEvent.click(screen.getByRole("button", { name: "智能体设置" }));
+  expect(actions.onOpenAgentSettings).toHaveBeenCalledOnce();
+  expect(actions.onOpenSkill).not.toHaveBeenCalled();
   expect(imageAction()).toBeDisabled();
   expect(await imageCard().findByText(/缺少 API Key/)).toBeInTheDocument();
   expect(imageAction()).toBeDisabled();

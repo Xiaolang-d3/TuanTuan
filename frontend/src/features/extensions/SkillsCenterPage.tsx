@@ -18,6 +18,7 @@ type Props = {
   capabilities: AgentCapabilities | null;
   conversationBusy: boolean;
   onOpenExtensions: () => void;
+  onOpenAgentSettings: () => void;
   onOpenModelSettings: (purpose: "chat" | "image") => void;
   onOpenImage: () => void;
   onOpenSkill: (id: string) => Promise<void>;
@@ -76,7 +77,7 @@ function CapabilityCard({ name, icon, status, description, input, permission, ac
   </article>;
 }
 
-export function SkillsCenterPage({ apiBase, accessToken, fetchJson, capabilities, conversationBusy, onOpenExtensions, onOpenModelSettings, onOpenImage, onOpenSkill }: Props) {
+export function SkillsCenterPage({ apiBase, accessToken, fetchJson, capabilities, conversationBusy, onOpenExtensions, onOpenAgentSettings, onOpenModelSettings, onOpenImage, onOpenSkill }: Props) {
   const { isPreview, error, items, execution, loading, refresh } = useExtensionPreview();
   const api = useMemo(() => createImageStudioApi(apiBase, accessToken, fetchJson), [apiBase, accessToken, fetchJson]);
   const image = useStudioModelPreview(api, !isPreview, { operation: "image.generate", profile_id: null });
@@ -118,7 +119,10 @@ export function SkillsCenterPage({ apiBase, accessToken, fetchJson, capabilities
   return <div className="extensions-page skills-center">
     <header className="extensions-heading">
       <div><h1>技能中心</h1><p>查看当前账号可使用的能力。打开只进入工作区或选中技能，不会发送任务或开始生成。</p></div>
-      <button type="button" className="extension-button" onClick={onOpenExtensions}><Settings size={16} aria-hidden="true" />管理扩展</button>
+      <div className="skills-center-actions">
+        <button type="button" className="extension-button" onClick={onOpenAgentSettings}>智能体设置</button>
+        <button type="button" className="extension-button" onClick={onOpenExtensions}><Settings size={16} aria-hidden="true" />管理扩展</button>
+      </div>
     </header>
     {isPreview && <p className="extension-muted">未连接执行服务，预览技能不会出现在这里。</p>}
     {checkingCatalog && <p className="extension-muted" role="status">正在检查已安装技能…</p>}

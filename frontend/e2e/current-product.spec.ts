@@ -151,6 +151,34 @@ test("skills center preselects a real skill in a new chat without starting a tas
   expect(writes).toEqual(["/conversations"]);
 });
 
+test("skills center opens existing agent settings without writing or starting a task", async ({ page }, testInfo) => {
+  await mockSkillCenter(page);
+  await page.route("**/agent/settings", route => route.fulfill({ json: {
+    model_name: "mock-model", model_base_url: "https://fixture.test/v1", default_kernel: "tuantuan",
+    api_key_configured: true, config_revision: 1, credential_status: "saved_unverified",
+  } }));
+  await page.route("**/agent/kernels", route => route.fulfill({ json: { default_kernel: "tuantuan", choices: [
+    { id: "tuantuan", name: "团团内核", available: true, reason: "" },
+    { id: "dsh", name: "DeepSeek Harness", available: false, reason: "当前环境不可用" },
+  ] } }));
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (!["GET", "HEAD"].includes(request.method()) && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/skills");
+  await page.getByRole("button", { name: "智能体设置", exact: true }).click();
+  await expect(page).toHaveURL(/#\/settings\/agent$/);
+  const kernel = page.getByRole("combobox", { name: "新对话默认内核" });
+  await expect(kernel).toHaveValue("tuantuan");
+  await expect(kernel.getByRole("option", { name: /DeepSeek Harness.*当前环境不可用/ })).toHaveJSProperty("disabled", true);
+  const screenshot = testInfo.outputPath("agent-settings.png");
+  await page.screenshot({ path: screenshot, animations: "disabled" });
+  await testInfo.attach("智能体设置", { path: screenshot, contentType: "image/png" });
+  expect(writes).toEqual([]);
+});
+
 test("skills center opens image creation from mobile without changing the existing draft or generating", async ({ page }) => {
   const writes = await mockSkillCenter(page);
   await page.setViewportSize({ width: 390, height: 820 });
