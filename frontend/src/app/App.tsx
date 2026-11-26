@@ -1439,6 +1439,7 @@ export function App({
                 imageSettings={activeCreationForm.imageSettings}
                 onImageSettings={imageSettings => updateCreationForm(form => ({ ...form, imageSettings }))}
                 fetchJson={fetchJson}
+                voiceInput={voiceInput}
                 ready={databaseReady}
                 busy={activeCreationForm.mode === "chat" && (conversationBusy || chatBusy)}
               />}

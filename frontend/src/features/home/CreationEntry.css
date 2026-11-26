@@ -97,6 +97,7 @@
 .home-page .creation-entry-form textarea:focus-visible { outline: 0; }
 .creation-entry-form textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
 .creation-entry-form p { margin: 0; padding-inline: 8px; font-size: 13px; color: var(--color-text-muted); }
+.creation-entry-form .creation-voice-error { color: var(--color-danger); }
 .creation-entry-files { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; padding: 0 8px; margin: 0; list-style: none; }
 .creation-entry-files li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .creation-entry-files li span { min-width: 0; overflow-wrap: anywhere; }
@@ -157,16 +158,23 @@
 }
 .home-page .creation-option-button:hover,
 .creation-image-options select:hover { background: var(--color-surface-subtle); }
-.home-page .creation-submit {
+.creation-entry-actions { display: flex; flex: 0 0 auto; gap: 4px; margin-left: auto; }
+.home-page :is(.creation-voice-button, .creation-submit) {
   display: grid;
-  flex: 0 0 auto;
   place-items: center;
   width: 40px;
   height: 40px;
-  margin-left: auto;
   padding: 0;
   border: 0;
   border-radius: 50%;
+}
+.home-page .creation-voice-button { color: var(--color-text-secondary); }
+.home-page .creation-voice-button:hover:not(:disabled) { color: var(--color-text); }
+.home-page .creation-voice-button[aria-pressed="true"] {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.home-page .creation-submit {
   background: var(--creation-accent);
   color: var(--creation-background);
 }

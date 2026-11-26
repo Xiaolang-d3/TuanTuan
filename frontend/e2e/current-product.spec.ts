@@ -908,6 +908,69 @@ test("the creation homepage filters inspiration and carries its image settings i
   expect(writes).toEqual([]);
 });
 
+test("home voice input edits the current draft and stops when changing modes", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
+      const context = new AudioContext({ sampleRate: 16_000 });
+      await context.resume();
+      const destination = context.createMediaStreamDestination();
+      const oscillator = context.createOscillator();
+      oscillator.connect(destination);
+      oscillator.start();
+      const track = destination.stream.getTracks()[0];
+      const stop = track.stop.bind(track);
+      track.stop = () => { stop(); void context.close(); };
+      return destination.stream;
+    } });
+  });
+  await page.route("**/speech/prepare", route => route.fulfill({ json: { state: "ready", error: "" } }));
+  let sessions = 0;
+  const closed: string[] = [];
+  await page.route("**/speech/sessions", route => route.fulfill({ json: { id: `home-${++sessions}` } }));
+  await page.route(/\/speech\/sessions\/home-\d+\/audio\?/, route => {
+    const imageSession = route.request().url().includes("/home-1/");
+    return route.fulfill({ json: { updates: [{ segmentId: 0, revision: 1, text: imageSession ? "晚霞" : "会议纪要", final: true }] } });
+  });
+  await page.route(/\/speech\/sessions\/home-\d+$/, route => {
+    expect(route.request().method()).toBe("DELETE");
+    closed.push(new URL(route.request().url()).pathname.split("/").pop()!);
+    return route.fulfill({ json: { closed: true } });
+  });
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && !path.startsWith("/speech/") && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const mic = entry.getByRole("button", { name: "语音输入", exact: true });
+  const stop = entry.getByRole("button", { name: "停止语音输入", exact: true });
+  const image = entry.getByRole("textbox", { name: "图片草稿" });
+  await image.fill("画面：海边");
+  await image.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(3, 3));
+  await expect(mic).toBeInViewport();
+  await mic.click();
+  await expect(stop).toHaveAttribute("aria-pressed", "true");
+  await expect(image).toHaveValue("画面：晚霞海边");
+
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await expect(mic).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => closed).toEqual(["home-1"]);
+  const chat = entry.getByRole("textbox", { name: "对话草稿" });
+  await expect(chat).toHaveValue("");
+  await chat.fill("请整理");
+  await mic.click();
+  await expect(chat).toHaveValue("请整理会议纪要");
+  await stop.click();
+  await expect.poll(() => closed).toEqual(["home-1", "home-2"]);
+
+  await entry.getByRole("button", { name: "图片", exact: true }).click();
+  await expect(image).toHaveValue("画面：晚霞海边");
+  expect(writes).toEqual([]);
+});
+
 test("the unified entry passes separate drafts without requesting generation", async ({ page }) => {
   const writes: string[] = [];
   page.on("request", (request) => {
