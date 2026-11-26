@@ -10,7 +10,11 @@
 .projects-actions { justify-content: flex-start; }
 .projects-content, .projects-form, .projects-link { display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
 .projects-form label, .projects-link label { display: grid; gap: 5px; min-width: 0; }
-.projects-form :is(input, textarea), .projects-link select { font: inherit; min-width: 0; max-width: 100%; padding: 8px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px; }
+.projects-form :is(input:not([type="checkbox"]), textarea, select), .projects-link select { font: inherit; min-width: 0; max-width: 100%; padding: 8px; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 7px; }
+.projects-source-list { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; }
+.projects-source-list legend { font-weight: 600; padding-inline: 4px; }
+.projects-form label.projects-source-option { display: flex; align-items: start; gap: 8px; overflow-wrap: anywhere; }
+.projects-source-option input { flex: none; }
 .projects-list { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
 .projects-list li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--color-border); border-radius: 8px; padding-right: 8px; }
 .projects-row { display: grid; flex: 1 1 auto; text-align: start; gap: 4px; min-width: 0; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: var(--color-text); cursor: pointer; overflow-wrap: anywhere; }

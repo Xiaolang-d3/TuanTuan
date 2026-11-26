@@ -1,6 +1,9 @@
+export type ProjectContext = { id: string; name: string; sources: Array<{ id: number; title: string }> };
+
 export type Conversation = {
   id: number;
   model_profile_id?: string | null;
+  project_context?: ProjectContext | null;
   kernel?: "tuantuan" | "dsh";
   title: string;
   status: "active" | "archived";

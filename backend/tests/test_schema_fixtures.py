@@ -46,7 +46,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         migrations = dict(conn.execute("SELECT version, name FROM schema_migrations"))
         assert migrations[old_version] == ("litellm_model_layer" if version == "29_litellm" else "independent_library")
-        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "workspace_projects"
+        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "project_context"
         # No existing row is lost (schema_migrations gains one row).
         for table, count in before_counts.items():
             expected = count + 1 if table == "schema_migrations" else count
@@ -80,18 +80,19 @@ def test_fresh_workspace_records_named_current_migration(tmp_path):
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [
-            (DB_SCHEMA_VERSION, "workspace_projects"),
+            (DB_SCHEMA_VERSION, "project_context"),
         ]
 
 
-def test_v48_projects_upgrade_preserves_v47_marker_and_legacy_sources(tmp_path):
+def test_project_context_upgrade_preserves_projects_and_legacy_sources(tmp_path):
     path = tmp_path / "tuantuan.db"
     init_db(path)
     with sqlite3.connect(path) as conn:
-        # Simulate the pre-project schema; #128 owns the actual v47 migration.
-        conn.execute("DROP TABLE project_items")
-        conn.execute("DROP TABLE projects")
-        conn.execute("UPDATE schema_migrations SET version=47, name='reserved_for_128'")
+        conn.execute("DROP TABLE conversation_project_sources")
+        conn.execute("DROP TABLE conversation_project_scopes")
+        conn.execute("ALTER TABLE projects DROP COLUMN default_model_profile_id")
+        conn.execute("INSERT INTO projects (id, name) VALUES ('prior-project', '旧项目')")
+        conn.execute("UPDATE schema_migrations SET version=48, name='workspace_projects'")
         conn.execute("INSERT INTO library_sources(title, content_hash, content) VALUES ('旧资料', 'old', 'legacy body')")
         before_sources = conn.execute("SELECT * FROM library_sources").fetchall()
         before_chats = conn.execute("SELECT * FROM conversations").fetchall()
@@ -100,10 +101,11 @@ def test_v48_projects_upgrade_preserves_v47_marker_and_legacy_sources(tmp_path):
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations ORDER BY version").fetchall() == [
-            (47, "reserved_for_128"), (48, "workspace_projects"),
+            (48, "workspace_projects"), (49, "project_context"),
         ]
-        assert conn.execute("SELECT * FROM projects").fetchall() == []
-        assert conn.execute("SELECT * FROM project_items").fetchall() == []
+        assert conn.execute("SELECT id, name, default_model_profile_id FROM projects").fetchall() == [("prior-project", "旧项目", None)]
+        assert conn.execute("SELECT * FROM conversation_project_scopes").fetchall() == []
+        assert conn.execute("SELECT * FROM conversation_project_sources").fetchall() == []
         assert conn.execute("SELECT * FROM library_sources").fetchall() == before_sources
         assert conn.execute("SELECT * FROM conversations").fetchall() == before_chats
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []

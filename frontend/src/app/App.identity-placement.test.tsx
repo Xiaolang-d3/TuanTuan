@@ -7,12 +7,12 @@ import { App } from "./App";
 import type { Conversation } from "../types";
 import type { ConversationDialogState } from "../components/ConversationDialog";
 
-const api = vi.hoisted(() => ({ fetchJson: vi.fn<(path: string) => Promise<unknown>>() }));
+const api = vi.hoisted(() => ({ fetchJson: vi.fn<(path: string, options?: RequestInit) => Promise<unknown>>() }));
 const conversations = vi.hoisted(() => ({
   conversations: [] as Conversation[], currentConversationId: null as number | null, conversationBusy: false,
   conversationDialog: null as ConversationDialogState | null, setConversationDialog: vi.fn(),
   renameConversation: vi.fn(), removeConversation: vi.fn(), setConversations: vi.fn(), setCurrentConversationId: vi.fn(),
-  setConversationBusy: vi.fn(), refreshConversations: vi.fn().mockResolvedValue([])
+  setConversationBusy: vi.fn(), invalidateConversationReads: vi.fn(), refreshConversations: vi.fn().mockResolvedValue([])
 }));
 const chat = vi.hoisted(() => ({
   chatMessages: [], chatBusy: false, modelUnavailable: null,
@@ -77,6 +77,9 @@ beforeEach(() => {
   conversations.setConversationDialog.mockClear();
   conversations.renameConversation.mockClear();
   conversations.removeConversation.mockClear();
+  conversations.invalidateConversationReads.mockClear();
+  conversations.setConversations.mockClear();
+  chat.setChatMessages.mockClear();
   api.fetchJson.mockReset();
   conversations.refreshConversations.mockResolvedValue([]);
   library.refreshLibrary.mockResolvedValue(undefined);
@@ -101,6 +104,61 @@ afterEach(() => {
   delete (api.fetchJson as typeof api.fetchJson & { events?: unknown }).events;
   vi.restoreAllMocks();
   localStorage.clear();
+});
+
+describe("App project conversations", () => {
+  function mockProject(create: () => Promise<Conversation>) {
+    const fallback = api.fetchJson.getMockImplementation()!;
+    const connection = { id: "connection", name: "自定义连接", model_base_url: "https://models.example.test/v1", model_protocol: "openai", enabled: true, api_key_configured: true, revision: 1 };
+    const profile = { id: "chat-model", connection_id: connection.id, model_name: "聊天模型", enabled: true, revision: 1, supported_purposes: ["chat"] };
+    const project = { id: "p1", name: "项目一", description: "", status: "active", created_at: "", updated_at: "", default_model_profile_id: null, items: [] };
+    api.fetchJson.mockImplementation(async (path, options) => {
+      if (path === "/agent/model-connections") return { connections: [connection], profiles: [profile, { ...profile, id: "image-model", model_name: "图片模型", supported_purposes: ["image"] }], default_profile_id: null };
+      if (path === "/projects/p1") return project;
+      if (path === "/projects") return { items: [project] };
+      if (path === "/projects/p1/conversations") return create();
+      return fallback(path, options);
+    });
+    window.history.replaceState(null, "", "#/projects?id=p1");
+  }
+
+  const created: Conversation = { id: 29, title: "新对话", status: "active", summary: "", updated_at: "", project_context: { id: "p1", name: "项目一", sources: [] } };
+
+  it("offers chat profiles and opens the returned conversation without starting a run", async () => {
+    mockProject(async () => created);
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑项目" }));
+    expect(await screen.findByRole("option", { name: "聊天模型 · 自定义连接" })).toBeEnabled();
+    expect(screen.queryByRole("option", { name: /图片模型/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建项目对话" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建对话" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/chat/29"));
+    expect(chat.setChatMessages).toHaveBeenCalledWith([]);
+    expect(conversations.setConversations).toHaveBeenCalledWith(expect.any(Function));
+    const update = conversations.setConversations.mock.lastCall?.[0];
+    expect(update([])).toEqual([created]);
+    const posts = api.fetchJson.mock.calls.filter(([, request]) => request?.method === "POST");
+    expect(posts.map(([path, request]) => [path, JSON.parse(String(request?.body))])).toEqual([["/projects/p1/conversations", { source_ids: [] }]]);
+  });
+
+  it("does not open a stale conversation after leaving and returning to the same project", async () => {
+    let resolve!: (result: Conversation) => void;
+    const pending = new Promise<Conversation>(done => { resolve = done; });
+    mockProject(() => pending);
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: "新建项目对话" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建对话" }));
+    const request = api.fetchJson.mock.calls.find(([path]) => path === "/projects/p1/conversations")?.[1];
+    expect(request?.signal?.aborted).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "返回我的项目" }));
+    fireEvent.click(await screen.findByRole("button", { name: /项目一/ }));
+    expect(await screen.findByRole("button", { name: "新建项目对话" })).toBeEnabled();
+    expect(request?.signal?.aborted).toBe(true);
+    await act(async () => { resolve(created); });
+    expect(window.location.hash).toBe("#/projects?id=p1");
+    expect(conversations.setConversations).not.toHaveBeenCalled();
+  });
 });
 
 describe("App identity placement", () => {

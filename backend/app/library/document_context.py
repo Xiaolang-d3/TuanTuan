@@ -8,6 +8,7 @@ from ..documents.blocks import DocumentTarget
 from ..domain import AgentMessage
 from ..attachments.service import get_attachment
 from .source_versions import source_state
+from .project_scope import project_source_ids
 from .evidence import _resolve, _evidence_card, bounded_evidence_data, TRUSTED_EVIDENCE_TOOLS
 
 ATTACHMENT_PREFIX = "\n\n以下为用户主动上传附件的本地解析文本，请基于此内容回答：\n"
@@ -104,8 +105,10 @@ def document_targets_in_messages(messages, conversation_id):
     return list(targets.values())
 
 
-def bounded_document_messages(messages, conversation_id, *, library_read_allowed=True):
+def bounded_document_messages(messages, conversation_id, *, library_read_allowed=True, db_path=None):
     remaining, result = DOCUMENT_CONTEXT_CHARACTERS, []
+    scope_checked = False
+    selected_sources = None
     for message in reversed(messages):
         payload = message.payload
         refs = document_targets_in_messages([message], conversation_id) if message.role == "user" else []
@@ -123,14 +126,17 @@ def bounded_document_messages(messages, conversation_id, *, library_read_allowed
               and (payload.get("tool_name") in TRUSTED_EVIDENCE_TOOLS
                    or (message.role == "user" and payload.get("retained_evidence")))):
             from ..agent.settings import get_agent_settings
-            settings = get_agent_settings()
+            if not scope_checked:
+                selected_sources = project_source_ids(conversation_id, db_path)
+                scope_checked = True
+            settings = get_agent_settings(db_path)
             permitted, used = [], 0
             for card in payload.get("evidence", []):
                 try:
                     target = DocumentTarget(**{k: card[k] for k in ("source_kind", "source_id", "attachment_id", "source_revision") if k in card})
                     if target.source_kind == "library" and (not library_read_allowed or not settings["library_memory_enabled"] or not settings["knowledge_memory_enabled"]):
                         continue
-                    source, version, original = _resolve(target, conversation_id=conversation_id, automatic=target.source_kind == "library")
+                    source, version, original = _resolve(target, db_path, conversation_id=conversation_id, automatic=target.source_kind == "library")
                     block = next(b for b in version["blocks"] if b["block_id"] == card["block_id"])
                     current = _evidence_card(target, source, block, original=original, automatic=target.source_kind == "library")
                     if any(card.get(k) != current[k] for k in ("citation_id", "excerpt", "excerpt_hash", "locator")):
@@ -141,10 +147,11 @@ def bounded_document_messages(messages, conversation_id, *, library_read_allowed
                     used += len(card["excerpt"])
                 except (ValueError, KeyError, TypeError, StopIteration):
                     continue
-            if payload.get("tool_name") == "read_library_source" and len(permitted) == len(payload.get("evidence", [])) and permitted:
+            if selected_sources is None and payload.get("tool_name") == "read_library_source" and len(permitted) == len(payload.get("evidence", [])) and permitted:
                 remaining -= used
             else:
-                data = {**bounded_evidence_data(permitted, payload if library_read_allowed else {}), "tool_name": payload.get("tool_name"), "status": payload.get("status")}
+                extras = payload if library_read_allowed and selected_sources is None else {}
+                data = {**bounded_evidence_data(permitted, extras), "tool_name": payload.get("tool_name"), "status": payload.get("status")}
                 if payload.get("retained_evidence"):
                     data["retained_evidence"] = True
                 data["history_reassembled"] = True

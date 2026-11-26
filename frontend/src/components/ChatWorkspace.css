@@ -43,6 +43,16 @@
   background: transparent;
 }
 
+.chat-project-scope { min-width: 0; margin-inline-end: auto; font-size: 13px; }
+.chat-project-scope summary { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 7px; cursor: pointer; }
+.chat-project-scope summary::before { content: "▸"; flex: none; }
+.chat-project-scope[open] summary::before { content: "▾"; }
+.chat-project-scope summary > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-project-count { color: var(--color-text-muted); flex: none; white-space: nowrap; }
+.chat-project-sources { position: absolute; inset-block-start: 100%; inset-inline-start: var(--chat-gutter, 16px); z-index: 1; width: min(320px, calc(100% - 32px)); max-height: min(45vh, 360px); overflow: auto; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-surface); }
+.chat-project-sources p { margin: 6px 0 0; }
+.chat-project-sources ul { margin: 6px 0 0; padding-inline-start: 20px; }
+
 .chat-workspace .chat-session-header .chat-session-tools {
   display: inline-flex;
   align-items: center;

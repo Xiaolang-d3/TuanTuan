@@ -18,6 +18,7 @@ _upgrade_lock = threading.RLock()
 # schema_migrations.name per version. Versions up to 27 were all recorded as
 # 'independent_library' (the v23 library rewrite and its follow-ups).
 _MIGRATION_NAMES = {
+    49: "project_context",
     48: "workspace_projects",
     47: "final_works",
     46: "conversation_memory_cursors",
@@ -132,6 +133,9 @@ def initialize_workspace(db_path: str | Path | None = None) -> None:
                 conn.execute("ALTER TABLE conversations ADD COLUMN model_profile_id TEXT")
             if "kernel" not in conversation_columns:
                 conn.execute("ALTER TABLE conversations ADD COLUMN kernel TEXT NOT NULL DEFAULT 'tuantuan'")
+            project_columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+            if "default_model_profile_id" not in project_columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN default_model_profile_id TEXT")
             run_columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_execution_runs)")}
             if "model_selection_json" not in run_columns:
                 conn.execute("ALTER TABLE agent_execution_runs ADD COLUMN model_selection_json TEXT NOT NULL DEFAULT '{}'")
