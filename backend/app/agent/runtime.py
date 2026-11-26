@@ -255,6 +255,7 @@ class AgentRuntime:
         self._max_model_retries = max(0, max_model_retries)
         self._max_tool_retries = max(0, max_tool_retries)
         self._run_store = run_store
+        self._document_db_path = run_store.db_path if run_store is not None else None
         self._model_selection = internal_model_selection(model_selection)
         self._model_router = model_router
         self._execution_limits = execution_limits or ExecutionLimits()
@@ -467,11 +468,11 @@ class AgentRuntime:
     ) -> AgentRunResult:
         from ..library.document_context import bounded_document_messages, document_targets_in_messages
         seed = AgentMessage(role="user", content=user_content, payload={"document_targets": document_targets or [], "evidence": local_evidence or []})
-        current = bounded_document_messages([seed], conversation_id)[0]
+        current = bounded_document_messages([seed], conversation_id, db_path=self._document_db_path)[0]
         user_content = current.content
         document_targets = current.payload.get("document_targets", [])
         local_evidence = current.payload.get("evidence", [])
-        history = bounded_document_messages(history or [], conversation_id)
+        history = bounded_document_messages(history or [], conversation_id, db_path=self._document_db_path)
         provider = self._models.get(self._model_provider)
         selected_platform = platform_name or self._platform_name
         from ..chat.image_assets import image_generation_intent
@@ -557,7 +558,7 @@ class AgentRuntime:
                 pass
         library_read_allowed = bool({"get_library_context", "search_library", "read_library_source"} & set(route.allowed_tools))
         self._document_library_permission.set(library_read_allowed)
-        history = bounded_document_messages(history, conversation_id, library_read_allowed=library_read_allowed)
+        history = bounded_document_messages(history, conversation_id, library_read_allowed=library_read_allowed, db_path=self._document_db_path)
         attachment_targets = [*document_targets, *document_targets_in_messages(history, conversation_id)]
         if attachment_targets:
             readers = tuple(name for name in ("search_library", "read_library_source") if name in available_tools)
@@ -1221,7 +1222,7 @@ class AgentRuntime:
         invalid_argument_retries = 0
         rejected_completions: set[tuple[str, ...]] = set()
         from ..library.document_context import bounded_document_messages
-        messages[:] = bounded_document_messages(messages, conversation_id, library_read_allowed=ctx.library_read_allowed)
+        messages[:] = bounded_document_messages(messages, conversation_id, library_read_allowed=ctx.library_read_allowed, db_path=self._document_db_path)
         self._checkpoint_run(ctx, rounds_used=max(0, start_round - 1))
         # Messages appended after this point belong to the current run; anything
         # earlier is conversation history and must not be surfaced as a result.
@@ -1230,7 +1231,7 @@ class AgentRuntime:
         # review have bounded slots. Reserved slots cannot execute tools.
         finalization_started = False
         for round_number in range(start_round, self._max_tool_rounds + 4):
-            messages[:] = bounded_document_messages(messages, conversation_id, library_read_allowed=ctx.library_read_allowed)
+            messages[:] = bounded_document_messages(messages, conversation_id, library_read_allowed=ctx.library_read_allowed, db_path=self._document_db_path)
             repairing_citations = bool(ctx.citation_draft)
             if not repairing_citations:
                 reason = ctx.budget.stop_reason()
@@ -2398,7 +2399,7 @@ class AgentRuntime:
 
     async def _generate_for_stage(self, provider, stage: str, request: ModelRequest, *, event_callback: StreamCallback | None = None) -> ModelResponse:
         from ..library.document_context import bounded_document_messages
-        request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get())})
+        request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get(), db_path=self._document_db_path)})
         provider, selection, request = self._select_stage_model(provider, stage, request)
         labels = {"classify": ("正在理解你的请求", "已理解请求"), "plan": ("正在规划步骤", "已完成规划")}
         progress = ToolEvent(round=0, tool_call_id=f"model-stage-{stage}", tool_name="agent_run_state",
@@ -2492,7 +2493,7 @@ class AgentRuntime:
 
     async def _generate_response(self, provider, request: ModelRequest, event_callback: StreamCallback | None, *, stream_text: bool = True) -> ModelResponse:
         from ..library.document_context import bounded_document_messages
-        request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get())})
+        request = request.model_copy(update={"messages": bounded_document_messages(request.messages, self._document_conversation.get(), library_read_allowed=self._document_library_permission.get(), db_path=self._document_db_path)})
         provider, selection, request = self._select_stage_model(provider, "execute", request, streaming=event_callback is not None)
         with model_call_scope(selection, self._run_context.get(), stage="execute"):
             return await self._generate_response_unscoped(provider, request, event_callback, stream_text=stream_text)

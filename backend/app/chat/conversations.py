@@ -6,6 +6,7 @@ from typing import Any
 
 from ..agent.snapshots import clear_run_snapshot
 from ..db import connect, row_to_dict, rows_to_dicts
+from ..library.project_scope import project_context
 from ..agent.kernels.base import (
     DEFAULT_KERNEL,
     KERNEL_DSH,
@@ -92,6 +93,10 @@ def list_conversations(db_path: str | Path | None = None, *, query: str | None =
             """
         ).fetchall()
         conversations = rows_to_dicts(rows)
+        scoped_ids = {row[0] for row in conn.execute("SELECT conversation_id FROM conversation_project_scopes WHERE project_id IS NOT NULL")}
+        for conversation in conversations:
+            if conversation["id"] in scoped_ids:
+                conversation["project_context"] = project_context(conn, conversation["id"])
         if not needle:
             return conversations
         matched_ids = {
@@ -110,25 +115,35 @@ def get_conversation(conversation_id: int, db_path: str | Path | None = None) ->
         row = conn.execute(
             "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
         ).fetchone()
-    return row_to_dict(row)
+        return _conversation_result(conn, row)
+
+
+def _conversation_result(conn, row):
+    item = row_to_dict(row)
+    if item is not None:
+        context = project_context(conn, item["id"])
+        if context is not None:
+            item["project_context"] = context
+    return item
+
+
+def insert_conversation(conn, title: str, kernel: str, model_profile_id: str | None = None) -> int:
+    cursor = conn.execute(
+        "INSERT INTO conversations (title, kernel, model_profile_id) VALUES (?, ?, ?)",
+        (title.strip()[:80] or "新对话", kernel, model_profile_id),
+    )
+    conversation_id = int(cursor.lastrowid)
+    conn.execute("INSERT INTO conversation_tasks (conversation_id, title) VALUES (?, ?)", (conversation_id, "当前任务"))
+    return conversation_id
 
 
 def create_conversation(title: str = "新对话", db_path: str | Path | None = None, *, kernel: str = DEFAULT_KERNEL) -> dict:
-    clean_title = title.strip()[:80] or "新对话"
     normalized_kernel = normalize_kernel(kernel)
     if not is_valid_kernel(kernel):
         raise ValueError("内核类型无效")
     with connect(db_path) as conn:
         model_profile_id = _dsh_profile_id(conn) if normalized_kernel == KERNEL_DSH else None
-        cursor = conn.execute(
-            "INSERT INTO conversations (title, kernel, model_profile_id) VALUES (?, ?, ?)",
-            (clean_title, normalized_kernel, model_profile_id),
-        )
-        conversation_id = cursor.lastrowid
-        conn.execute(
-            "INSERT INTO conversation_tasks (conversation_id, title) VALUES (?, ?)",
-            (conversation_id, "当前任务"),
-        )
+        conversation_id = insert_conversation(conn, title, normalized_kernel, model_profile_id)
         row = conn.execute(
             "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
         ).fetchone()
@@ -200,18 +215,19 @@ def fork_conversation(
         ).fetchall()
         snapshot = _fork_context_snapshot(source, list(reversed(rows)))
         target_kernel = normalize_kernel(kernel)
+        project_scope = conn.execute("SELECT project_id FROM conversation_project_scopes WHERE conversation_id = ?", (conversation_id,)).fetchone()
+        if project_scope is not None and target_kernel != DEFAULT_KERNEL:
+            raise ValueError("项目对话仅支持团团内核")
         target_profile_id = source["model_profile_id"]
         if target_kernel == KERNEL_DSH:
             target_profile_id = _dsh_profile_id(conn, source["model_profile_id"])
-        cursor = conn.execute(
-            "INSERT INTO conversations (title, kernel, model_profile_id) VALUES (?, ?, ?)",
-            (_fork_title(str(source["title"])), target_kernel, target_profile_id),
-        )
-        fork_id = int(cursor.lastrowid)
-        conn.execute(
-            "INSERT INTO conversation_tasks (conversation_id, title) VALUES (?, ?)",
-            (fork_id, "当前任务"),
-        )
+        fork_id = insert_conversation(conn, _fork_title(str(source["title"])), target_kernel, target_profile_id)
+        if project_scope is not None:
+            conn.execute("INSERT INTO conversation_project_scopes VALUES (?, ?)", (fork_id, project_scope["project_id"]))
+            conn.execute("""
+                INSERT INTO conversation_project_sources (conversation_id, source_id)
+                SELECT ?, source_id FROM conversation_project_sources WHERE conversation_id = ?
+            """, (fork_id, conversation_id))
         if snapshot:
             conn.execute(
                 """
@@ -224,7 +240,7 @@ def fork_conversation(
         row = conn.execute(
             "SELECT * FROM conversations WHERE id = ?", (fork_id,)
         ).fetchone()
-    return row_to_dict(row)
+        return _conversation_result(conn, row)
 
 
 def ensure_active_task(conversation_id: int, db_path: str | Path | None = None) -> int:
@@ -294,6 +310,10 @@ def update_conversation(
         ).fetchone():
             raise ValueError("对话已有消息，内核不可更改")
         effective_kernel = normalize_kernel(kernel) if kernel_selected else normalize_kernel(existing["kernel"])
+        if kernel_selected and effective_kernel != DEFAULT_KERNEL and conn.execute(
+            "SELECT 1 FROM conversation_project_scopes WHERE conversation_id = ?", (conversation_id,),
+        ).fetchone():
+            raise ValueError("项目对话仅支持团团内核")
         if effective_kernel == KERNEL_DSH and (kernel_selected or model_profile_selected):
             selected_profile_id = model_profile_id if model_profile_selected else _dsh_profile_id(
                 conn, existing["model_profile_id"]
@@ -311,7 +331,7 @@ def update_conversation(
         row = conn.execute(
             "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
         ).fetchone()
-    return row_to_dict(row)
+        return _conversation_result(conn, row)
 
 
 def end_active_task(conversation_id: int, db_path: str | Path | None = None) -> bool:

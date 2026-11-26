@@ -70,6 +70,10 @@ class AgentRunStore:
     def __init__(self, db_path: str | Path | None = None) -> None:
         self._db_path = db_path
 
+    @property
+    def db_path(self) -> str | Path | None:
+        return self._db_path
+
     def start_run(
         self,
         run_id: str,

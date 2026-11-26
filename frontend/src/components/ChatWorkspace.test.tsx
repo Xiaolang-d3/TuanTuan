@@ -120,6 +120,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
   replacementUndo?: ChatWorkspaceProps["replacementUndo"];
   onUndoReplacement?: () => Promise<void>;
   quickPpt?: boolean;
+  conversations?: ChatWorkspaceProps["conversations"];
 } = {}) {
   const props = {
     documentService: extras.documentService,
@@ -148,7 +149,7 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
     chatBusy: extras.chatBusy ?? false,
     currentConversationId: conversation.id,
     onWebSearchChange: vi.fn(),
-    conversations: [conversation],
+    conversations: extras.conversations ?? [conversation],
     conversationBusy: false,
     waitingForUser: false,
     latestAgent: extras.latestAgent ?? [...messages].reverse().find((item) => item.role === "assistant")?.payload?.agent,
@@ -187,6 +188,28 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
 }
 
 describe("ChatWorkspace", () => {
+  it("shows the saved project and selected sources only for the active conversation", () => {
+    const scoped = { ...conversation, project_context: { id: "project-1", name: "调研项目", sources: [{ id: 3, title: "调研文档" }] } };
+    const other = { ...conversation, id: conversation.id + 1, project_context: { id: "project-2", name: "未选资料的项目", sources: [] } };
+    const ordinary = { ...conversation, id: conversation.id + 2 };
+    const conversations = [scoped, other, ordinary];
+    const { view, ...props } = renderChat([], { conversations });
+    const header = within(within(view.container).getByLabelText("对话操作栏"));
+    expect(header.getByText("1 项资料")).toBeVisible();
+    expect(header.getByText("项目：调研项目", { selector: "summary span" })).toBeVisible();
+    const disclosure = header.getByText("1 项资料").closest("summary")!;
+    expect(header.getByText("调研文档")).not.toBeVisible();
+    fireEvent.click(disclosure);
+    expect(header.getByRole("listitem")).toHaveTextContent("调研文档");
+    view.rerender(<ChatWorkspace {...props} currentConversationId={other.id} />);
+    expect(header.queryByText("调研文档")).not.toBeInTheDocument();
+    fireEvent.click(header.getByText("0 项资料").closest("summary")!);
+    expect(header.getByText("未选择项目资料")).toBeVisible();
+    view.rerender(<ChatWorkspace {...props} currentConversationId={ordinary.id} />);
+    expect(header.queryByText("0 项资料")).not.toBeInTheDocument();
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
+
   it.each(["主题", "仅上传资料"])("sends a quick PPT from the normal composer: %s", async mode => {
     const topic = mode === "主题" ? "智能体架构设计" : "";
     const attachment: ChatAttachment = { id: "ppt-source", original_filename: "讲稿.docx", kind: "document", parse_status: "parsed" };

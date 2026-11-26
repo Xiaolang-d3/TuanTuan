@@ -12,6 +12,7 @@ from ..knowledge import search_knowledge
 from ..library.repository import ensure_library
 from ..library.knowledge import propose_knowledge
 from ..library.service import model_context
+from ..library.project_scope import project_source_ids
 from ..library.sources import SOURCE_TYPE, get_source
 from ..library.evidence import bounded_evidence_data, evidence_for_target
 from ..agent.citations import LOCAL_CITATION_GUIDANCE
@@ -61,7 +62,8 @@ class GetLibraryContextTool:
         EmptyArguments.model_validate(arguments)
         if not context.library_read_allowed:
             return ToolResult(ok=True, status="done", data={"evidence": [], "sources": [], "confirmed_facts": [], "disabled": True}, message="本轮未授权读取资料库，可单独读取当前对话附件")
-        data = model_context(self._db_path)
+        project_sources = project_source_ids(context.conversation_id, self._db_path)
+        data = model_context(self._db_path, source_ids=project_sources)
         return ToolResult(ok=True, status="done", data=bounded_evidence_data(data.get("evidence", []), data), message="已读取知识库；引用仅使用返回的 citation_id")
 
 
@@ -84,11 +86,14 @@ class SearchLibraryTool:
         from ..attachments.service import ATTACHMENT_SOURCE_TYPE
         from ..library.evidence import _resolve
         targets = payload.targets
+        project_sources = project_source_ids(context.conversation_id, self._db_path)
         scope = []
         if payload.source_ids is not None:
             if not library_allowed:
                 raise ValueError("本轮不能读取资料库，可单独检索当前对话附件")
             for source_id in payload.source_ids:
+                if project_sources is not None and source_id not in project_sources:
+                    raise ValueError("未选择此项目资料，或资料已不可用")
                 source = get_source(source_id, self._db_path)
                 if not source["enabled"] or source["trashed_at"]:
                     raise ValueError("来源未授权或已移入回收站")
@@ -108,7 +113,8 @@ class SearchLibraryTool:
                     scope.extend((SOURCE_TYPE, str(row["id"]), row["current_revision"]) for row in conn.execute("""
                         SELECT s.id,v.current_revision FROM library_sources s LEFT JOIN document_source_state v
                         ON v.source_kind='library' AND v.source_key=CAST(s.id AS TEXT)
-                        WHERE s.enabled=1 AND json_extract(s.metadata_json,'$.organization.trashed_at') IS NULL"""))
+                        WHERE s.enabled=1 AND json_extract(s.metadata_json,'$.organization.trashed_at') IS NULL""")
+                        if project_sources is None or row["id"] in project_sources)
                 if context.conversation_id is not None:
                     scope.extend((ATTACHMENT_SOURCE_TYPE, row["id"], row["current_revision"]) for row in conn.execute("""
                         SELECT a.id,v.current_revision FROM attachments a JOIN document_source_state v
@@ -134,7 +140,10 @@ class SearchLibraryTool:
                     if card["excerpt"] == item["content"]:
                         evidence.append(card)
                     continue
-                source = get_source(int(item["source_id"]), self._db_path)
+                source_id = int(item["source_id"])
+                if project_sources is not None and source_id not in project_sources:
+                    continue
+                source = get_source(source_id, self._db_path)
                 if not source["enabled"] or source["trashed_at"]:
                     continue
                 if not meta.get("source_revision") or not meta.get("block_id"):
@@ -142,13 +151,13 @@ class SearchLibraryTool:
                     if item["content"] and item["content"] in view:
                         legacy.append({"id": item["id"], "source_id": item["source_id"], "title": source["title"][:200], "content": item["content"], "precise": False})
                     continue
-                card = evidence_for_target(DocumentTarget(source_kind="library", source_id=int(item["source_id"]), source_revision=meta["source_revision"]), meta["block_id"], self._db_path)
+                card = evidence_for_target(DocumentTarget(source_kind="library", source_id=source_id, source_revision=meta["source_revision"]), meta["block_id"], self._db_path, conversation_id=context.conversation_id)
                 if source["source_revision"] == meta["source_revision"] and card["excerpt"] == item["content"]:
                     evidence.append(card)
             except (ValueError, KeyError):
                 continue
         facts = [
-            fact for fact in (model_context(self._db_path)["confirmed_facts"] if library_allowed and payload.targets is None and payload.source_ids is None else [])
+            fact for fact in (model_context(self._db_path)["confirmed_facts"] if library_allowed and project_sources is None and payload.targets is None and payload.source_ids is None else [])
             if payload.query.casefold() in fact["statement"].casefold()
         ][:payload.limit]
         evidence = list({card["citation_id"]: card for card in evidence}.values())

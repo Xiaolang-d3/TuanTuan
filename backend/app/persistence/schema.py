@@ -432,6 +432,7 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    default_model_profile_id TEXT,
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')
 );
@@ -444,6 +445,17 @@ CREATE TABLE IF NOT EXISTS project_items (
     source_id TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
     PRIMARY KEY (project_id, kind, source_id)
+);
+
+-- Keep the scope marker on project deletion so the conversation never falls back to global retrieval.
+CREATE TABLE IF NOT EXISTS conversation_project_scopes (
+    conversation_id INTEGER NOT NULL PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS conversation_project_sources (
+    conversation_id INTEGER NOT NULL REFERENCES conversation_project_scopes(conversation_id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
+    PRIMARY KEY (conversation_id, source_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_conversation ON chat_messages(conversation_id, id);
