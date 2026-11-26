@@ -94,6 +94,7 @@ export type ViewKey =
   | "dashboard"
   | "history"
   | "projects"
+  | "skills"
   | "chat"
   | "images"
   | "video"

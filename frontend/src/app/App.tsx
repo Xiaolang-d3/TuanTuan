@@ -116,6 +116,7 @@ const SettingsOverview = lazy(() => loadSettingsWorkspace().then((module) => ({
 })));
 
 const ExtensionsPage = lazy(() => import("../features/extensions/ExtensionsPage").then((module) => ({ default: module.ExtensionsPage })));
+const SkillsCenterPage = lazy(() => import("../features/extensions/SkillsCenterPage").then((module) => ({ default: module.SkillsCenterPage })));
 
 const LibraryPage = lazy(() => loadLibraryPage().then((module) => ({
   default: module.LibraryPage
@@ -272,7 +273,8 @@ export function App({
     homeAnalysisBusyRef.current = false;
     setConversationBusy(false);
   }, [fetchJson, userEmail, setConversationBusy]);
-  const skillSelectionScope = JSON.stringify([apiBase, user.id ?? user.email, appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId]);
+  const skillSelectionScopeFor = (id: number | null) => JSON.stringify([apiBase, user.id ?? user.email, id]);
+  const skillSelectionScope = skillSelectionScopeFor(appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId);
   const [chatSkillSelection, setChatSkillSelection] = useState<{ scope: string; id: string | null | undefined }>({ scope: "", id: undefined });
   const selectedSkillId = chatSkillSelection.scope === skillSelectionScope ? chatSkillSelection.id : undefined;
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
@@ -1088,6 +1090,7 @@ export function App({
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
     else if (key === "history") navigateRoute({ section: "history" });
     else if (key === "projects") navigateRoute({ section: "projects" });
+    else if (key === "skills") navigateRoute({ section: "skills" });
     else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
@@ -1180,7 +1183,7 @@ export function App({
     } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
   }
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, skillId?: string) {
     if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
     }
@@ -1202,6 +1205,7 @@ export function App({
         conversationId: created.id,
         content,
       } : null);
+      if (skillId) setChatSkillSelection({ id: skillId, scope: skillSelectionScopeFor(created.id) });
       setCurrentConversationId(created.id);
       navigateRoute({ section: "chat", conversationId: created.id });
       setNoticeMessage(notice);
@@ -1218,6 +1222,12 @@ export function App({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
+  function openNewChatDraft(content: string, notice: string, skillId?: string) {
+    return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
+    }), content, notice, skillId);
+  }
+
   function openCreationWorkspace(mode: CreationMode, content: string) {
     if (!databaseReady) return;
     if (mode === "images") {
@@ -1225,9 +1235,7 @@ export function App({
       navigateRoute({ section: "images" });
       return;
     }
-    void openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
-    }), content, content.trim() ? "对话草稿已准备，编辑后发送" : "已新建对话").catch((error: unknown) => {
+    void openNewChatDraft(content, content.trim() ? "对话草稿已准备，编辑后发送" : "已新建对话").catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setErrorMessage(error instanceof Error ? error.message : "打开对话工作区失败");
     });
   }
@@ -1351,6 +1359,17 @@ export function App({
           ? <ProjectsPage key={creationScope} id={appRoute.projectId} fetchJson={fetchJson}
             onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem} />
           : <PageLoading label="正在连接项目…" />) : null}
+
+        {appRoute.section === "skills" ? (databaseReady ? (
+          <Suspense fallback={<PageLoading label="正在加载技能中心…" />}>
+            <SkillsCenterPage key={creationScope} apiBase={apiBase} accessToken={accessToken} fetchJson={fetchJson}
+              capabilities={capabilities} conversationBusy={conversationBusy || chatBusy}
+              onOpenExtensions={() => navigateRoute({ section: "settings", page: "extensions" })}
+              onOpenModelSettings={purpose => navigateRoute(purpose === "image" ? { section: "settings", page: "model", purpose } : { section: "settings", page: "model" })}
+              onOpenImage={() => openCreationWorkspace("images", "")}
+              onOpenSkill={skillId => openNewChatDraft("", "已选择技能，填写任务后发送", skillId)} />
+          </Suspense>
+        ) : <PageLoading label="正在连接技能中心…" />) : null}
 
         {visitedImageWorkspace || appRoute.section === "images" ? <div hidden={appRoute.section !== "images"}>
           <ImageWorkspacePage

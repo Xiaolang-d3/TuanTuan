@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   FolderKanban,
   GalleryThumbnails,
   History,
@@ -15,7 +16,7 @@ import { ThemeToggleButton } from "./ThemeToggleButton";
 import { WeixinBotEntry } from './WeixinBotEntry';
 import type { WeixinBotState } from '../features/chat/useWeixinBot';
 
-export type ProductNavKey = "dashboard" | "history" | "works" | "projects" | "library" | "settings";
+export type ProductNavKey = "dashboard" | "history" | "works" | "projects" | "library" | "skills" | "settings";
 
 type PrefetchPage = "chat" | "library" | "dashboard" | "settings";
 
@@ -67,6 +68,7 @@ export function AppSidebar({
     { key: "works", label: "我的作品", mobileLabel: "作品", icon: <GalleryThumbnails size={18} />, active: isActive("works"), onClick: () => onSelectNav("works") },
     { key: "library", label: "知识库", icon: <LibraryBig size={18} />, active: isActive("library"), prefetch: "library", onClick: () => onSelectNav("library") },
     { key: "projects", label: "我的项目", mobileLabel: "项目", icon: <FolderKanban size={18} />, active: isActive("projects"), onClick: () => onSelectNav("projects") },
+    { key: "skills", label: "技能中心", mobileLabel: "技能", icon: <BookOpen size={18} />, active: isActive("skills"), onClick: () => onSelectNav("skills") },
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
 

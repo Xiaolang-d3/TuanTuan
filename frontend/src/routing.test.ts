@@ -19,7 +19,8 @@ describe("product destination routes", () => {
     ["video", "#/video"],
     ["works", "#/works"],
     ["history", "#/history"],
-    ["projects", "#/projects"]
+    ["projects", "#/projects"],
+    ["skills", "#/skills"]
   ] as const)("keeps %s addressable after refresh", (section, hash) => {
     expect(parseAppHash(hash)).toEqual({ section });
     expect(initialAppRoute(hash)).toEqual({ section });

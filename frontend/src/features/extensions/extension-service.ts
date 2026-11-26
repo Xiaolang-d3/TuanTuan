@@ -4,7 +4,8 @@ import { createActivityService } from "./activity-service";
 import { createPresentationService, PRESENTATION_SETUP_TIMEOUT_MS } from "./presentation-service";
 
 type ServerExtension = ExtensionSummary & { content?: string; unavailable_reason?: string };
-export type ExtensionCatalog = { extensions: ServerExtension[]; connections: McpDraft[]; execution: { available: boolean; reason: string } };
+export type ExtensionExecution = { available: boolean; reason: string; adapter?: "quick-ppt" | "ppt-master"; code?: string };
+export type ExtensionCatalog = { extensions: ServerExtension[]; connections: McpDraft[]; execution: ExtensionExecution };
 const normalize = (item: ServerExtension): ExtensionSummary => ({ ...item, instructions: item.content, unavailableReason: item.unavailable_reason });
 
 export function createExtensionService(apiBase: string, accessToken: string) {
