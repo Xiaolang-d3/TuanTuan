@@ -652,9 +652,17 @@ def model_monitor_get(hours: int = 24) -> dict[str, Any]:
 
 
 @router.get("/agent/operations")
-def agent_operations_get(days: int = 7, limit: int = 20) -> dict[str, Any]:
+def agent_operations_get(
+    days: int = 7,
+    limit: int = 20,
+    run_status: str | None = None,
+    run_date: str | None = None,
+    offset: int = 0,
+) -> dict[str, Any]:
     try:
-        return get_agent_operations_snapshot(days=days, limit=limit)
+        return get_agent_operations_snapshot(
+            days=days, limit=limit, run_status=run_status, run_date=run_date, offset=offset
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
