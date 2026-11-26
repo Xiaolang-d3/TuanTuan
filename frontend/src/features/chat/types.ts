@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { AgentCapabilities, Conversation, ModelCatalogEntry, ModelProtocol } from "../../types";
 import type { ResultServices } from "./result-types";
 import type { ComposerModelSettings } from "./ComposerModelParameters";
@@ -177,6 +177,7 @@ export type ServiceModelCatalog = {
 };
 
 export type ChatWorkspaceProps = ResultServices & {
+  workspaceActions?: ReactNode;
   documentReviewService?: import("./document-review-service").DocumentReviewService;
   selectedSkillId?: string | null;
   onSelectSkill?: (id: string | null) => void;

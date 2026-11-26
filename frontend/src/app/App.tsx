@@ -37,6 +37,8 @@ import { FirstRunGuide } from "../features/onboarding/FirstRunGuide";
 import { useFirstRun } from "../features/onboarding/useFirstRun";
 import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
+import { ActionButton } from "../components/ui/ActionButton";
+import { WorkspaceShortcuts } from "../features/product/WorkspaceShortcuts";
 import { ConversationDialog } from "../components/ConversationDialog";
 import type { AttachmentConfig, ChatAttachment, ChatComposerDraft } from "../features/chat/types";
 import type { ModelParameterUpdate } from "../features/chat/ComposerModelParameters";
@@ -57,7 +59,7 @@ import { useAsyncPolling } from "../hooks/useAsyncPolling";
 import { appRouteHash, initialAppRoute, parseAppHash, routeForSection, type AppRoute } from "../routing";
 import { isProductIntroHash } from "./public-routing";
 import type { AgentCapabilities, AgentOperationsSnapshot, AgentSettings, Conversation, LibraryEditor, LibrarySourceDetail, ModelCapabilityReport, ModelServiceCheck, ModelServiceMonitor, ViewKey } from "../types";
-import { CheckCircle2, TriangleAlert, X } from "lucide-react";
+import { Bell, CheckCircle2, ListTodo, Search, TriangleAlert, X } from "lucide-react";
 import "../styles/foundations.css";
 import "../AppStyles";
 
@@ -1093,6 +1095,17 @@ export function App({
     document.title = `${documentPageTitle}｜团团`;
   }, [documentPageTitle]);
 
+  const openTasks = databaseReady ? () => setTaskCenter({ scope: creationScope, view: "tasks" }) : undefined;
+  const openNotifications = databaseReady ? () => setTaskCenter({ scope: creationScope, view: "notifications" }) : undefined;
+  const openSearch = databaseReady ? () => setSearchScope(creationScope) : undefined;
+  const workspaceActions = databaseReady ? (
+    <div className="workspace-actions" role="group" aria-label="工作区工具">
+      <ActionButton variant="ghost" size="sm" aria-label="全局搜索" title="全局搜索" icon={<Search aria-hidden="true" size={17} />} onClick={openSearch}>搜索</ActionButton>
+      <ActionButton variant="ghost" size="sm" aria-label="任务中心" title="任务中心" icon={<ListTodo aria-hidden="true" size={17} />} onClick={openTasks}>任务</ActionButton>
+      <ActionButton variant="ghost" size="sm" aria-label="通知" title="通知" icon={<Bell aria-hidden="true" size={17} />} onClick={openNotifications}>通知</ActionButton>
+    </div>
+  ) : null;
+
   const identityMenu = (
     <AppIdentityMenu
       userEmail={user.qq_only ? "QQ 登录" : userEmail}
@@ -1102,9 +1115,9 @@ export function App({
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
       onOpenAccount={() => navigateRoute({ section: "settings", page: "account" })}
       onOpenSettings={() => navigateRoute({ section: "settings", page: "overview" })}
-      onOpenTasks={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "tasks" }) : undefined}
-      onOpenNotifications={databaseReady ? () => setTaskCenter({ scope: creationScope, view: "notifications" }) : undefined}
-      onOpenSearch={databaseReady ? () => setSearchScope(creationScope) : undefined}
+      onOpenTasks={openTasks}
+      onOpenNotifications={openNotifications}
+      onOpenSearch={openSearch}
       onLogout={onLogout}
       onPrefetchPage={(page) => void pagePrefetcher.prefetch(page)}
     />
@@ -1363,6 +1376,8 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
+        shortcuts={databaseReady && <WorkspaceShortcuts key={creationScope} fetchJson={fetchJson}
+          onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}
         weixinBot={weixinBot}
         weixinActive={weixinActive}
         onOpenWeixin={async () => {
@@ -1376,10 +1391,7 @@ export function App({
       />
 
       <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${appRoute.section === "images" || appRoute.section === "works" ? " image-studio-host" : ""}${topbarTitle ? "" : " is-titleless"}`}>
-        {activeView !== "dashboard" ? <AppTopBar
-          section={topbarSection}
-          title={topbarTitle}
-        /> : null}
+        {activeView !== "chat" && <AppTopBar section={topbarSection} title={topbarTitle}>{workspaceActions}</AppTopBar>}
 
         {activeView === "dashboard" ? (
           <Suspense fallback={<PageLoading label="正在加载首页…" />}>
@@ -1650,6 +1662,7 @@ export function App({
             onContinueDocument={continueDocument}
             onDocumentArchived={() => { void refreshLibrary(); }}
             density={activeView === "chat" ? "page" : "dock"}
+            workspaceActions={activeView === "chat" ? workspaceActions : null}
             focused={activeView === "chat" && !workspaceLibraryOpen}
             conversationTitle={currentConversation?.title}
             currentModelName={currentModelName}
