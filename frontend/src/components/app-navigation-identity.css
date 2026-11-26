@@ -169,3 +169,7 @@
   .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot { flex-direction: row; align-items: center; gap: 4px; }
   .sidebar .sidebar-theme-toggle, .sidebar.collapsed .sidebar-theme-toggle { width: 36px; height: 40px; margin: 0; }
 }
+@media (max-width: 420px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation:has(.weixin-bot-entry) { column-gap: 4px; }
+  .sidebar-identity-slot:has(.weixin-bot-entry) .sidebar-theme-toggle { display: none; }
+}
