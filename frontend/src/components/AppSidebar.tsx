@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Blocks,
   FolderKanban,
   GalleryThumbnails,
   History,
@@ -63,6 +64,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const highlighted = sidebarHighlightForView(activeView, { settingsPage, libraryOpen });
   const isActive = (key: SidebarHighlight) => highlighted === key;
+  const home = activeView === "dashboard";
 
   const primaryItems: SidebarItem[] = [
     { key: "dashboard", label: "新建创作", mobileLabel: "创作", icon: <Plus size={18} />, active: isActive("dashboard"), prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
@@ -73,6 +75,8 @@ export function AppSidebar({
     { key: "skills", label: "技能中心", mobileLabel: "技能", icon: <BookOpen size={18} />, active: isActive("skills"), onClick: () => onSelectNav("skills") },
     { key: "settings", label: "设置", icon: <Settings size={18} />, active: isActive("settings"), prefetch: "settings", onClick: () => onSelectNav("settings") }
   ];
+  const [create, history, works, library, projects, skills, settings] = primaryItems;
+  const homeItems = [create, { ...history, label: "创作空间", icon: <Blocks size={18} /> }, works, skills, library];
 
   function renderItem(item: SidebarItem, extraClass = "") {
     return (
@@ -122,7 +126,7 @@ export function AppSidebar({
       </div>
 
       <nav className="nav nav-desktop" id="app-primary-navigation" aria-label="主导航">
-        {primaryItems.map((item) => renderItem(item))}
+        {(home ? [...homeItems, ...(collapsed ? [projects, settings] : [])] : primaryItems).map((item) => renderItem(item))}
       </nav>
 
       <nav className="nav nav-mobile" aria-label="移动端主导航">
@@ -132,9 +136,10 @@ export function AppSidebar({
       {!collapsed && shortcuts}
 
       <div className="sidebar-identity-slot">
+        {home && !collapsed && <div className="sidebar-home-settings">{renderItem(settings)}</div>}
         {identity}
         {weixinBot?.connected && onOpenWeixin && <WeixinBotEntry active={weixinActive} unreadCount={weixinBot.unread_count} enabled={weixinBot.enabled} error={weixinBot.error} onOpen={onOpenWeixin} />}
-        <ThemeToggleButton className="sidebar-theme-toggle" />
+        {!home && <ThemeToggleButton className="sidebar-theme-toggle" />}
       </div>
     </aside>
   );

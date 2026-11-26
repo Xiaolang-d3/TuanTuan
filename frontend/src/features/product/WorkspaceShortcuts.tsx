@@ -9,26 +9,33 @@ type Props = {
   fetchJson: FetchCreationJson;
   onProject: (id: string) => void;
   onRecord: (record: CreationRecord) => void;
+  expandedByDefault?: boolean;
+  onViewProjects?: () => void;
+  onViewRecords?: () => void;
 };
 
-export function WorkspaceShortcuts({ fetchJson, onProject, onRecord }: Props) {
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [recordsOpen, setRecordsOpen] = useState(false);
+export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, expandedByDefault = false, onViewProjects, onViewRecords }: Props) {
+  const [projectsOpen, setProjectsOpen] = useState(expandedByDefault);
+  const [recordsOpen, setRecordsOpen] = useState(expandedByDefault);
   const projects = useShortcutItems(projectsOpen, fetchJson, loadProjects);
   const records = useShortcutItems(recordsOpen, fetchJson, loadRecords);
   return <nav className="workspace-shortcuts" aria-label="工作区快捷入口">
-    <details onToggle={event => setProjectsOpen(event.currentTarget.open)}>
-      <summary>常用项目</summary>
+    <details open={projectsOpen} onToggle={event => setProjectsOpen(event.currentTarget.open)}>
+      <summary>{onViewProjects ? "我的项目" : "常用项目"}</summary>
       <ShortcutList state={projects} empty="暂无进行中的项目。" label="最近更新的进行中项目"
         row={item => <ActionButton variant="ghost" size="sm" icon={<FolderKanban size={14} aria-hidden="true" />}
           title={item.name} onClick={() => onProject(item.id)}>{item.name}</ActionButton>} keyFor={item => item.id} />
+      {onViewProjects && <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm"
+        onClick={onViewProjects}>查看全部项目</ActionButton>}
     </details>
-    <details onToggle={event => setRecordsOpen(event.currentTarget.open)}>
+    <details open={recordsOpen} onToggle={event => setRecordsOpen(event.currentTarget.open)}>
       <summary>最近记录</summary>
       <ShortcutList state={records} empty="暂无创作记录。" label="最近更新的创作记录"
         row={item => <ActionButton variant="ghost" size="sm" icon={<History size={14} aria-hidden="true" />}
           aria-label={`${creationKinds[item.kind]}：${item.title}`} title={item.title} onClick={() => onRecord(item)}>{item.title}</ActionButton>}
         keyFor={item => `${item.kind}:${item.id}`} />
+      {onViewRecords && <ActionButton className="workspace-shortcut-index" variant="ghost" size="sm"
+        onClick={onViewRecords}>查看全部创作记录</ActionButton>}
     </details>
   </nav>;
 }

@@ -306,7 +306,7 @@ test("recent records link to filtered creation history and open image results re
     if (request.method() !== "GET" && path !== "/agent/model-selection/preview") writes.push(path);
   });
   await page.goto("/#/home");
-  const recent = page.getByRole("region", { name: "最近记录" });
+  const recent = page.getByRole("navigation", { name: "工作区快捷入口" });
   await expect(recent.getByRole("button", { name: /资料研究/ })).toBeVisible();
   await recent.getByRole("button", { name: "查看全部创作记录" }).click();
   await expect(page).toHaveURL(/#\/history$/);
@@ -339,7 +339,7 @@ test("desktop shortcuts reuse the original project and creation lists", async ({
   });
   await page.route("**/projects/press", route => route.fulfill({ json: { ...project, items: [] } }));
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/#/home");
+  await page.goto("/#/works");
   const shortcuts = page.getByRole("navigation", { name: "工作区快捷入口" });
   await expect(shortcuts).toBeVisible();
   expect(loads).toBe(0);
@@ -802,11 +802,80 @@ test("retired career routes are not recognized and open home", async ({ page }) 
   for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/knowledge"]) {
     await page.goto(legacyRoute);
     await expect(page).toHaveURL(/#\/home$/);
-    await expect(page.getByRole("region", { name: "开发者首页" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "团团首页" })).toBeVisible();
   }
   await expect(page.getByText("职位机会", { exact: true })).toHaveCount(0);
 });
 
+
+test("the creation homepage filters inspiration and carries its image settings into the studio", async ({ page }, testInfo) => {
+  const sizes = ["auto", "1536x1024", "768x512", "1024x1536"];
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  await page.route("**/projects", route => route.fulfill({ json: { items: [
+    { id: "game-ui", name: "游戏 UI 设计", status: "active" },
+    { id: "archived", name: "已归档项目", status: "archived" },
+  ] } }));
+  await page.route("**/image-studio/options", route => route.fulfill({ json: {
+    default_profile_id: "skill-image", models: [{ id: "skill-image", name: "Fixture Image", sizes }],
+  } }));
+  await page.route("**/agent/model-selection/preview", route => route.fulfill({ json: {
+    ...imageSkillPreview, selection: { ...imageSkillPreview.selection, sizes },
+  } }));
+  const writes: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "POST" && path !== "/agent/model-selection/preview") writes.push(path);
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/home");
+  const entry = page.getByRole("region", { name: "新建创作" });
+  const inspiration = entry.getByRole("region", { name: "探索创作灵感" });
+  const projects = page.getByRole("navigation", { name: "工作区快捷入口" });
+  await expect(projects.getByRole("button", { name: "游戏 UI 设计" })).toBeVisible();
+  await expect(projects.getByText("已归档项目")).toHaveCount(0);
+  await expect(inspiration.locator("img")).toHaveCount(3);
+  await expect.poll(() => inspiration.locator("img").evaluateAll(images =>
+    images.every(image => (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  await expect(entry.getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
+  const draft = entry.getByRole("textbox", { name: "图片草稿" });
+  const initialHeight = await draft.evaluate(element => element.getBoundingClientRect().height);
+  const multilinePrompt = "一座面朝大海的灯塔\n清晨薄雾\n远处有帆船\n用低饱和色表现光线";
+  await draft.fill(multilinePrompt);
+  await expect.poll(() => draft.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThan(initialHeight);
+  await entry.locator("form").screenshot({ path: testInfo.outputPath("creation-composer-focused.png"), animations: "disabled" });
+  await draft.press("End");
+  await draft.press("Enter");
+  await expect(draft).toHaveValue(`${multilinePrompt}\n`);
+  await expect(page).toHaveURL(/#\/home$/);
+  await draft.fill(Array.from({ length: 20 }, () => "灯塔").join("\n"));
+  await expect.poll(() => draft.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await draft.fill("");
+  await draft.blur();
+  await expect.poll(() => draft.evaluate(element => element.getBoundingClientRect().height)).toBe(initialHeight);
+  await entry.locator("form").screenshot({ path: testInfo.outputPath("creation-composer.png"), animations: "disabled" });
+  await page.screenshot({ path: testInfo.outputPath("creation-home-dark.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(entry.getByRole("button", { name: "添加资料", exact: true })).toBeInViewport();
+  await expect(entry.getByRole("button", { name: "进入图片工作区" })).toBeInViewport();
+  await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath("creation-home-mobile-dark.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
+  await inspiration.getByRole("button", { name: "电商设计" }).click();
+  await expect(inspiration.locator("img")).toHaveCount(1);
+  await inspiration.getByRole("button", { name: "商品宣传设计" }).click();
+  await expect(draft).toBeFocused();
+  await expect(draft).toHaveValue(/浅鼠尾草绿/);
+  await entry.getByRole("combobox", { name: "选择模型" }).selectOption("skill-image");
+  await entry.getByRole("combobox", { name: "比例" }).selectOption("3:2");
+  await entry.getByRole("combobox", { name: "分辨率" }).selectOption("768x512");
+  await entry.getByRole("button", { name: "进入图片工作区" }).click();
+  await expect(page.getByRole("textbox", { name: "画面描述" })).toHaveValue(/浅鼠尾草绿/);
+  await expect(page.getByRole("combobox", { name: "生成画幅" })).toHaveValue("768x512");
+  expect(writes).toEqual([]);
+});
 
 test("the unified entry passes separate drafts without requesting generation", async ({ page }) => {
   const writes: string[] = [];
@@ -818,6 +887,7 @@ test("the unified entry passes separate drafts without requesting generation", a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/home");
   const entry = page.getByRole("region", { name: "新建创作" });
+  await entry.getByRole("button", { name: "对话", exact: true }).click();
   await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理调研结果");
   await entry.getByRole("button", { name: "图片", exact: true }).click();
   await entry.getByRole("textbox", { name: "图片草稿" }).fill("留白的海边旅行海报");
@@ -855,12 +925,13 @@ test("home keeps draft files when switching modes and uploads only on request", 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/home");
   const entry = page.getByRole("region", { name: "新建创作" });
-  await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理这份资料");
+  await expect(entry.getByRole("button", { name: "图片", exact: true })).toHaveAttribute("aria-pressed", "true");
   await entry.locator('input[type="file"]').setInputFiles([
     { name: "资料.md", mimeType: "text/markdown", buffer: Buffer.from("# 测试资料") },
     { name: "不支持.exe", mimeType: "application/octet-stream", buffer: Buffer.from("invalid") },
   ]);
   await expect(entry.getByRole("alert")).toContainText("不支持的文件未添加");
+  await entry.getByRole("textbox", { name: "对话草稿" }).fill("整理这份资料");
   await entry.getByRole("button", { name: "图片", exact: true }).click();
   await expect(entry.getByRole("status")).toContainText("已选文件保留");
   await entry.getByRole("button", { name: "进入图片工作区" }).click();
@@ -895,7 +966,7 @@ test("home and library use current sources and stay usable on narrow screens", a
   for (const width of [375, 960, 1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/#/dashboard");
-    await expect(page.getByRole("heading", { name: /测试用户/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "让想法成为现实", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "查看完整资讯" }).click();
     const aiTab = page.getByRole("tab", { name: /AI 动态/ });
     await aiTab.click();

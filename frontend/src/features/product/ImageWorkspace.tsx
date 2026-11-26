@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowUp, GalleryHorizontalEnd, Image as ImageIcon, RefreshCw, Settings2 } from "lucide-react";
 import type { ChatAttachment } from "../chat/types";
-import type { ImagePageActions } from "./ImageWorkspacePage";
+import type { ImageCreationDraft, ImagePageActions } from "./ImageWorkspacePage";
 import type { StudioTask } from "./imageStudioApi";
 import { StudioModelPicker, studioPreviewReason, useStudioModelPreview } from "./StudioModelPicker";
 import { StudioThumb } from "./StudioMedia";
@@ -15,6 +15,10 @@ function defaultSize(sizes: string[]) { return sizes.includes("auto") ? "auto" :
 function storedDraft(key:string){try{return sessionStorage.getItem(key)||"";}catch{return "";}}
 type ImageWorkspaceProps = ImagePageActions & { api: StudioApi; enabled: boolean };
 type DraftReceipt = { accountKey: ImagePageActions["accountKey"]; consumed: boolean };
+
+function hasCreationDraft(draft?: ImageCreationDraft): draft is ImageCreationDraft {
+  return !!draft && (!!draft.content.trim() || draft.settings?.profileId !== undefined || !!draft.settings?.size);
+}
 
 export function ImageWorkspace(props: ImageWorkspaceProps) {
   // Keep handoff ownership across account changes, but reset all composer/task state.
@@ -134,7 +138,7 @@ function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenW
   const generation = enabled && outstanding?.id === generationId ? outstanding : null;
   const [pendingDraftId, setPendingDraftId] = useState<string | null>(null);
   const receipt = creationDraft && receipts.get(creationDraft.id);
-  const incomingDraft = enabled && !generation && !current && creationDraft?.content.trim() &&
+  const incomingDraft = enabled && !generation && !current && hasCreationDraft(creationDraft) &&
     (!receipt || (receipt.accountKey === accountKey && !receipt.consumed)) ? creationDraft : undefined;
 
   const consumeCreationDraft = useCallback((id: string) => {
@@ -146,27 +150,35 @@ function ImageWorkspaceForAccount({api,enabled,accountKey,onOpenSettings,onOpenW
   }, [accountKey, onCreationDraftConsumed, receipts]);
 
   useEffect(() => {
-    if (!creationDraft?.content.trim() || receipts.has(creationDraft.id)) return;
+    if (!hasCreationDraft(creationDraft) || receipts.has(creationDraft.id)) return;
     // Record the presenting account even when inactive; a later account must not adopt this ID.
     receipts.set(creationDraft.id, { accountKey, consumed: false });
   }, [accountKey, creationDraft, receipts]);
 
   useEffect(() => {
     if (!incomingDraft || pendingDraftId === incomingDraft.id || receipts.get(incomingDraft.id)?.consumed) return;
-    if (draft.trim() && draft !== incomingDraft.content) {
+    if (incomingDraft.content.trim() && draft.trim() && draft !== incomingDraft.content) {
       setPendingDraftId(incomingDraft.id);
       return;
     }
-    if (draft !== incomingDraft.content) {
+    if (incomingDraft.content.trim() && draft !== incomingDraft.content) {
       setDraft(incomingDraft.content);
       setNotice("已填入画面描述，尚未生成。");
+    }
+    if (incomingDraft.settings) {
+      setSelection({ profile: incomingDraft.settings.profileId ?? null, size: incomingDraft.settings.size ?? null });
     }
     consumeCreationDraft(incomingDraft.id);
   }, [consumeCreationDraft, draft, incomingDraft, pendingDraftId, receipts]);
 
   function decideCreationDraft(accept: boolean) {
     if (!incomingDraft || pendingDraftId !== incomingDraft.id || receipts.get(incomingDraft.id)?.consumed) return;
-    if (accept) setDraft(incomingDraft.content);
+    if (accept) {
+      setDraft(incomingDraft.content);
+      if (incomingDraft.settings) {
+        setSelection({ profile: incomingDraft.settings.profileId ?? null, size: incomingDraft.settings.size ?? null });
+      }
+    }
     setNotice(accept ? "已填入画面描述，尚未生成。" : "已保留当前描述。");
     consumeCreationDraft(incomingDraft.id);
     input.current?.focus({ preventScroll: true });
