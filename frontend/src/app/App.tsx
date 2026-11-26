@@ -59,7 +59,7 @@ import { createRouteDataCache, requiredDataForRoute, type RouteDataKey } from ".
 import { useAsyncPolling } from "../hooks/useAsyncPolling";
 import { appRouteHash, initialAppRoute, parseAppHash, routeForSection, type AppRoute } from "../routing";
 import { isProductIntroHash } from "./public-routing";
-import type { AgentCapabilities, AgentOperationsSnapshot, AgentSettings, Conversation, LibraryEditor, LibrarySourceDetail, ModelCapabilityReport, ModelServiceCheck, ModelServiceMonitor, ViewKey } from "../types";
+import type { AgentCapabilities, AgentSettings, Conversation, LibraryEditor, LibrarySourceDetail, ModelCapabilityReport, ModelServiceCheck, ModelServiceMonitor, ViewKey } from "../types";
 import { Bell, CheckCircle2, ListTodo, Search, TriangleAlert, X } from "lucide-react";
 import "../styles/foundations.css";
 import "../AppStyles";
@@ -319,7 +319,7 @@ export function App({
     setConversationFolderAssignments(assignments);
     storeFolders(conversationFolders, assignments);
   }
-  const { migrateHomeTheme } = useTheme();
+  const { migrateHomeTheme, resolved: resolvedTheme } = useTheme();
   useEffect(() => { migrateHomeTheme(userEmail); }, [migrateHomeTheme, userEmail]);
   const homeAnalysisBusyRef = useRef(false);
   const homeAnalysisControllerRef = useRef<AbortController | null>(null);
@@ -373,9 +373,6 @@ export function App({
   const modelSettingsEditingRef = useRef(false);
   const [modelMonitor, setModelMonitor] = useState<ModelServiceMonitor | null>(null);
   const [modelMonitorBusy, setModelMonitorBusy] = useState(false);
-  const [agentOperations, setAgentOperations] = useState<AgentOperationsSnapshot | null>(null);
-  const [agentOperationsDays, setAgentOperationsDays] = useState<7 | 30 | 90>(7);
-  const [agentOperationsBusy, setAgentOperationsBusy] = useState(false);
   const { availableModels, discoveryBusy: modelDiscoveryBusy, discoveryError: modelDiscoveryError, discoverModels, invalidateDiscovery } = useModelDiscovery({
     fetchJson,
     onModelSuggested: (modelName) => {
@@ -706,22 +703,13 @@ export function App({
     }
   }
 
-  async function refreshAgentOperations(days = agentOperationsDays, showLoading = true) {
-    if (showLoading) setAgentOperationsBusy(true);
-    try {
-      const next = await fetchJson<AgentOperationsSnapshot>(`/agent/operations?days=${days}&limit=20`);
-      setAgentOperations(next);
-      return next;
-    } finally {
-      if (showLoading) setAgentOperationsBusy(false);
-    }
-  }
-
-  function changeAgentOperationsWindow(days: 7 | 30 | 90) {
-    setAgentOperationsDays(days);
-    void refreshAgentOperations(days).catch((error: unknown) => {
-      setErrorMessage(error instanceof Error ? error.message : "读取 Agent 运行记录失败");
-    });
+  async function openAgentRunConversation(conversationId: number, signal: AbortSignal) {
+    const origin = window.location.hash;
+    const latest = await refreshConversations(signal);
+    if (signal.aborted || window.location.hash !== origin || !latest.some((item) => item.id === conversationId)) return false;
+    setCurrentConversationId(conversationId);
+    navigateRoute({ section: "chat", conversationId });
+    return true;
   }
 
   async function checkModelService(afterSave = false) {
@@ -1054,7 +1042,6 @@ export function App({
     if (!databaseReady) return;
     const loaders: Record<RouteDataKey, () => Promise<unknown>> = {
       attachmentConfig: refreshAttachmentConfig,
-      agentOperations: () => refreshAgentOperations(7, false),
       agentSettings: refreshAgentSettings,
       library: refreshLibrary,
       capabilities: refreshCapabilities,
@@ -1073,11 +1060,9 @@ export function App({
   }, [appRoute, databaseReady, fetchJson, userEmail]);
 
   useAsyncPolling({
-    enabled: databaseReady && appRoute.section === "settings" && ["model", "agent"].includes(appRoute.page),
+    enabled: databaseReady && appRoute.section === "settings" && appRoute.page === "model",
     intervalMs: 15_000,
-    poll: () => appRoute.section === "settings" && appRoute.page === "model"
-      ? refreshModelMonitor()
-      : refreshAgentOperations(agentOperationsDays, false),
+    poll: refreshModelMonitor,
     onError: (_reason, failures) => {
       if (failures >= 3) setErrorMessage("设置状态连续刷新失败，当前仍显示上一次数据。");
     }
@@ -1672,12 +1657,14 @@ export function App({
                   }}>重新读取</button>
                 </section> : <PageLoading label="正在读取智能体配置…" />}
                 <Suspense fallback={<PageLoading label="正在加载 Agent 运行记录…" />}>
-                  <AgentOperationsDashboard
-                    snapshot={agentOperations}
-                    days={agentOperationsDays}
-                    loading={agentOperationsBusy}
-                    onDaysChange={changeAgentOperationsWindow}
-                  />
+                  {databaseReady ? (
+                    <AgentOperationsDashboard
+                      key={JSON.stringify([apiBase, user.id ?? user.email])}
+                      fetchJson={fetchJson}
+                      onOpenConversation={openAgentRunConversation}
+                      theme={resolvedTheme}
+                    />
+                  ) : <PageLoading label="正在连接本地数据…" />}
                 </Suspense>
               </> : null}
             </SettingsWorkspace>

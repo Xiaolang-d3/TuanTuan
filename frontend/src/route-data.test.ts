@@ -27,7 +27,6 @@ describe("requiredDataForRoute", () => {
     ]);
     expect(requiredDataForRoute({ section: "settings", page: "agent" })).toEqual([
       "agentSettings",
-      "agentOperations",
       "conversations",
       "capabilities",
       "attachmentConfig"
