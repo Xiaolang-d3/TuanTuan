@@ -527,6 +527,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
               <Download size={16} /><span>导出</span>
             </button>
           </div>
+          {props.workspaceActions}
         </header>
         <div className="chat-thread-surface">
         <ThreadPrimitive.Viewport ref={scrolling.viewportRef} onScroll={scrolling.onScroll} autoScroll={false} scrollToBottomOnInitialize={false} scrollToBottomOnThreadSwitch={false} scrollToBottomOnRunStart={false} className="chat-thread" role="log" aria-live="polite" aria-relevant="additions">

@@ -40,6 +40,7 @@ type AppSidebarProps = {
   libraryOpen?: boolean;
   onSelectNav: (key: ProductNavKey) => void;
   identity?: ReactNode;
+  shortcuts?: ReactNode;
   weixinBot?: WeixinBotState | null;
   weixinActive?: boolean;
   onOpenWeixin?: () => void;
@@ -55,6 +56,7 @@ export function AppSidebar({
   libraryOpen,
   onSelectNav,
   identity,
+  shortcuts,
   weixinBot,
   weixinActive = false,
   onOpenWeixin
@@ -126,6 +128,8 @@ export function AppSidebar({
       <nav className="nav nav-mobile" aria-label="移动端主导航">
         {primaryItems.map((item) => renderItem(item, "mobile-nav-item"))}
       </nav>
+
+      {!collapsed && shortcuts}
 
       <div className="sidebar-identity-slot">
         {identity}

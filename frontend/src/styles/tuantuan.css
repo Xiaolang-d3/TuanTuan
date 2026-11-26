@@ -470,8 +470,7 @@ html:has(.content.chat-content) { scrollbar-gutter: auto; }
   .sidebar.context-navigation .sidebar-identity-slot { display: flex; align-items: center; grid-column: 3; overflow: visible; }
   .sidebar.context-navigation .sidebar-toggle-footer { display: none; }
   .sidebar .brand, .sidebar.collapsed .brand { padding: 0; }
-  .app-topbar.is-titleless,
-  .app-topbar:not(:has(.app-topbar-context)) { display: none; }
+  .app-topbar.is-titleless:not(:has(.app-topbar-actions)) { display: none; }
   .app-topbar .app-identity { display: none; }
   .app-identity-menu [role="menuitem"] { min-height: 44px; }
   .sidebar-identity-slot .sidebar-identity:hover,

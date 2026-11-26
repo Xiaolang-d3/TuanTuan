@@ -330,6 +330,33 @@ test("recent records link to filtered creation history and open image results re
   expect(writes).toEqual([]);
 });
 
+test("desktop shortcuts reuse the original project and creation lists", async ({ page }, testInfo) => {
+  const project = { id: "press", name: "发布项目", description: "整理资料", status: "active", created_at: conversation.updated_at, updated_at: conversation.updated_at };
+  let loads = 0;
+  await page.route("**/projects", route => {
+    loads += 1;
+    return route.fulfill({ json: { items: [{ ...project, id: "archived", name: "已归档项目", status: "archived" }, project] } });
+  });
+  await page.route("**/projects/press", route => route.fulfill({ json: { ...project, items: [] } }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#/home");
+  const shortcuts = page.getByRole("navigation", { name: "工作区快捷入口" });
+  await expect(shortcuts).toBeVisible();
+  expect(loads).toBe(0);
+  await shortcuts.getByText("常用项目", { exact: true }).press("Enter");
+  await expect(shortcuts.getByRole("button", { name: "发布项目", exact: true })).toBeVisible();
+  await expect(shortcuts.getByRole("button", { name: "已归档项目", exact: true })).toHaveCount(0);
+  await shortcuts.getByText("最近记录", { exact: true }).click();
+  await expect(shortcuts.getByRole("button", { name: "图片：海边海报" })).toBeVisible();
+  const shot = testInfo.outputPath("workspace-shortcuts.png");
+  await page.screenshot({ path: shot, animations: "disabled" });
+  await testInfo.attach("工作区快捷入口", { path: shot, contentType: "image/png" });
+  await shortcuts.getByRole("button", { name: "发布项目", exact: true }).click();
+  await expect(page).toHaveURL(/#\/projects\?id=press$/);
+  await shortcuts.getByRole("button", { name: "图片：海边海报" }).click();
+  await expect(page).toHaveURL(/#\/images\?task=previous-image$/);
+});
+
 test("global search opens a source without starting a task", async ({ page }, testInfo) => {
   await page.route("**/search?*", async route => {
     expect(route.request().method()).toBe("GET");
@@ -338,8 +365,7 @@ test("global search opens a source without starting a task", async ({ page }, te
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/#/home");
-  await page.getByRole("button", { name: "账号菜单", exact: true }).click();
-  await page.getByRole("menuitem", { name: "全局搜索", exact: true }).click();
+  await page.getByRole("group", { name: "工作区工具" }).getByRole("button", { name: "全局搜索" }).press("Enter");
   const dialog = page.getByRole("dialog", { name: "全局搜索" });
   const field = dialog.getByRole("textbox", { name: "关键词" });
   await field.fill("海边");
@@ -394,12 +420,14 @@ test("task notifications open the original receipt without resubmitting", async 
     source: { kind: "image", id: "previous-image" }, notification_key: "image:previous-image:outcome_unknown",
   }], has_more: false } }));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/#/home");
-  await page.getByRole("button", { name: "账号菜单", exact: true }).click();
-  await page.getByRole("menuitem", { name: "任务中心" }).click();
+  await page.goto("/#/chat/1");
+  const tools = page.getByRole("group", { name: "工作区工具" });
+  await tools.getByRole("button", { name: "任务中心" }).click();
   const tasks = page.getByRole("dialog", { name: "任务中心" });
   await expect(tasks.getByText(/结果待核实/)).toBeVisible();
-  await tasks.getByRole("button", { name: "通知", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(tasks).toBeHidden();
+  await tools.getByRole("button", { name: "通知", exact: true }).click();
   const notification = page.getByRole("dialog", { name: "通知" });
   await expect(notification.getByText(/不会自动重新提交/)).toBeVisible();
   const screenshot = testInfo.outputPath("task-notifications-mobile.png");
@@ -706,7 +734,7 @@ test("keyboard leaves the account menu and returns focus after closing history d
   const accountMenu = page.getByRole("menu", { name: "账号菜单" });
   await expect(page.getByRole("textbox", { name: "输入消息" })).toBeFocused();
   await account.press("ArrowDown");
-  await expect(accountMenu.getByRole("menuitem", { name: "账号与安全" })).toBeFocused();
+  await expect(accountMenu.getByRole("menuitem", { name: "全局搜索" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(accountMenu).toBeHidden();
   await expect(account).toHaveAttribute("aria-expanded", "false");
@@ -771,7 +799,7 @@ test("scrolling a conversation out of the history list closes its menu", async (
 });
 
 test("retired career routes are not recognized and open home", async ({ page }) => {
-  for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/projects", "/#/knowledge"]) {
+  for (const legacyRoute of ["/#/opportunities", "/#/interview-prep", "/#/knowledge"]) {
     await page.goto(legacyRoute);
     await expect(page).toHaveURL(/#\/home$/);
     await expect(page.getByRole("region", { name: "开发者首页" })).toBeVisible();
