@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   ArrowLeft,
   Blocks,
+  Bot,
   Brain,
   CheckCircle2,
   ChevronRight,
@@ -31,7 +32,7 @@ const pageLabels: Record<Exclude<SettingsPage, "overview">, string> = {
   account: "账号与安全",
   library: "文件库管理",
   model: "模型设置",
-  agent: "Agent 执行记录",
+  agent: "智能体设置",
   memory: "记忆与个性化"
 };
 
@@ -114,6 +115,11 @@ export function SettingsOverview({
               </em>
             </span>
           </span>
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
+        <button className="settings-entry-card" type="button" onClick={() => onOpen("agent")}>
+          <span className="settings-entry-icon"><Bot size={20} aria-hidden="true" /></span>
+          <span className="settings-entry-copy"><span className="settings-entry-title"><strong>智能体设置</strong></span><span className="settings-entry-primary">默认执行内核与 Agent 执行记录</span></span>
           <ChevronRight size={17} aria-hidden="true" />
         </button>
         <button className="settings-entry-card memory" type="button" onClick={() => onOpen("memory")}>

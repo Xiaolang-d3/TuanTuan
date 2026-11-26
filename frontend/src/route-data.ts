@@ -30,7 +30,7 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
       if (route.page === "memory") return [];
       if (route.page === "library") return ["library"];
       if (route.page === "appearance") return [];
-      if (route.page === "agent") return ["agentOperations", "conversations", "capabilities", "attachmentConfig"];
+      if (route.page === "agent") return ["agentSettings", "agentOperations", "conversations", "capabilities", "attachmentConfig"];
       if (route.page === "model") return ["agentSettings", "modelMonitor", "modelCapabilities", "conversations", "capabilities", "attachmentConfig"];
       if (route.page === "overview") return ["library", "agentSettings", "conversations", "capabilities", "attachmentConfig"];
       return ["library", "conversations", "capabilities", "attachmentConfig"];

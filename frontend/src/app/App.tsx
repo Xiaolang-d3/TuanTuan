@@ -1055,7 +1055,7 @@ export function App({
       account: { title: "账号与安全", description: "管理跟随登录账号的昵称、头像和密码" },
       library: { title: "文件库管理", description: "整理文件、阅读原件，选取资料用于对话" },
       model: { title: "模型设置", description: "填写服务地址、API Key，选择使用的模型" },
-      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" },
+      agent: { title: "智能体设置", description: "设置新对话的执行内核，查看 Agent 任务、工具使用和异常原因" },
       memory: { title: "记忆与个性化", description: "跨会话记住你的事实与偏好，仅存本地" }
     }[appRoute.page]
     : pageMeta[appRoute.section];
@@ -1406,6 +1406,7 @@ export function App({
             <SkillsCenterPage key={creationScope} apiBase={apiBase} accessToken={accessToken} fetchJson={fetchJson}
               capabilities={capabilities} conversationBusy={conversationBusy || chatBusy}
               onOpenExtensions={() => navigateRoute({ section: "settings", page: "extensions" })}
+              onOpenAgentSettings={() => navigateRoute({ section: "settings", page: "agent" })}
               onOpenModelSettings={purpose => navigateRoute(purpose === "image" ? { section: "settings", page: "model", purpose } : { section: "settings", page: "model" })}
               onOpenImage={() => openCreationWorkspace("images", "")}
               onOpenSkill={skillId => openNewChatDraft("", "已选择技能，填写任务后发送", skillId)} />
@@ -1571,7 +1572,20 @@ export function App({
                   </section>
                 ) : <PageLoading label="正在读取模型配置…" />
               ) : null}
-              {appRoute.page === "agent" ? (
+              {appRoute.page === "agent" ? <>
+                {modelSettingsReady ? <AgentKernelSettings
+                  choices={kernels.catalog?.choices ?? []}
+                  defaultKernel={savedAgentSettings.default_kernel}
+                  busy={agentSettingsBusy || modelSettingsEditing || Boolean(modelSaveUnknown) || kernels.busy}
+                  onChange={kernel => { void changeDefaultKernel(kernel); }}
+                /> : modelSettingsLoadError ? <section className="settings-card" role="alert">
+                  <h3>无法读取智能体配置</h3><p>读取成功前不会修改默认内核。</p>
+                  <button type="button" onClick={() => {
+                    setModelSettingsLoadError("");
+                    routeDataCacheRef.current.invalidate("agentSettings");
+                    void refreshAgentSettings().catch(() => undefined);
+                  }}>重新读取</button>
+                </section> : <PageLoading label="正在读取智能体配置…" />}
                 <Suspense fallback={<PageLoading label="正在加载 Agent 运行记录…" />}>
                   <AgentOperationsDashboard
                     snapshot={agentOperations}
@@ -1580,7 +1594,7 @@ export function App({
                     onDaysChange={changeAgentOperationsWindow}
                   />
                 </Suspense>
-              ) : null}
+              </> : null}
             </SettingsWorkspace>
           </Suspense>
         ) : null}
