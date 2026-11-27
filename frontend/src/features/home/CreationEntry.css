@@ -7,7 +7,6 @@
   --creation-line: var(--color-border);
   --creation-accent: #356eb9;
   --creation-accent-edge: #5684c9;
-  --creation-accent-soft: #edf4ff;
 }
 
 :root[data-theme="dark"] .developer-home-shell {
@@ -15,7 +14,6 @@
   --creation-line: #2c2c2c;
   --creation-accent: #aac5ff;
   --creation-accent-edge: #769ef0;
-  --creation-accent-soft: #222831;
 }
 
 .app-shell.has-chat-dock.developer-home-shell,
@@ -200,7 +198,6 @@
 .home-page .creation-entry-modes button:focus-visible { outline-offset: -2px; }
 .home-page .creation-mode-toggle-group [aria-pressed="true"] {
   color: var(--creation-accent);
-  background: var(--creation-accent-soft);
 }
 
 .creation-inspiration { margin-top: 36px; }
