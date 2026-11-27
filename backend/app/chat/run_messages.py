@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
 
 from ..agent.run_store import AgentRunStore
+from ..db import connect, row_to_dict
 from ..domain import AgentMessage, AgentRunResult
 from ..search_options import WebSearchOptions
 from .contracts import ChatMessageIn
 from .conversations import ensure_active_task, maybe_title_from_first_message
 from .run_recovery import RunRecovery
-from .service import agent_history, attachment_context, save_chat_message, save_stream_result, with_attachment_context
+from .service import (
+    agent_history,
+    attachment_context,
+    refresh_conversation_summary,
+    save_chat_message,
+    save_stream_result,
+    with_attachment_context,
+)
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -96,10 +107,34 @@ def persist_run_result(
     messages: RunMessages,
     result: AgentRunResult,
 ) -> dict[str, Any]:
-    """写入结果并绑定助手消息，完成的轮次随后触发一次记忆提取。"""
-    completed = save_stream_result(conversation_id, messages.task_id, messages.user_message, result)
-    assistant_message_id = int(completed["assistant_message"]["id"])
-    run_store.bind_messages(run_id, assistant_message_id=assistant_message_id)
+    """在同一事务保存并绑定助手消息，重复补写时返回同一条消息。"""
+    with connect(run_store.db_path) as conn:
+        # 锁住“检查绑定、插入、绑定”的整个过程，避免多个重连重复写入。
+        conn.execute("BEGIN IMMEDIATE")
+        run = conn.execute(
+            "SELECT assistant_message_id FROM agent_execution_runs WHERE run_id = ? AND conversation_id = ?",
+            (run_id, conversation_id),
+        ).fetchone()
+        if run is None:
+            raise ValueError("运行不属于当前对话")
+        if run["assistant_message_id"] is not None:
+            assistant = row_to_dict(conn.execute(
+                "SELECT * FROM chat_messages WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+                (run["assistant_message_id"], conversation_id),
+            ).fetchone())
+            if assistant is None:
+                raise ValueError("运行绑定的助手消息不可用")
+            return {"user_message": messages.user_message, "assistant_message": assistant}
+        completed = save_stream_result(
+            conversation_id, messages.task_id, messages.user_message, result, connection=conn,
+        )
+        assistant_message_id = int(completed["assistant_message"]["id"])
+        run_store.bind_messages(run_id, assistant_message_id=assistant_message_id, connection=conn)
+
+    try:
+        refresh_conversation_summary(conversation_id)
+    except Exception:
+        log.exception("Failed to refresh conversation summary after saving run %s", run_id)
     if result.status == "done":
         from ..agent.memory.service import schedule_memory_extraction
 

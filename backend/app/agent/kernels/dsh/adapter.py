@@ -221,7 +221,7 @@ class DshKernelRuntime:
                 return
             session.pending = None
         else:
-            await client.start()
+            await session.start()
             fresh = not session.initialized
             query_content = user_content
             if fresh:
