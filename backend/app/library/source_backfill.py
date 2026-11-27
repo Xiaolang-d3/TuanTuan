@@ -40,16 +40,19 @@ def backfill_source(source_id, db_path=None, *, kind="library", owner_check=None
         text = source["content"]
         corrected = source["metadata"].get("content_edited", False)
         filename = source["original_filename"]
-        get_file = lambda: get_source_file(int(source_id), db_path)[0]
+        get_content = lambda: get_source_file(int(source_id), db_path)[0].read_bytes()
         save = save_source_version
     elif kind == "attachment":
-        from ..attachments.service import get_attachment, get_attachment_file
+        from ..attachments.service import get_attachment, get_attachment_download
         source = get_attachment(str(source_id), db_path=db_path)
         if source is None or source["kind"] != "document":
             raise ValueError("文档附件不存在")
         text, corrected = source["parsed_text"], False
         filename = source["original_filename"]
-        get_file = lambda: get_attachment_file(str(source_id), db_path=db_path)[0]
+        def get_content():
+            content, _, _ = get_attachment_download(str(source_id), db_path=db_path)
+            return content if isinstance(content, bytes) else content.read_bytes()
+
         save = save_attachment_version
     else:
         raise ValueError("资料类型不合法")
@@ -70,11 +73,11 @@ def backfill_source(source_id, db_path=None, *, kind="library", owner_check=None
             and any(item.get("reason") == "character_limit" for item in existing["unprocessed_ranges"]))
         if (not existing or known_truncated or saved_file) and not corrected and filename:
             try:
-                path = get_file()
+                content = get_content()
             except ValueError:
-                path = None
-            if path is not None:
-                original = parse_document_result(filename, path.read_bytes())
+                content = None
+            if content is not None:
+                original = parse_document_result(filename, content)
                 # Extend only a known capped prefix, never a correction or an
                 # unrelated normalisation change. The old version stays immutable.
                 if ((not existing or saved_file) and original.text == text) or (known_truncated and len(original.text) > len(text) and original.text.startswith(text)):

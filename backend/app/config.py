@@ -51,7 +51,12 @@ class Settings(BaseModel):
     model_retry_attempts: int = Field(default=1, ge=0, le=3)
     tool_execution_timeout_seconds: float = Field(default=60, gt=0, le=300)
     tool_retry_attempts: int = Field(default=1, ge=0, le=3)
-    attachment_storage: Literal["local", "minio"] = "local"
+    attachment_storage: Literal["local", "minio", "cos"] = "local"
+    cos_region: str = ""
+    cos_bucket: str = ""
+    cos_secret_id: str = Field(default="", repr=False, exclude=True)
+    cos_secret_key: str = Field(default="", repr=False, exclude=True)
+
     minio_endpoint: str | None = None
     minio_access_key: str | None = None
     minio_secret_key: str | None = None
@@ -69,6 +74,11 @@ class Settings(BaseModel):
     web_research_timeout_seconds: float = Field(default=25, gt=0, le=120)
     web_research_max_sources: int = Field(default=10, ge=3, le=20)
     artificial_analysis_api_key: str | None = Field(default=None, repr=False, exclude=True)
+
+    @property
+    def cos_configured(self) -> bool:
+        """Return whether the service has the required COS settings."""
+        return bool(self.cos_region and self.cos_bucket and self.cos_secret_id and self.cos_secret_key)
 
     @property
     def is_loopback_only(self) -> bool:
@@ -176,6 +186,10 @@ def get_settings() -> Settings:
         tool_execution_timeout_seconds=os.getenv("TOOL_EXECUTION_TIMEOUT_SECONDS", "60"),
         tool_retry_attempts=os.getenv("TOOL_RETRY_ATTEMPTS", "1"),
         attachment_storage=os.getenv("ATTACHMENT_STORAGE", "local"),
+        cos_region=os.getenv("COS_REGION", "").strip(),
+        cos_bucket=os.getenv("COS_BUCKET", "").strip(),
+        cos_secret_id=os.getenv("COS_SECRET_ID", "").strip(),
+        cos_secret_key=os.getenv("COS_SECRET_KEY", "").strip(),
         minio_endpoint=os.getenv("MINIO_ENDPOINT") or None,
         minio_access_key=os.getenv("MINIO_ACCESS_KEY") or None,
         minio_secret_key=os.getenv("MINIO_SECRET_KEY") or None,

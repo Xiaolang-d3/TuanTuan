@@ -109,7 +109,7 @@ export type ChatAttachment = {
 };
 
 export type AttachmentConfig = {
-  storage: "local" | "minio";
+  storage: "local" | "minio" | "cos";
   vision_enabled: boolean;
   vision_ready: boolean;
   vision_url_ttl_seconds: number;
