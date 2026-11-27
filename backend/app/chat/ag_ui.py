@@ -143,6 +143,14 @@ async def event_stream(queue, worker, ag_ui_input: RunAgentInput, accept: str | 
                     ))
                 yield encode(CustomEvent(name="tuantuan.agent_event", value=tool_event))
                 continue
+            if event_name == "result_persist_failed":
+                if text_started:
+                    yield encode(TextMessageEndEvent(messageId=assistant_message_id))
+                yield encode(RunErrorEvent(
+                    code="run_result_persist_failed",
+                    message="暂时无法保存运行结果，请重试。",
+                ))
+                continue
             if event_name in {"completed", "cancelled", "error"}:
                 if text_started:
                     yield encode(TextMessageEndEvent(messageId=assistant_message_id))
