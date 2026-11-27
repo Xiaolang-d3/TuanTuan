@@ -29,22 +29,49 @@ jobs:
           import urllib.error
           import urllib.request
 
+          import re
+          from datetime import datetime, timedelta, timezone
+
           event = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
-          commits = event.get("commits") or []
+          repo = os.environ["GITHUB_REPOSITORY"]
           head = event.get("head_commit") or {}
+          commits = event.get("commits") or ([head] if head else [])
           pusher = (event.get("pusher") or {}).get("name") or os.environ.get("GITHUB_ACTOR", "")
 
-          lines = ["【团团】main 分支已更新"]
-          shown = commits[-5:] if commits else ([head] if head else [])
-          for commit in shown:
-              title = (commit.get("message") or "").splitlines()[0][:80]
-              author = (commit.get("author") or {}).get("name") or pusher
-              lines.append(f"· {title}（{author}）")
-          if len(commits) > 5:
-              lines.append(f"……共 {len(commits)} 个提交")
-          url = event.get("compare") if len(commits) > 1 else head.get("url")
-          if url:
-              lines.append(url)
+          def describe(commit):
+              title = (commit.get("message") or "").splitlines()[0].strip()
+              match = re.search(r"\s*\(#(\d+)\)$", title)
+              return title[: match.start()] if match else title, match.group(1) if match else None
+
+          def local_time(stamp):
+              try:
+                  moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                  return moment.astimezone(timezone(timedelta(hours=8))).strftime("%m-%d %H:%M")
+              except (AttributeError, ValueError):
+                  return ""
+
+          items = [describe(commit) for commit in commits]
+          author = (head.get("author") or {}).get("name") or pusher
+          lines = ["【团团】main 已更新"]
+          if len(items) == 1:
+              lines.append(f"内容：{items[0][0][:60]}")
+          else:
+              lines.append(f"内容：共 {len(items)} 项")
+              for index, (title, _) in enumerate(items[-5:], 1):
+                  lines.append(f"  {index}. {title[:50]}")
+          lines.append(f"作者：{author}")
+          when = local_time(head.get("timestamp"))
+          if when:
+              lines.append(f"时间：{when}")
+          number = items[-1][1] if len(items) == 1 else None
+          if number:
+              link = f"https://github.com/{repo}/pull/{number}"
+          elif len(items) > 1:
+              link = event.get("compare")
+          else:
+              link = head.get("url")
+          if link:
+              lines.append(f"链接：{link}")
           content = "\n".join(lines)
 
           def post(url, body, headers=None):
