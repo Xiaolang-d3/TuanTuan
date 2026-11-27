@@ -9,6 +9,7 @@ import { productIntroHash, productPrivacyHash } from "../app/public-routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthMascot } from "./AuthMascot";
 import { PublicSiteFooter } from "./PublicSiteFooter";
+import { QqGroupEntry } from "./QqGroupEntry";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
 import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/passwordPolicy";
@@ -556,6 +557,7 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
         <h1 className="auth-wordmark">团团</h1>
         <nav className="auth-public-nav" aria-label="公共导航">
           <a href={productIntroHash}>关于 团团</a>
+          <QqGroupEntry />
           <ThemeToggleButton className="auth-theme-toggle" />
         </nav>
       </header>
