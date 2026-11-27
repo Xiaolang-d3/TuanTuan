@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { createApiClient } from "../api/client";
 import type { ChatComposerDraft } from "../features/chat/types";
-import { MAX_CREATION_DRAFT_LENGTH, type CreationDrafts, type CreationMode } from "../features/home/CreationEntry";
+import { MAX_CREATION_DRAFT_LENGTH } from "../features/home/CreationEntry";
 import type { HomeReadableItem } from "../features/home/types";
 import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
-import type { ImageCreationDraft, ImageDraftSettings } from "../features/product/ImageWorkspacePage";
 import { readStorageItem, writeStorageItem } from "../storage";
 import type { Conversation } from "../types";
 import type { useAppRoute } from "./useAppRoute";
@@ -12,20 +11,17 @@ import type { useWorkspaceConversations } from "./useWorkspaceConversations";
 
 type CreationForm = {
   scope: string;
-  mode: CreationMode;
-  drafts: CreationDrafts;
-  imageSettings: ImageDraftSettings;
+  draft: string;
 };
 
 function restoreCreationForm(scope: string): CreationForm {
-  const form: CreationForm = { scope, mode: "images", drafts: { chat: "", images: "" }, imageSettings: {} };
+  const form: CreationForm = { scope, draft: "" };
   try {
     const saved = JSON.parse(readStorageItem(`tuantuan-home-draft:${scope}`, "sessionStorage") ?? "null");
-    if (saved?.mode === "chat") form.mode = "chat";
-    for (const mode of ["chat", "images"] as const) {
-      const draft = saved?.drafts?.[mode];
-      if (typeof draft === "string") form.drafts[mode] = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
-    }
+    // 兼容旧版按“对话/图片”分开保存的草稿：取上次所在模式的内容。
+    const legacy = saved?.drafts?.[saved?.mode === "chat" ? "chat" : "images"] || saved?.drafts?.chat || saved?.drafts?.images;
+    const draft = typeof saved?.draft === "string" ? saved.draft : legacy;
+    if (typeof draft === "string") form.draft = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
   } catch { /* Invalid saved drafts are ignored. */ }
   return form;
 }
@@ -52,17 +48,16 @@ type Options = Pick<ReturnType<typeof useWorkspaceConversations>,
  */
 export function useHomeCreation({
   fetchJson, userEmail, creationScope, databaseReady, chatBusy, clearChatMessages, selectNewConversationSkill,
-  setErrorMessage, setNoticeMessage, navigateRoute, currentConversationId, conversationBusy, setConversationBusy,
+  setErrorMessage, setNoticeMessage, currentConversationId, conversationBusy, setConversationBusy,
   invalidateConversationReads, setConversations, selectConversation
 }: Options) {
   const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
   const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
-  const { mode: savedCreationMode, drafts: savedCreationDrafts } = activeCreationForm;
+  const savedCreationDraft = activeCreationForm.draft;
   useEffect(() => {
-    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ mode: savedCreationMode, drafts: savedCreationDrafts }), "sessionStorage");
-  }, [creationScope, savedCreationMode, savedCreationDrafts]);
-  const [imageCreationDraft, setImageCreationDraft] = useState<(ImageCreationDraft & { scope: string }) | null>(null);
-  const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string }) | null>(null);
+    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ draft: savedCreationDraft }), "sessionStorage");
+  }, [creationScope, savedCreationDraft]);
+  const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string; autoSend?: boolean }) | null>(null);
   const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
   const [conversationFiles, setConversationFiles] = useState<{ scope: string; drafts: Map<number, File[]> } | null>(null);
   const activeHomeFiles = homeFiles?.scope === creationScope ? homeFiles.files : [];
@@ -74,6 +69,10 @@ export function useHomeCreation({
 
   function updateCreationForm(update: (form: CreationForm) => CreationForm) {
     setCreationForm(previous => update(previous.scope === creationScope ? previous : activeCreationForm));
+  }
+
+  function clearCreationDraft(sent: string) {
+    updateCreationForm(form => form.draft === sent ? { ...form, draft: "" } : form);
   }
 
   function setConversationDraftFiles(conversationId: number, files: File[]) {
@@ -93,7 +92,7 @@ export function useHomeCreation({
     setConversationBusy(false);
   }, [fetchJson, userEmail, setConversationBusy]);
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[] } = {}) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files, autoSend, onOpened }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[]; autoSend?: boolean; onOpened?: () => void } = {}) {
     if (ownerSignal?.aborted) return;
     if (openingConversationRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
@@ -123,6 +122,8 @@ export function useHomeCreation({
         id: `home-${created.id}`,
         conversationId: created.id,
         content,
+        // 工作台直接发送：会话打开后由 App 在消息加载完成时发出，而不是填入输入框。
+        autoSend: Boolean(autoSend && !files?.length),
       } : null);
       if (files?.length) {
         setConversationDraftFiles(created.id, files);
@@ -131,6 +132,7 @@ export function useHomeCreation({
       if (skillId) selectNewConversationSkill(created.id, skillId);
       selectConversation(created.id);
       setNoticeMessage(notice);
+      onOpened?.();
     } finally {
       ownerSignal?.removeEventListener("abort", cancel);
       release();
@@ -141,23 +143,25 @@ export function useHomeCreation({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
-  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[]) {
+  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: { autoSend?: boolean; onOpened?: () => void }) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
-    }), content, notice, { skillId, files });
+    }), content, notice, { skillId, files, ...handoff });
   }
 
-  function openCreationWorkspace(mode: CreationMode, content: string, settings?: ImageDraftSettings) {
+  /**
+   * 工作台发送：对话与生图共用同一入口，统一进入新对话，由团团判断是否生成图片。
+   * @param content 输入框内容。
+   */
+  function openCreationWorkspace(content: string) {
     if (!databaseReady) return;
-    if (mode === "images") {
-      const explicitSettings = settings && (settings.profileId !== undefined || settings.size !== undefined) ? settings : undefined;
-      if (content.trim() || explicitSettings) {
-        setImageCreationDraft({ scope: creationScope, id: crypto.randomUUID(), content, settings: explicitSettings });
-      }
-      navigateRoute({ section: "images" });
-      return;
-    }
-    void openNewChatDraft(content, content.trim() || activeHomeFiles.length ? "对话草稿已准备，编辑后发送" : "已新建对话", undefined, activeHomeFiles).catch((error: unknown) => {
+    // 有附件时仍需在对话中上传后再发送；纯文字直接发送，避免二次确认。
+    const sendNow = Boolean(content.trim()) && !activeHomeFiles.length;
+    const notice = sendNow ? "" : activeHomeFiles.length ? "对话草稿已准备，编辑后发送" : "已新建对话";
+    void openNewChatDraft(content, notice, undefined, activeHomeFiles, {
+      autoSend: sendNow,
+      onOpened: () => { if (sendNow) clearCreationDraft(content); },
+    }).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setErrorMessage(error instanceof Error ? error.message : "打开对话工作区失败");
     });
   }
@@ -167,9 +171,10 @@ export function useHomeCreation({
     homeFiles: activeHomeFiles,
     setHomeFiles: (files: File[]) => setHomeFiles({ scope: creationScope, files }),
     updateForm: updateCreationForm,
-    imageDraft: imageCreationDraft?.scope === creationScope ? imageCreationDraft : undefined,
-    consumeImageDraft: (id: string) => setImageCreationDraft(current => current?.id === id ? null : current),
-    conversationDraft: homeComposerDraft?.scope === creationScope ? homeComposerDraft : null,
+    conversationDraft: homeComposerDraft?.scope === creationScope && !homeComposerDraft.autoSend ? homeComposerDraft : null,
+    autoSendDraft: homeComposerDraft?.scope === creationScope && homeComposerDraft.autoSend ? homeComposerDraft : null,
+    /** 认领待自动发送的草稿：sent 为 false 时退回为普通草稿，交给输入框编辑。 */
+    claimAutoSendDraft: (id: string, sent: boolean) => setHomeComposerDraft(current => current?.id !== id ? current : sent ? null : { ...current, autoSend: false }),
     consumeConversationDraft: () => setHomeComposerDraft(current => current === homeComposerDraft ? null : current),
     conversationDraftFiles: activeConversationFiles,
     setConversationDraftFiles,

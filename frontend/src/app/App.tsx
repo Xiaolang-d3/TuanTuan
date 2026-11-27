@@ -213,6 +213,8 @@ export function App({
     setErrorMessage, setNoticeMessage, navigateRoute, currentConversationId, conversationBusy, setConversationBusy,
     invalidateConversationReads, setConversations, selectConversation
   });
+  const autoSendDraftRef = useRef(homeCreation.autoSendDraft);
+  autoSendDraftRef.current = homeCreation.autoSendDraft;
   const conversationModels = useConversationModels({
     fetchJson, scope: modelSettingsScope, conversation: currentConversation, currentConversationId, currentConversationIdRef,
     modelCatalog, capabilities, savedModelName: modelSettingsReady ? savedAgentSettings.model_name : "尚未配置",
@@ -385,9 +387,21 @@ export function App({
     setRetryChatDraft(null);
     setVisibleMessageCount(12);
     setChatMessages([]);
+    const conversationId = currentConversationId;
+    const claimAutoSend = (sent: boolean) => {
+      const draft = autoSendDraftRef.current;
+      if (!draft || draft.conversationId !== conversationId || currentConversationIdRef.current !== conversationId) return null;
+      homeCreation.claimAutoSendDraft(draft.id, sent);
+      return draft;
+    };
     Promise.all([
-      refreshChat(currentConversationId),
-    ]).catch((error: unknown) => {
+      refreshChat(conversationId),
+    ]).then(() => {
+      // 工作台直接发送的消息要等历史加载完成后再发，否则会被这次刷新覆盖。
+      const draft = claimAutoSend(true);
+      if (draft) void sendChatMessage(draft.content, [], [], undefined, undefined, undefined, conversationId);
+    }).catch((error: unknown) => {
+      claimAutoSend(false);
       setErrorMessage(error instanceof Error ? error.message : "切换对话失败");
     });
   }, [currentConversationId]);
@@ -690,23 +704,17 @@ export function App({
               accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
               creationEntry={<CreationEntry
-                mode={homeCreation.form.mode}
-                drafts={homeCreation.form.drafts}
+                draft={homeCreation.form.draft}
                 files={homeCreation.homeFiles}
                 onFiles={homeCreation.setHomeFiles}
-                onMode={mode => homeCreation.updateForm(form => ({ ...form, mode }))}
-                onDraft={(mode, text) => homeCreation.updateForm(form => ({ ...form, drafts: { ...form.drafts, [mode]: text } }))}
+                onDraft={text => homeCreation.updateForm(form => ({ ...form, draft: text }))}
                 onOpen={homeCreation.openCreationWorkspace}
                 onOpenVideo={() => navigateRoute({ section: "video" })}
                 onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
                 onOpenSkills={() => navigateRoute({ section: "skills" })}
-                onOpenImageSettings={() => navigateRoute({ section: "settings", page: "model", purpose: "image" })}
-                imageSettings={homeCreation.form.imageSettings}
-                onImageSettings={imageSettings => homeCreation.updateForm(form => ({ ...form, imageSettings }))}
-                fetchJson={fetchJson}
                 voiceInput={voiceInput}
                 ready={databaseReady}
-                busy={homeCreation.form.mode === "chat" && (conversationBusy || chatBusy)}
+                busy={conversationBusy || chatBusy}
               />}
               onAnalyze={homeCreation.analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
@@ -738,7 +746,7 @@ export function App({
               onOpenExtensions={() => navigateRoute({ section: "settings", page: "extensions" })}
               onOpenAgentSettings={() => navigateRoute({ section: "settings", page: "agent" })}
               onOpenModelSettings={purpose => navigateRoute(purpose === "image" ? { section: "settings", page: "model", purpose } : { section: "settings", page: "model" })}
-              onOpenImage={() => homeCreation.openCreationWorkspace("images", "")}
+              onOpenImage={() => navigateRoute({ section: "images" })}
               onOpenSkill={skillId => homeCreation.openNewChatDraft("", "已选择技能，填写任务后发送", skillId)} />
           </Suspense>
         ) : <PageLoading label="正在连接技能中心…" />) : null}
@@ -754,8 +762,6 @@ export function App({
             initialTaskId={appRoute.section === "images" ? appRoute.taskId : undefined}
             onCloseInitialTask={() => navigateRoute({ section: "images" }, true)}
             accountKey={userEmail}
-            creationDraft={homeCreation.imageDraft}
-            onCreationDraftConsumed={homeCreation.consumeImageDraft}
             onOpenWorks={() => navigateRoute({ section: "works" })}
             refreshConversations={refreshConversations}
             onLibraryChanged={refreshLibrary}
@@ -777,6 +783,7 @@ export function App({
           linkedWork={appRoute.work}
           onCloseLinkedWork={() => navigateRoute({ section: "works" }, true)}
           onOpenImages={() => navigateRoute({ section: "images" })}
+          onOpenRecord={openCreationRecord}
         /> : null}
 
         {appRoute.section === "settings" ? (

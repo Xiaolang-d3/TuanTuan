@@ -2457,7 +2457,8 @@ class AgentRuntime:
             protocol = execute.get("model_protocol", "auto")
             uses_images = resolve_model_protocol(model_name, protocol, str(execute.get("model_base_url", ""))) == "images"
             if not uses_images and not re.match(r"^grok-4\.7(?:[-.]|$)", model_name, re.I):
-                raise ModelProviderError("image_model_required", "请选择 gpt-image-2（自动识别或 Images 接口）或支持原生生图的 Grok 4.7 模型")
+                # 聊天模型不能生图时，改用设置里的“图片生成”模型，与图片创作页同一来源。
+                return await self._generate_image_with_purpose_model(prompt, platform, conversation_id, callback, run_id, operation_id, image_urls, events)
             if not uses_images and protocol not in {"auto", "responses"}:
                 raise ModelProviderError("image_generation_protocol", "Grok 生图需要 Responses 接口，请在模型配置中使用自动识别或 Responses")
             if uses_images:
@@ -2495,6 +2496,54 @@ class AgentRuntime:
             await self._publish(callback, AgentStreamEvent(type="agent_event", event=event))
             return AgentRunResult(content=str(exc), provider=self._model_provider, platform=platform, rounds=1,
                                   status="failed", error=ToolError(code=exc.code, message=str(exc), retryable=False), events=events)
+
+    async def _generate_image_with_purpose_model(self, prompt, platform, conversation_id, callback, run_id, operation_id, image_urls, events) -> AgentRunResult:
+        """Generate an image in chat with the configured image-purpose model.
+
+        Errors are raised as ``ModelProviderError`` so the caller reports them
+        exactly like the chat-model image path.
+        """
+        from openai import APIError
+
+        from ..chat.image_assets import begin_generation, persist_images
+        from ..models.image_adapters import connection_image_adapter
+        from ..models.image_errors import image_request_error
+        from .image_design_skill import image_design_prompt
+        from .model_purposes import resolve_purpose_connection
+
+        if conversation_id is None:
+            raise ModelProviderError("image_conversation_required", "请在聊天对话中生成图片")
+        if image_urls:
+            raise ModelProviderError("image_edit_not_supported", "当前支持文字生图；基于附件的图片编辑尚未接入")
+        try:
+            connection = resolve_purpose_connection("image")
+            adapter = connection_image_adapter(connection)
+        except ValueError as exc:
+            raise ModelProviderError("image_model_required", f"还没有可用的图片生成模型：{exc}。请在设置里配置图片生成模型") from None
+        design_prompt = image_design_prompt(prompt)
+        call = ModelRequest(messages=[AgentMessage(role="user", content=design_prompt)], image_generation=True,
+                            image_size=adapter.size_for_wire("generate", "auto"), allow_option_fallback=False)
+        async with adapter.open(connection) as image_provider:
+            cached = begin_generation(operation_id, conversation_id, connection)
+            if cached is None:
+                event = ToolEvent(round=1, tool_call_id=f"image-{operation_id}", tool_name="image_generation", status="running", message="正在生成图片")
+                events.append(event)
+                await self._publish(callback, AgentStreamEvent(type="agent_event", event=event))
+                # 付费生成不自动重试；上游错误统一转成可读的图片错误。
+                with model_call_scope(connection, self._run_context.get(), selection_reason=connection.get("selection_reason", "")):
+                    try:
+                        response = await self._await_with_cancellation(image_provider.generate(call), run_id)
+                    except (ModelProviderError, APIError) as exc:
+                        upstream = exc if isinstance(exc, APIError) else exc.__cause__
+                        if isinstance(upstream, APIError):
+                            error = image_request_error(upstream)
+                            raise ModelProviderError("image_generation_failed", str(error)) from None
+                        raise
+                cached = persist_images(operation_id, response, str(connection["model_name"]), prompt=design_prompt)
+        event = ToolEvent(round=1, tool_call_id=f"image-{operation_id}", tool_name="image_generation", status="done", message=f"已生成 {len(cached['assets'])} 张图片")
+        events.append(event)
+        await self._publish(callback, AgentStreamEvent(type="agent_event", event=event))
+        return AgentRunResult(**cached, provider=image_provider.name, platform=platform, rounds=1, events=events)
 
     async def _generate_response(self, provider, request: ModelRequest, event_callback: StreamCallback | None, *, stream_text: bool = True) -> ModelResponse:
         from ..library.document_context import bounded_document_messages

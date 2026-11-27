@@ -5,7 +5,7 @@ import {
   History,
   LibraryBig,
   PanelLeft,
-  Plus,
+  LayoutDashboard,
   Settings
 } from "lucide-react";
 import { type MouseEvent, type ReactNode, useEffect, useRef } from "react";
@@ -79,7 +79,7 @@ export function AppSidebar({
   // history link itself leads to the list, so it must not claim to be this page.
   const inHistorySection = isActive("chat") && !weixinActive;
   const primaryItems: SidebarItem[] = [
-    { key: "dashboard", label: "新建创作", mobileLabel: "创作", icon: <Plus size={18} />, href: appRouteHash({ section: "dashboard" }), active: isActive("dashboard"), current: isActive("dashboard") ? "page" : undefined, prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
+    { key: "dashboard", label: "工作台", mobileLabel: "工作台", icon: <LayoutDashboard size={18} />, href: appRouteHash({ section: "dashboard" }), active: isActive("dashboard"), current: isActive("dashboard") ? "page" : undefined, prefetch: "dashboard", onClick: () => onSelectNav("dashboard") },
     { key: "history", label: "创作记录", mobileLabel: "记录", icon: <History size={18} />, href: appRouteHash({ section: "history" }), active: isActive("history") || inHistorySection, current: isActive("history") ? "page" : inHistorySection ? "true" : undefined, onClick: () => onSelectNav("history") },
     { key: "works", label: "我的作品", mobileLabel: "作品", icon: <GalleryThumbnails size={18} />, href: appRouteHash({ section: "works" }), active: isActive("works"), current: isActive("works") ? "page" : undefined, onClick: () => onSelectNav("works") },
     { key: "library", label: "知识库", icon: <LibraryBig size={18} />, href: appRouteHash({ section: "chat", page: "library" }), active: isActive("library"), current: isActive("library") ? "page" : undefined, prefetch: "library", onClick: () => onSelectNav("library") },

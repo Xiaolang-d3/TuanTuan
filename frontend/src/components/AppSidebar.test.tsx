@@ -117,7 +117,7 @@ describe("AppSidebar", () => {
     renderSidebar();
     const desktopNav = screen.getByRole("navigation", { name: "主导航" });
     expect(within(desktopNav).getAllByRole("link").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "新建创作", "创作记录", "我的作品", "技能中心", "知识库", "我的项目"
+      "工作台", "创作记录", "我的作品", "技能中心", "知识库", "我的项目"
     ]);
     expect(within(desktopNav.closest("aside")!.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" })).toBeInTheDocument();
     expect(screen.queryByText("快速搜索…")).not.toBeInTheDocument();
@@ -127,7 +127,7 @@ describe("AppSidebar", () => {
   it("opens each product destination from the sidebar", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心"]) {
+    for (const name of ["工作台", "创作记录", "我的作品", "知识库", "我的项目", "技能中心"]) {
       fireEvent.click(navigation.getByRole("link", { name }));
     }
     fireEvent.click(within(document.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" }));
@@ -152,7 +152,7 @@ describe("AppSidebar", () => {
     const props = renderSidebar();
     const mobile = screen.getByRole("navigation", { name: "移动端主导航" });
     expect(within(mobile).getAllByRole("link").map((item) => item.getAttribute("aria-label"))).toEqual([
-      "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
+      "工作台", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
     ]);
     expect(within(mobile).getByRole("link", { name: "创作记录" })).toHaveAttribute("aria-current", "true");
     fireEvent.click(within(mobile).getByRole("link", { name: "技能中心" }));
@@ -160,7 +160,7 @@ describe("AppSidebar", () => {
   });
 
   it.each([
-    ["dashboard", "新建创作"], ["chat", "创作记录"], ["works", "我的作品"], ["skills", "技能中心"], ["settings", "设置"]
+    ["dashboard", "工作台"], ["chat", "创作记录"], ["works", "我的作品"], ["skills", "技能中心"], ["settings", "设置"]
   ] as const)("highlights the %s destination", (view, label) => {
     renderSidebar(undefined, false, view);
     const selector = view === "settings" ? ".sidebar-identity-slot" : ".nav-desktop";
@@ -180,7 +180,7 @@ describe("AppSidebar", () => {
   it("renders each destination as a real link to its own address", () => {
     renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    expect(navigation.getByRole("link", { name: "新建创作" })).toHaveAttribute("href", "#/home");
+    expect(navigation.getByRole("link", { name: "工作台" })).toHaveAttribute("href", "#/home");
     expect(navigation.getByRole("link", { name: "创作记录" })).toHaveAttribute("href", "#/history");
     expect(navigation.getByRole("link", { name: "我的作品" })).toHaveAttribute("href", "#/works");
     expect(navigation.getByRole("link", { name: "知识库" })).toHaveAttribute("href", "#/chat/library");
