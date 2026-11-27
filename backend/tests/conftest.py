@@ -10,12 +10,6 @@ for _name in list(os.environ):
 _test_data_dir = tempfile.TemporaryDirectory(prefix="tuantuan-tests-")
 os.environ["TUANTUAN_DATA_DIR"] = _test_data_dir.name
 
-# Never load a developer's .env or inherit product-specific credentials/options.
-os.environ["PYTHON_DOTENV_DISABLED"] = "1"
-for _name in list(os.environ):
-    if _name.startswith(("TUANTUAN_", "CAREERLOOP_", "DENGDENG_")):
-        os.environ.pop(_name, None)
-
 # Tests never read real credentials or the host operating-system keychain.
 # Dedicated backend tests override these values and mock every keyring call.
 os.environ["TUANTUAN_SECRET_BACKEND"] = "memory"
@@ -35,8 +29,9 @@ os.environ["NO_PROXY"] = os.environ["no_proxy"] = ",".join(
     filter(None, ["127.0.0.1", "localhost", os.environ.get("NO_PROXY", "")])
 )
 
-# Keep unit tests offline and deterministic. Production default remains auto/fastembed.
+# Keep deterministic embeddings and isolate tests that explicitly opt into FastEmbed.
 os.environ.setdefault("EMBEDDING_BACKEND", "hash")
+os.environ["EMBEDDING_CACHE_DIR"] = os.path.join(_test_data_dir.name, "fastembed")
 
 
 import pytest

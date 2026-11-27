@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import nullcontext
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -15,9 +17,13 @@ def save_run_snapshot(
     conversation_id: int,
     snapshot: AgentRunSnapshot,
     db_path: str | Path | None = None,
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> None:
+    """Save a snapshot, using the caller's transaction when supplied."""
     payload = snapshot.model_dump_json()
-    with connect(db_path) as conn:
+    transaction = nullcontext(connection) if connection is not None else connect(db_path)
+    with transaction as conn:
         conn.execute(
             """
             INSERT INTO agent_run_snapshots (conversation_id, snapshot_json)
@@ -89,8 +95,12 @@ def load_run_snapshot(
 def clear_run_snapshot(
     conversation_id: int,
     db_path: str | Path | None = None,
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> None:
-    with connect(db_path) as conn:
+    """Clear a snapshot, using the caller's transaction when supplied."""
+    transaction = nullcontext(connection) if connection is not None else connect(db_path)
+    with transaction as conn:
         conn.execute(
             "DELETE FROM agent_run_snapshots WHERE conversation_id = ?",
             (conversation_id,),

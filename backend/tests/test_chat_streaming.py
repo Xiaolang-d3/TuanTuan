@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import sqlite3
 import tempfile
 import unittest
 from io import BytesIO
@@ -235,13 +236,69 @@ class ChatStreamingApiTest(unittest.TestCase):
                         user_content="原任务", web_search_options=options)
         store.bind_messages("terminal-backfill", user_message_id=user["id"])
         store.finish("terminal-backfill", AgentRunResult(content="已完成原搜索", provider="test", platform="manual", rounds=1))
-        with patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="agent_search")), \
-             patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("已完成结果不应初始化模型")):
-            events = self.run_ag_ui(conversation["id"], "重连", "terminal-backfill", forwarded={"webSearch": False})
-        self.assertEqual("".join(event["delta"] for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"), "已完成原搜索")
+        with (
+            patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="agent_search")),
+            patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("已完成结果不应初始化模型")),
+            patch("app.agent.memory.service.schedule_memory_extraction") as extract_memory,
+        ):
+            backfill = self.run_ag_ui(conversation["id"], "重连", "terminal-backfill", forwarded={"webSearch": False})
+            replay = self.run_ag_ui(conversation["id"], "再次重连", "terminal-backfill")
+        for events in (backfill, replay):
+            self.assertEqual("".join(event["delta"] for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"), "已完成原搜索")
         messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["payload"]["web_search_options"], options.model_dump())
+        self.assertEqual(store.get_run("terminal-backfill")["assistant_message_id"], messages[1]["id"])
+        extract_memory.assert_called_once_with(conversation["id"], through_message_id=messages[1]["id"])
+
+    def test_failed_assistant_binding_preserves_result_for_idempotent_reconnect(self) -> None:
+        cid = self.client.post("/conversations", json={"title": "消息入库失败"}).json()["id"]
+        run_id = "assistant-binding-fault"
+        answer = "原始已完成的回答。"
+
+        class Runtime:
+            async def run_stream(self, *args, **kwargs):
+                yield AgentStreamEvent(type="text_delta", delta=answer)
+                yield AgentStreamEvent(type="completed", result=AgentRunResult(
+                    content=answer, provider="test", platform="manual", rounds=1,
+                ))
+
+        bind = AgentRunStore.bind_messages
+
+        def fail_assistant_bind(store, run_id, **kwargs):
+            if kwargs.get("assistant_message_id") is not None:
+                raise sqlite3.OperationalError("injected assistant binding failure")
+            return bind(store, run_id, **kwargs)
+
+        with patch.object(AgentRunStore, "bind_messages", fail_assistant_bind):
+            original = self.with_runtime(Runtime(), lambda: self.run_ag_ui(cid, "请回答", run_id))
+            with patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("补写不应调用模型")):
+                unavailable = self.run_ag_ui(cid, "请回答", run_id)
+
+        for events in (original, unavailable):
+            self.assertEqual(events[-1]["type"], "RUN_ERROR")
+            self.assertEqual(events[-1]["code"], "run_result_persist_failed")
+            self.assertFalse(any(event["type"] == "STATE_SNAPSHOT" for event in events))
+        run = AgentRunStore().get_run(run_id)
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["result"].content, answer)
+        self.assertIsNone(run["assistant_message_id"])
+        messages = self.client.get(f"/chat/messages?conversation_id={cid}").json()
+        self.assertEqual([message["role"] for message in messages], ["user"])
+
+        with (
+            patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("补写不应调用模型")),
+            patch("app.agent.memory.service.schedule_memory_extraction") as extract_memory,
+        ):
+            backfill = self.run_ag_ui(cid, "请回答", run_id)
+            replay = self.run_ag_ui(cid, "请回答", run_id)
+        self.assertEqual(backfill[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(backfill[-1], replay[-1])
+        messages = self.client.get(f"/chat/messages?conversation_id={cid}").json()
+        self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
+        self.assertEqual(messages[1]["content"], answer)
+        self.assertEqual(AgentRunStore().get_run(run_id)["assistant_message_id"], messages[1]["id"])
+        extract_memory.assert_called_once_with(cid, through_message_id=messages[1]["id"])
 
     def test_new_retry_expected_provider_cannot_silently_switch_services(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "重试绑定"}).json()

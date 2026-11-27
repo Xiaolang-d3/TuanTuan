@@ -32,7 +32,7 @@ class InvalidReviewResult(ValueError):
 
 
 def resolve_connection(profile_id=None, *, selection=None):
-    from ..agent.bootstrap import get_profile_connection
+    from ..agent import get_profile_connection
     return get_profile_connection(profile_id, selection=selection)
 
 

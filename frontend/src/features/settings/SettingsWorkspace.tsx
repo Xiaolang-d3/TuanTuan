@@ -15,8 +15,7 @@ import {
   TriangleAlert
 } from "lucide-react";
 import type { LibraryEditor } from "../../types";
-import type { SettingsPage } from "../../routing";
-import { productIntroHash } from "../../app/public-routing";
+import { productIntroHash, type SettingsPage } from "../../routing";
 import "./settings-workspace.css";
 
 type WorkspaceProps = {

@@ -1,0 +1,33 @@
+name: QQ Notify
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    if: github.repository == 'Xiaolang-d3/TuanTuan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Send merge notice and screenshots to QQ group
+        env:
+          QQ_APP_ID: ${{ secrets.QQ_BOT_APP_ID }}
+          QQ_APP_SECRET: ${{ secrets.QQ_BOT_APP_SECRET }}
+          QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$QQ_APP_ID" ] || [ -z "$QQ_APP_SECRET" ] || [ -z "$QQ_GROUP_OPENID" ]; then
+            echo "::warning::QQ secrets not configured; skipping notice."
+            exit 0
+          fi
+          python3 .github/scripts/qq_notify.py
