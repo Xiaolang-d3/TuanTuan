@@ -103,6 +103,10 @@ export function DocumentEditor({ documentId, service, folders = [], onContinue, 
       <button type="button" onClick={() => downloadText(document.markdown, `${document.title}-v${document.version}.md`, "text/markdown")}>Markdown</button>
       <button type="button" onClick={() => downloadText(markdownToText(document.markdown), `${document.title}-v${document.version}.txt`)}>TXT</button>
       <button type="button" disabled={busy || dirty} aria-expanded={archiveOpen} onClick={() => setArchiveOpen(value => !value)}>归档此保存版本</button>
+      {service.archiveFinal && !document.incomplete ? <button type="button" disabled={busy || dirty} onClick={() => void operate(async signal => {
+        await service.archiveFinal?.(documentId, document.version, signal);
+        if (valid() && !signal.aborted) setNotice(`已将 v${document.version} 保存到我的作品（Markdown）`);
+      })}>保存到我的作品</button> : null}
       {onContinue ? <button type="button" disabled={busy || dirty} onClick={() => void operate(signal => onContinue(document, signal))}>用 v{document.version} 继续对话</button> : null}
     </div>
     <p className="document-editor-state" role="status">{notice || (dirty ? "有未保存修改；归档、下载和继续对话均使用保存版本。" : document.version === document.latest_version ? `已保存版本 v${document.version}` : `历史版本 v${document.version} · 可复制、下载或用于对话`)}</p>

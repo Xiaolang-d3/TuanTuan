@@ -20,8 +20,9 @@ const tools = [
   { id: "resize", name: "调整大小", Icon: Scaling },
 ] as const;
 
-export function ImageEditor({ attachment, url, onEdit, onNavigate, onDownload, loadError, onReload, navigation, onSubmitted }: {
+export function ImageEditor({ attachment, url, onImageLoad, onEdit, onNavigate, onDownload, loadError, onReload, navigation, onSubmitted }: {
   attachment: ChatAttachment; url: string; onEdit: EditGeneratedImage;
+  onImageLoad?: (image: HTMLImageElement) => void;
   onNavigate: (asset: ChatAttachment) => void; onDownload?: () => void; loadError?: string; onReload?: () => void; navigation?: ReactNode; onSubmitted?: () => void;
 }) {
   const [tool, setTool] = useState<Tool | null>(null);
@@ -100,7 +101,7 @@ export function ImageEditor({ attachment, url, onEdit, onNavigate, onDownload, l
 
       <div className="image-editor-stage">
         <div className="image-editor-canvas" style={{ aspectRatio: `${naturalWidth} / ${naturalHeight}`, maxWidth: `min(1200px, calc(max(120px, 100dvh - ${tool ? 340 : 112}px) * ${naturalWidth / naturalHeight}))` }}>
-          {url ? <img src={url} alt="正在编辑的图片" draggable={false} /> : <div className="image-editor-load">{loadError ? <><p role="alert">{loadError}</p><button type="button" onClick={onReload}>重新加载</button></> : <p role="status">正在加载图片…</p>}</div>}
+          {url ? <img src={url} alt="正在编辑的图片" draggable={false} onLoad={event => onImageLoad?.(event.currentTarget)} /> : <div className="image-editor-load">{loadError ? <><p role="alert">{loadError}</p><button type="button" onClick={onReload}>重新加载</button></> : <p role="status">正在加载图片…</p>}</div>}
           <svg role="img" aria-label="涂抹选区或点击添加位置评论" style={{ pointerEvents: tool ? "auto" : "none" }} viewBox={`0 0 ${naturalWidth} ${naturalHeight}`} onPointerDown={begin} onPointerMove={move} onPointerUp={() => { drawing.current = null; }} onPointerCancel={() => { drawing.current = null; }}>
             {tool && tool !== "resize" && tool !== "background" ? strokes.map((stroke, index) => <polyline key={index} points={stroke.points.map(p => `${p.x * naturalWidth},${p.y * naturalHeight}`).join(" ")} fill="none" stroke="#a78bfa" strokeOpacity=".6" strokeWidth={stroke.width * naturalWidth} strokeLinecap="round" strokeLinejoin="round" />) : null}
             {tool && tool !== "resize" && tool !== "background" ? strokes.filter(stroke => stroke.points.length === 1).map((stroke, index) => <circle key={`dot-${index}`} cx={stroke.points[0].x * naturalWidth} cy={stroke.points[0].y * naturalHeight} r={stroke.width * naturalWidth / 2} fill="#a78bfa" fillOpacity=".6" />) : null}

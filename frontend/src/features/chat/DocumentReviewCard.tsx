@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { MarkdownContent } from "./ChatMarkdown";
-import { LocalCitation, LocalCitationActionsContext } from "./LocalCitation";
+import { LocalCitation, LocalCitationContext } from "./LocalCitation";
 import { DEFAULT_REVIEW_BUDGET, type DocumentReviewJob, type DocumentReviewService, type ReviewBudget } from "./document-review-service";
 import "./document-review.css";
 
@@ -23,7 +23,7 @@ export function DocumentReviewCard({ job, service, onChange }: { job: DocumentRe
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { setAddition({ ...DEFAULT_REVIEW_BUDGET }); setError(""); }, [job.id, job.stage_id]);
   const result = job.result ?? job.checkpoint?.review;
-  const openCitation = useContext(LocalCitationActionsContext);
+  const citationLoaders = useContext(LocalCitationContext);
   const evidence = [...new Map((result?.local_evidence ?? []).map(item => [item.citation_id, item])).values()];
   const coverage = result?.coverage;
   const complete = job.status === "succeeded" && coverage?.status === "complete" && coverage.extraction_complete
@@ -56,7 +56,7 @@ export function DocumentReviewCard({ job, service, onChange }: { job: DocumentRe
     </div> : <p className="document-review-muted">准备读取固定版本，读取本身不计为已完成审阅。</p>}
     {job.model_budget ? <p className="document-review-muted">模型调用 {job.model_budget.calls_used} / {job.model_budget.calls_limit} · 活动时间 {Math.ceil(job.model_budget.active_seconds)} / {job.model_budget.active_seconds_limit} 秒</p> : null}
     {result?.summary ? <section className="document-review-result" aria-label={complete ? "审阅结果" : "已提交的部分结果"}><MarkdownContent localEvidence={result.local_evidence}>{result.summary}</MarkdownContent></section> : null}
-    {openCitation && evidence.length ? <div className="document-review-actions" role="group" aria-label="审阅来源">{evidence.map(item => <LocalCitation key={item.citation_id} evidence={item} onOpen={openCitation} />)}</div> : null}
+    {citationLoaders && evidence.length ? <div className="document-review-actions" role="group" aria-label="审阅来源">{evidence.map(item => <LocalCitation key={item.citation_id} evidence={item} loaders={citationLoaders} />)}</div> : null}
     {uncertain ? <p className="document-review-muted">模型请求结果待核对，系统不会自动重复调用。请保留当前结果并核对调用记录。</p> : null}
     {waitingBudget ? <div className="document-review-budget">
       <p>{job.prompt || "本次预算已用完，追加后继续未完成的部分。"}</p>

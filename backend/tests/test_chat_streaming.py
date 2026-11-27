@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import sqlite3
 import tempfile
 import unittest
 from io import BytesIO
@@ -235,13 +236,69 @@ class ChatStreamingApiTest(unittest.TestCase):
                         user_content="原任务", web_search_options=options)
         store.bind_messages("terminal-backfill", user_message_id=user["id"])
         store.finish("terminal-backfill", AgentRunResult(content="已完成原搜索", provider="test", platform="manual", rounds=1))
-        with patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="agent_search")), \
-             patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("已完成结果不应初始化模型")):
-            events = self.run_ag_ui(conversation["id"], "重连", "terminal-backfill", forwarded={"webSearch": False})
-        self.assertEqual("".join(event["delta"] for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"), "已完成原搜索")
+        with (
+            patch.object(main_module, "get_settings", return_value=SimpleNamespace(resolved_web_search_provider="agent_search")),
+            patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("已完成结果不应初始化模型")),
+            patch("app.agent.memory.service.schedule_memory_extraction") as extract_memory,
+        ):
+            backfill = self.run_ag_ui(conversation["id"], "重连", "terminal-backfill", forwarded={"webSearch": False})
+            replay = self.run_ag_ui(conversation["id"], "再次重连", "terminal-backfill")
+        for events in (backfill, replay):
+            self.assertEqual("".join(event["delta"] for event in events if event["type"] == "TEXT_MESSAGE_CONTENT"), "已完成原搜索")
         messages = self.client.get(f"/chat/messages?conversation_id={conversation['id']}").json()
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["payload"]["web_search_options"], options.model_dump())
+        self.assertEqual(store.get_run("terminal-backfill")["assistant_message_id"], messages[1]["id"])
+        extract_memory.assert_called_once_with(conversation["id"], through_message_id=messages[1]["id"])
+
+    def test_failed_assistant_binding_preserves_result_for_idempotent_reconnect(self) -> None:
+        cid = self.client.post("/conversations", json={"title": "消息入库失败"}).json()["id"]
+        run_id = "assistant-binding-fault"
+        answer = "原始已完成的回答。"
+
+        class Runtime:
+            async def run_stream(self, *args, **kwargs):
+                yield AgentStreamEvent(type="text_delta", delta=answer)
+                yield AgentStreamEvent(type="completed", result=AgentRunResult(
+                    content=answer, provider="test", platform="manual", rounds=1,
+                ))
+
+        bind = AgentRunStore.bind_messages
+
+        def fail_assistant_bind(store, run_id, **kwargs):
+            if kwargs.get("assistant_message_id") is not None:
+                raise sqlite3.OperationalError("injected assistant binding failure")
+            return bind(store, run_id, **kwargs)
+
+        with patch.object(AgentRunStore, "bind_messages", fail_assistant_bind):
+            original = self.with_runtime(Runtime(), lambda: self.run_ag_ui(cid, "请回答", run_id))
+            with patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("补写不应调用模型")):
+                unavailable = self.run_ag_ui(cid, "请回答", run_id)
+
+        for events in (original, unavailable):
+            self.assertEqual(events[-1]["type"], "RUN_ERROR")
+            self.assertEqual(events[-1]["code"], "run_result_persist_failed")
+            self.assertFalse(any(event["type"] == "STATE_SNAPSHOT" for event in events))
+        run = AgentRunStore().get_run(run_id)
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["result"].content, answer)
+        self.assertIsNone(run["assistant_message_id"])
+        messages = self.client.get(f"/chat/messages?conversation_id={cid}").json()
+        self.assertEqual([message["role"] for message in messages], ["user"])
+
+        with (
+            patch.object(main_module, "get_agent_runtime", side_effect=AssertionError("补写不应调用模型")),
+            patch("app.agent.memory.service.schedule_memory_extraction") as extract_memory,
+        ):
+            backfill = self.run_ag_ui(cid, "请回答", run_id)
+            replay = self.run_ag_ui(cid, "请回答", run_id)
+        self.assertEqual(backfill[-1]["type"], "RUN_FINISHED")
+        self.assertEqual(backfill[-1], replay[-1])
+        messages = self.client.get(f"/chat/messages?conversation_id={cid}").json()
+        self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
+        self.assertEqual(messages[1]["content"], answer)
+        self.assertEqual(AgentRunStore().get_run(run_id)["assistant_message_id"], messages[1]["id"])
+        extract_memory.assert_called_once_with(cid, through_message_id=messages[1]["id"])
 
     def test_new_retry_expected_provider_cannot_silently_switch_services(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "重试绑定"}).json()
@@ -345,6 +402,138 @@ class ChatStreamingApiTest(unittest.TestCase):
         events = self.with_runtime(Runtime(), lambda: self.run_ag_ui(conversation["id"], "整理资料", "run-wait"))
         snapshot = next(event["snapshot"] for event in events if event["type"] == "STATE_SNAPSHOT")
         self.assertEqual(snapshot["tuantuan"]["status"], "waiting_user")
+
+    def test_dsh_wait_is_durable_and_only_the_live_process_can_resume_it(self) -> None:
+        from app.agent.kernels.dsh import manager as dsh_manager
+        from app.agent.kernels.dsh.adapter import DshKernelRuntime
+        from app.agent.kernels.dsh.approvals import APPROVE_LABEL
+        from app.agent.kernels.dsh.client import DshLaunch, DshTimeoutError, Notification
+
+        class Client:
+            running = False
+            request = None
+
+            def __init__(self, *_args, **_kwargs):
+                self.queries = []
+                self.replies = []
+
+            async def start(self):
+                self.running = True
+
+            async def initialize(self, _params):
+                pass
+
+            async def session_query(self, _session_id, blocks):
+                self.queries.append(blocks[0]["text"])
+                self.request = Notification("approval/request", {"toolName": "ping"}, "test-rpc-id")
+
+            async def next_request(self, **_kwargs):
+                request, self.request = self.request, None
+                if request is None:
+                    raise DshTimeoutError("no request")
+                return request
+
+            async def next_notification(self, **_kwargs):
+                return Notification("session.status", {"status": "idle"})
+
+            async def respond(self, request_id, result):
+                self.replies.append((request_id, result))
+
+        client = Client()
+        manager = dsh_manager.DshRuntimeManager(client_factory=lambda *a, **kw: client)
+        replacement = dsh_manager.DshRuntimeManager(client_factory=lambda *a, **kw: self.fail("started a new DSH client"))
+        runtime = DshKernelRuntime(manager, {}, tool_ready_grace=0)
+        conversation = self.client.post("/conversations", json={"title": "DSH 审批"}).json()
+        conversation_id = conversation["id"]
+        with db.connect() as conn:
+            conn.execute("UPDATE conversations SET kernel = 'dsh' WHERE id = ?", (conversation_id,))
+        run_store = AgentRunStore()
+
+        with (
+            patch.object(main_module, "get_agent_runtime", return_value=SimpleNamespace()),
+            patch.object(main_module, "validate_kernel_selection", return_value="dsh"),
+            patch.object(main_module, "resolve_kernel_runtime", side_effect=lambda *_args: runtime),
+            patch.object(dsh_manager, "build_dsh_launch", return_value=DshLaunch(bin="fake")) as launch,
+            patch.object(dsh_manager, "dsh_home", return_value=Path(self.temp_dir.name) / "dsh"),
+        ):
+            waiting = self.run_ag_ui(conversation_id, "需要审批的任务", "dsh-wait")
+            replay = self.run_ag_ui(conversation_id, "被忽略的重放内容", "dsh-wait")
+            for events in (waiting, replay):
+                finished = next(event for event in events if event["type"] == "RUN_FINISHED")
+                self.assertEqual(finished["result"]["status"], "waiting_user")
+                state = next(event["snapshot"]["tuantuan"] for event in events if event["type"] == "STATE_SNAPSHOT")
+                public_agent = state["assistantMessage"]["payload"]["agent"]
+                self.assertEqual(public_agent["status"], "waiting_user")
+                clarification = public_agent["events"][-1]["data"]["clarification"]
+                self.assertEqual(clarification["options"][0]["send"], APPROVE_LABEL)
+                self.assertNotIn("dsh_wait_token", json.dumps(events))
+                self.assertNotIn("test-rpc-id", json.dumps(events))
+            durable = run_store.get_run("dsh-wait")
+            checkpoint = load_run_snapshot(conversation_id)
+            self.assertEqual(durable["status"], "waiting_user")
+            self.assertIsNotNone(durable["assistant_message_id"])
+            self.assertEqual(durable["result"].snapshot.dsh_wait_token, checkpoint.dsh_wait_token)
+            self.assertTrue(checkpoint.dsh_wait_token)
+            self.assertEqual(client.queries, ["需要审批的任务"])
+
+            completed = self.run_ag_ui(conversation_id, APPROVE_LABEL, "dsh-resume")
+            self.assertEqual(completed[-1]["result"]["status"], "done")
+            self.assertEqual(client.queries, ["需要审批的任务"])
+            self.assertEqual(client.replies, [("test-rpc-id", {"outcome": "allowed-once"})])
+            self.assertIsNone(load_run_snapshot(conversation_id))
+            self.assertEqual(run_store.get_run("dsh-resume")["parent_run_id"], "dsh-wait")
+
+            self.run_ag_ui(conversation_id, "另一个需要审批的任务", "dsh-wait-old-process")
+            runtime = DshKernelRuntime(replacement, {}, tool_ready_grace=0)
+            expired = self.run_ag_ui(conversation_id, APPROVE_LABEL, "dsh-expired")
+            self.assertEqual(expired[-1]["type"], "RUN_ERROR")
+            self.assertEqual(expired[-1]["code"], "dsh_wait_expired")
+            self.assertEqual(run_store.get_run("dsh-expired")["status"], "failed")
+            self.assertEqual(run_store.get_run("dsh-expired")["parent_run_id"], "dsh-wait-old-process")
+            self.assertIsNone(load_run_snapshot(conversation_id))
+            self.assertEqual(len(client.queries), 2)
+            self.assertEqual(len(client.replies), 1)
+            launch.assert_called_once()
+
+    def test_restarted_dsh_does_not_run_an_interrupted_answer_as_a_query(self) -> None:
+        from app.agent.kernels.dsh.adapter import DshKernelRuntime
+        from app.agent.kernels.dsh.approvals import APPROVE_LABEL
+        from app.agent.kernels.dsh.manager import DshRuntimeManager
+
+        cid = self.client.post("/conversations", json={"title": "回复审批时中断"}).json()["id"]
+        task = ensure_active_task(cid)
+        store = AgentRunStore()
+        store.start_run("dsh-parent", conversation_id=cid, task_id=task, user_content="原任务", kernel="dsh")
+        snapshot = AgentRunSnapshot(route_kind="dsh", needs_plan=False, dsh_wait_token="old-process-token")
+        store.finish("dsh-parent", AgentRunResult(
+            content="需要审批", provider="dsh", platform="dsh", rounds=0,
+            status="waiting_user", snapshot=snapshot,
+        ))
+        save_run_snapshot(cid, snapshot)
+        store.start_run("dsh-reply-in-progress", conversation_id=cid, task_id=task, user_content=APPROVE_LABEL, kernel="dsh")
+        user = save_chat_message("user", APPROVE_LABEL, conversation_id=cid, task_id=task)
+        store.bind_messages("dsh-reply-in-progress", user_message_id=user["id"])
+        store.link_waiting_resume(cid, "dsh-reply-in-progress")
+        with db.connect() as conn:
+            conn.execute("UPDATE conversations SET kernel = 'dsh' WHERE id = ?", (cid,))
+            conn.execute("UPDATE agent_execution_runs SET status = 'interrupted' WHERE run_id = 'dsh-reply-in-progress'")
+        manager = DshRuntimeManager()
+        runtime = DshKernelRuntime(manager, {}, tool_ready_grace=0)
+        with (
+            patch.object(main_module, "get_agent_runtime", return_value=SimpleNamespace()),
+            patch.object(main_module, "validate_kernel_selection", return_value="dsh"),
+            patch.object(main_module, "resolve_kernel_runtime", return_value=runtime),
+            patch.object(manager, "acquire", side_effect=AssertionError("resumed reply started a new DSH client")) as acquire,
+        ):
+            expired = self.run_ag_ui(cid, "换个话题", "dsh-reply-in-progress")
+        acquire.assert_not_called()
+        self.assertEqual(expired[-1]["type"], "RUN_ERROR")
+        self.assertEqual(expired[-1]["code"], "dsh_wait_expired")
+        self.assertIsNone(load_run_snapshot(cid))
+        run = store.get_run("dsh-reply-in-progress")
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(run["user_message_id"], user["id"])
+        self.assertEqual(run["parent_run_id"], "dsh-parent")
 
     def test_repeated_run_id_replays_without_duplicate_execution(self) -> None:
         conversation = self.client.post("/conversations", json={"title": "幂等"}).json()
@@ -467,7 +656,7 @@ class ChatStreamingApiTest(unittest.TestCase):
                 events = self.run_ag_ui(cid, "看看这张图", "local-vision", forwarded={
                     "attachmentIds": [attachment_id], "visionAttachmentIds": [attachment_id], "webSearch": False,
                 })
-                get_runtime.assert_called_once_with(None, user_content="看看这张图", has_image_input=True)
+                get_runtime.assert_called_once_with(None, selection=None, user_content="看看这张图", has_image_input=True, allow_chatgpt_subscription=True)
         self.assertIn("RUN_FINISHED", [event["type"] for event in events])
         self.assertEqual(captured, [f"data:image/png;base64,{base64.b64encode(content).decode('ascii')}"])
 

@@ -1,7 +1,7 @@
 import { readStorageItem } from "../storage";
-import { useModelCatalog } from "../features/settings/useModelCatalog";
-import { useComposerModelDiscovery } from "../features/chat/useComposerModelDiscovery";
-import { useModelDiscovery } from "../features/settings/useModelDiscovery";
+import { useAgentPreferences } from "./useAgentPreferences";
+import { useConversationModels } from "./useConversationModels";
+import { ModelSettingsRoute } from "./ModelSettingsRoute";
 import { useTheme } from "../features/appearance/ThemeProvider";
 import { AppearanceSettingsPage } from "../features/settings/AppearanceSettingsPage";
 import { AgentKernelSettings } from "../features/settings/AgentKernelSettings";
@@ -14,18 +14,13 @@ import { createDocumentService, type DocumentService, type SavedDocument } from 
 import { DocumentLibraryDialog } from "../features/chat/DocumentLibraryDialog";
 import { PageLoading } from "../components/PageLoading";
 import { downloadConversationMarkdown } from "../features/chat/conversationActions";
-import { composerModelSources } from "./model-sources";
-import { composerCatalogsWithSavedModels } from "./composer-catalogs";
-import { readConversationFolders, readIdList, readStringMap, writeConversationFolders, writeIdList, writeStringMap, type ConversationFolder } from "../features/chat/localChatPreferences";
 import { useImageEdits } from "../features/chat/useImageEdits";
 import { useChatRun } from "../features/chat/useChatRun";
-import { useConversations } from "../features/chat/useConversations";
 import { useConversationWebSearch } from "../features/chat/useConversationWebSearch";
-import { useKernels } from "../features/chat/useKernels";
 import { VideoPage, WorksPage } from "../features/product/ProductPages";
 import { ImageWorkspacePage } from "../features/product/ImageWorkspacePage";
 import { useLibrary } from "../features/library/useLibrary";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createApiClient, fetchWithTimeout } from "../api/client";
 import { createDocumentReviewService } from "../features/chat/document-review-service";
 import { createVoiceInputService } from "../features/chat/voiceInput";
@@ -37,46 +32,30 @@ import { FirstRunGuide } from "../features/onboarding/FirstRunGuide";
 import { useFirstRun } from "../features/onboarding/useFirstRun";
 import { AppIdentityMenu } from "../components/AppIdentityMenu";
 import { AppTopBar } from "../components/AppTopBar";
+import { ActionButton } from "../components/ui/ActionButton";
+import { WorkspaceShortcuts, type WorkspaceShortcutGroup } from "../features/product/WorkspaceShortcuts";
 import { ConversationDialog } from "../components/ConversationDialog";
-import type { AttachmentConfig, ChatAttachment, ChatComposerDraft } from "../features/chat/types";
-import type { ModelParameterUpdate } from "../features/chat/ComposerModelParameters";
+import type { AttachmentConfig, ChatAttachment } from "../features/chat/types";
 import type { ArtifactManifest } from "../features/chat/result-types";
-import type { HomeReadableItem } from "../features/home/types";
-import { createHomeAnalysisConversation, homeAnalysisDraft } from "../features/home/analysis-draft";
-import { defaultAgentSettings, pageMeta, topbarSectionForPage } from "../constants";
+import { CreationEntry } from "../features/home/CreationEntry";
+import { CreationRecords } from "../features/product/CreationRecords";
+import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
+import { GlobalSearch, type SearchHit } from "../features/product/GlobalSearch";
+import type { CreationRecord } from "../features/product/creationRecordsApi";
+import { ProjectsPage } from "../features/product/ProjectsPage";
+import type { ProjectItem } from "../features/product/projectsApi";
+import { pageMeta, topbarSectionForPage } from "../constants";
 import { createPagePrefetcher } from "../page-prefetch";
 import { createRouteDataCache, requiredDataForRoute, type RouteDataKey } from "../route-data";
 import { useAsyncPolling } from "../hooks/useAsyncPolling";
-import { appRouteHash, initialAppRoute, parseAppHash, routeForSection, type AppRoute } from "../routing";
-import { isProductIntroHash } from "./public-routing";
-import type { AgentCapabilities, AgentOperationsSnapshot, AgentSettings, Conversation, LibraryEditor, LibrarySourceDetail, ModelCapabilityReport, ModelServiceCheck, ModelServiceMonitor, ViewKey } from "../types";
-import { CheckCircle2, TriangleAlert, X } from "lucide-react";
+import type { AppRoute } from "../routing";
+import type { AgentCapabilities, Conversation, LibraryEditor, LibrarySourceDetail } from "../types";
+import { useAppRoute } from "./useAppRoute";
+import { useHomeCreation } from "./useHomeCreation";
+import { useWorkspaceConversations } from "./useWorkspaceConversations";
+import { Bell, CheckCircle2, ListTodo, Search, TriangleAlert, X } from "lucide-react";
 import "../styles/foundations.css";
 import "../AppStyles";
-
-type ModelSaveReceipt = { committed: boolean; saved_revision: number | null; settings: AgentSettings };
-function matchesModelConfiguration(result: { connection_id?: string; config_revision?: number }, saved: AgentSettings) {
-  return (result.connection_id === undefined || saved.connection_id === undefined || result.connection_id === saved.connection_id)
-    && (result.config_revision === undefined || saved.config_revision === undefined || result.config_revision === saved.config_revision);
-}
-
-type ModelRequestKind = "read" | "monitor" | "capabilities" | "check" | "save" | "serviceCapabilities";
-type ModelSettingsScope = {
-  client: ReturnType<typeof createApiClient>;
-  account: string;
-  active: boolean;
-  epoch: number;
-  requests: Record<ModelRequestKind, number>;
-  controllers: Set<AbortController>;
-};
-
-function modelKeyOptional(settings: AgentSettings) {
-  return settings.model_protocol === "ollama" || (settings.model_protocol === "auto" && /ollama|:11434(?:\/|$)/i.test(settings.model_base_url));
-}
-
-function normalizedModelAddress(value: string) {
-  return value.trim().replace(/\/+$/, "");
-}
 
 const loadChatWorkspace = () => import("../components/ChatWorkspace");
 
@@ -111,6 +90,7 @@ const SettingsOverview = lazy(() => loadSettingsWorkspace().then((module) => ({
 })));
 
 const ExtensionsPage = lazy(() => import("../features/extensions/ExtensionsPage").then((module) => ({ default: module.ExtensionsPage })));
+const SkillsCenterPage = lazy(() => import("../features/extensions/SkillsCenterPage").then((module) => ({ default: module.SkillsCenterPage })));
 
 const LibraryPage = lazy(() => loadLibraryPage().then((module) => ({
   default: module.LibraryPage
@@ -122,16 +102,6 @@ const AccountSettingsPage = lazy(() => loadAccountSettingsPage().then((module) =
 
 const MemorySettingsPage = lazy(() => loadMemorySettingsPage().then((module) => ({
   default: module.MemorySettingsPage
-})));
-
-const ModelConnectionManager = lazy(() => import("../features/settings/ModelConnectionManager").then((module) => ({ default: module.ModelConnectionManager })));
-const UnifiedModelManager = lazy(() => import("../features/settings/UnifiedModelManager").then((module) => ({ default: module.UnifiedModelManager })));
-const ModelRoutingPanel = lazy(() => import("../features/settings/ModelRoutingPanel").then((module) => ({ default: module.ModelRoutingPanel })));
-const ModelFallbackSettings = lazy(() => import("../features/settings/ModelFallbackSettings").then((module) => ({ default: module.ModelFallbackSettings })));
-const ModelUsageRules = lazy(() => import("../features/settings/ModelUsageRules").then((module) => ({ default: module.ModelUsageRules })));
-
-const ModelSettingsPage = lazy(() => import("../features/settings/ModelSettingsPage").then((module) => ({
-  default: module.ModelSettingsPage
 })));
 
 const pagePrefetcher = createPagePrefetcher({
@@ -184,287 +154,71 @@ export function App({
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarEpoch, setAvatarEpoch] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("tuantuan-sidebar", userEmail) === "collapsed");
-  const [appRoute, setAppRoute] = useState<AppRoute>(() => initialAppRoute(window.location.hash));
+  const { appRoute, navigateRoute, navigationIntent, setActiveView } = useAppRoute();
+  const [projectsRevision, setProjectsRevision] = useState(0);
   const [visitedImageWorkspace, setVisitedImageWorkspace] = useState(appRoute.section === "images");
   useEffect(() => { if (appRoute.section === "images") setVisitedImageWorkspace(true); }, [appRoute.section]);
-  const activeView: ViewKey = appRoute.section;
+  const activeView = appRoute.section;
   const workspaceLibraryOpen = appRoute.section === "chat" && appRoute.page === "library";
-  const currentConversationIdRef = useRef<number | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(12);
   const [errorMessage, setErrorMessage] = useState("");
   const [noticeMessage, setNoticeMessage] = useState("");
-  const { invalidateConversationReads, conversations, setConversations, currentConversationId, setCurrentConversationId, conversationBusy, setConversationBusy, conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, forkConversation, archiveConversation, renameConversation, removeConversation } = useConversations({ fetchJson, setActiveView, setErrorMessage, setNoticeMessage });
+  const workspaceConversations = useWorkspaceConversations({ appRoute, navigateRoute, fetchJson, userEmail, setActiveView, setErrorMessage, setNoticeMessage });
+  const {
+    invalidateConversationReads, conversations, setConversations, currentConversation, currentConversationId, currentConversationIdRef,
+    selectConversation, loadInitialConversations, openAgentRunConversation, ensurePresentationConversation, conversationBusy, setConversationBusy,
+    conversationDialog, setConversationDialog, refreshConversations, searchConversations, createNewConversation, archiveConversation,
+    renameConversation, removeConversation, composerDrafts, persistComposerDrafts, pinnedConversationIds, togglePinnedConversation,
+    conversationFolders, conversationFolderAssignments, createConversationFolder, renameConversationFolder, removeConversationFolder, assignConversationFolder
+  } = workspaceConversations;
   const { libraryEditor, librarySources, libraryFolders, libraryCollections, createLibraryCollection, renameLibraryCollection, deleteLibraryCollection, updateLibraryCollectionSources, organizeLibrarySource, createLibraryFolder, loadLibraryOriginal, searchLibrarySources, confirmedKnowledge, confirmedKnowledgeCount, sourceCount, pendingKnowledge, libraryLoaded, libraryBusy, sourceImportBusy, enhancedDocumentParse, setLibraryEditor, setEnhancedDocumentParse, refreshLibrary, saveLibraryMetadata, importLibraryFiles, createPastedSource, updateLibrarySource, downloadLibrarySource, deleteLibrarySource } = useLibrary({ fetchJson, apiBase, accessToken, setErrorMessage, setNoticeMessage });
   const [openLibraryResultId, setOpenLibraryResultId] = useState<number | null>(null);
   const [libraryAttachments, setLibraryAttachments] = useState<{ conversationId: number; attachments: ChatAttachment[] } | null>(null);
-  const [homeComposerDraft, setHomeComposerDraft] = useState<ChatComposerDraft | null>(null);
-  const composerDrafts = useMemo(() => readStringMap(preferenceKey("tuantuan-composer-drafts", userEmail)), [userEmail]);
-  const persistComposerDrafts = useCallback(() => {
-    writeStringMap(preferenceKey("tuantuan-composer-drafts", userEmail), composerDrafts);
-  }, [composerDrafts, userEmail]);
-  const [pinnedConversationIds, setPinnedConversationIds] = useState<number[]>(() => readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
-  useEffect(() => {
-    setPinnedConversationIds(readIdList(preferenceKey("tuantuan-pinned-conversations", userEmail)));
-  }, [userEmail]);
-  function togglePinnedConversation(conversation: Conversation) {
-    setPinnedConversationIds((current) => {
-      const next = current.includes(conversation.id) ? current.filter((id) => id !== conversation.id) : [...current, conversation.id];
-      writeIdList(preferenceKey("tuantuan-pinned-conversations", userEmail), next);
-      return next;
-    });
-  }
-  const storedFolders = useMemo(() => readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail)), [userEmail]);
-  const [conversationFolders, setConversationFolders] = useState<ConversationFolder[]>(storedFolders.folders);
-  const [conversationFolderAssignments, setConversationFolderAssignments] = useState<Record<number, string>>(storedFolders.assignments);
-  useEffect(() => {
-    const next = readConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail));
-    setConversationFolders(next.folders);
-    setConversationFolderAssignments(next.assignments);
-  }, [userEmail]);
-  function storeFolders(folders: ConversationFolder[], assignments: Record<number, string>) {
-    writeConversationFolders(preferenceKey("tuantuan-conversation-folders", userEmail), folders, assignments);
-  }
-  function createConversationFolder(name: string) {
-    const trimmed = name.trim().slice(0, 40);
-    if (!trimmed) return;
-    const next = [...conversationFolders, { id: crypto.randomUUID().replace(/-/g, "").slice(0, 16), name: trimmed }].slice(0, 30);
-    setConversationFolders(next);
-    storeFolders(next, conversationFolderAssignments);
-  }
-  function renameConversationFolder(folderId: string, name: string) {
-    const trimmed = name.trim().slice(0, 40);
-    if (!trimmed) return;
-    const next = conversationFolders.map((folder) => folder.id === folderId ? { ...folder, name: trimmed } : folder);
-    setConversationFolders(next);
-    storeFolders(next, conversationFolderAssignments);
-  }
-  function removeConversationFolder(folderId: string) {
-    const next = conversationFolders.filter((folder) => folder.id !== folderId);
-    const assignments = Object.fromEntries(Object.entries(conversationFolderAssignments).filter(([, value]) => value !== folderId));
-    setConversationFolders(next);
-    setConversationFolderAssignments(assignments);
-    storeFolders(next, assignments);
-  }
-  function assignConversationFolder(conversation: Conversation, folderId: string | null) {
-    const assignments = { ...conversationFolderAssignments };
-    if (folderId) assignments[conversation.id] = folderId;
-    else delete assignments[conversation.id];
-    setConversationFolderAssignments(assignments);
-    storeFolders(conversationFolders, assignments);
-  }
-  const { migrateHomeTheme } = useTheme();
+  const creationScope = JSON.stringify([apiBase, userEmail]);
+  const [shortcutStates, setShortcutStates] = useState<Record<string, Partial<Record<WorkspaceShortcutGroup, boolean>>>>({});
+  const shortcutState = shortcutStates[creationScope];
+  const [taskCenter, setTaskCenter] = useState<{ scope: string; view: TaskCenterView } | null>(null);
+  const [searchScope, setSearchScope] = useState<string | null>(null);
+  const { migrateHomeTheme, resolved: resolvedTheme } = useTheme();
   useEffect(() => { migrateHomeTheme(userEmail); }, [migrateHomeTheme, userEmail]);
-  const homeAnalysisBusyRef = useRef(false);
-  const homeAnalysisControllerRef = useRef<AbortController | null>(null);
-  useEffect(() => () => {
-    homeAnalysisControllerRef.current?.abort();
-    homeAnalysisControllerRef.current = null;
-    homeAnalysisBusyRef.current = false;
-    setConversationBusy(false);
-  }, [fetchJson, userEmail, setConversationBusy]);
-  const skillSelectionScope = JSON.stringify([apiBase, user.id ?? user.email, appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId]);
+  const skillSelectionScopeFor = (id: number | null) => JSON.stringify([apiBase, user.id ?? user.email, id]);
+  const skillSelectionScope = skillSelectionScopeFor(appRoute.section === "chat" ? appRoute.conversationId ?? currentConversationId : currentConversationId);
   const [chatSkillSelection, setChatSkillSelection] = useState<{ scope: string; id: string | null | undefined }>({ scope: "", id: undefined });
   const selectedSkillId = chatSkillSelection.scope === skillSelectionScope ? chatSkillSelection.id : undefined;
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const conversationWebSearch = useConversationWebSearch(apiBase, user, currentConversationId);
   const webSearchAvailable = capabilities?.web_research?.enabled === true;
   const webSearchEnabled = webSearchAvailable && conversationWebSearch.enabled;
-  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, setTaskCancelBusy, chatAttachmentBusy, setChatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, retryChatMessage, stopChatGeneration, rewindChatToUserMessage, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, webSearchEnabled, modelProfileId: conversations.find(item => item.id === currentConversationId)?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
-  const kernels = useKernels(fetchJson);
+  const { chatMessages, setChatMessages, chatBusy, setChatBusy, modelUnavailable, setModelUnavailable, sendError, retryChatDraft, setRetryChatDraft, replacementUndo, chatAgentRef, taskCancelBusy, chatAttachmentBusy, refreshChat, uploadChatAttachment, loadChatAttachment, removeChatAttachment, sendChatMessage, retryChatMessage, stopChatGeneration, editChatMessage, regenerateChatMessage, undoReplacement, deleteChatTurn, cancelCurrentTask } = useChatRun({ apiBase, accessToken, fetchJson, selectedSkillId, currentConversationId, currentConversationIdRef, webSearchEnabled, modelProfileId: currentConversation?.model_profile_id ?? null, setErrorMessage, setNoticeMessage, refreshConversations, onLibraryChanged: refreshLibrary });
   const [attachmentConfig, setAttachmentConfig] = useState<AttachmentConfig | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [agentSettings, setAgentSettings] = useState<AgentSettings>(defaultAgentSettings);
-  const [savedAgentSettings, setSavedAgentSettings] = useState<AgentSettings>(defaultAgentSettings);
-  const savedAgentSettingsRef = useRef<AgentSettings>(defaultAgentSettings);
-  const [modelSettingsLoaded, setModelSettingsLoaded] = useState(false);
-  const [modelSettingsLoadError, setModelSettingsLoadError] = useState("");
-  const [modelSelectionBusy, setModelSelectionBusy] = useState(false);
-  const [modelSelectionFeedback, setModelSelectionFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
-  const modelSelectionRequestRef = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
-  const [modelSaveUnknown, setModelSaveUnknown] = useState<string | null>(null);
-  const modelSettingsScopeRef = useRef<ModelSettingsScope | null>(null);
-  const modelSettingsStateScopeRef = useRef<ModelSettingsScope | null>(null);
-  if (!modelSettingsScopeRef.current || modelSettingsScopeRef.current.client !== fetchJson || modelSettingsScopeRef.current.account !== userEmail) {
-    const previous = modelSettingsScopeRef.current;
-    if (previous) {
-      previous.active = false;
-      for (const controller of previous.controllers) controller.abort();
-    }
-    modelSettingsScopeRef.current = {
-      client: fetchJson, account: userEmail, active: true, epoch: 0,
-      requests: { read: 0, monitor: 0, capabilities: 0, check: 0, save: 0, serviceCapabilities: 0 },
-      controllers: new Set()
-    };
-  }
-  const modelSettingsScope = modelSettingsScopeRef.current;
-  const modelSettingsReady = modelSettingsLoaded && modelSettingsStateScopeRef.current === modelSettingsScope;
-  const [agentSettingsBusy, setAgentSettingsBusy] = useState(false);
-  const [modelSettingsEditing, setModelSettingsEditing] = useState(false);
-  const modelSettingsEditingRef = useRef(false);
-  const [modelMonitor, setModelMonitor] = useState<ModelServiceMonitor | null>(null);
-  const [modelMonitorBusy, setModelMonitorBusy] = useState(false);
-  const [agentOperations, setAgentOperations] = useState<AgentOperationsSnapshot | null>(null);
-  const [agentOperationsDays, setAgentOperationsDays] = useState<7 | 30 | 90>(7);
-  const [agentOperationsBusy, setAgentOperationsBusy] = useState(false);
-  const { availableModels, discoveryBusy: modelDiscoveryBusy, discoveryError: modelDiscoveryError, discoverModels, invalidateDiscovery } = useModelDiscovery({
-    fetchJson,
-    onModelSuggested: (modelName) => {
-      if (modelSettingsScopeRef.current !== modelSettingsScope || !modelSettingsScope.active) return;
-      updateModelSettingsEditing(true);
-      setAgentSettings((current) => current.model_name.trim() ? current : { ...current, model_name: modelName });
-    },
-    onNotice: setNoticeMessage
-  });
-  const [modelCapabilities, setModelCapabilities] = useState<ModelCapabilityReport | null>(null);
-  const [modelCapabilitiesBusy, setModelCapabilitiesBusy] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
   const databaseInitializationRef = useRef<Promise<void> | null>(null);
-  const routeDataCacheRef = useRef(createRouteDataCache<RouteDataKey>(30_000));
-  const modelCatalog = useModelCatalog({
-    fetchJson, scope: modelSettingsScope,
-    enabled: databaseReady && ((appRoute.section === "chat" && !workspaceLibraryOpen) || (appRoute.section === "settings" && appRoute.page === "model")),
-    refreshKey: savedAgentSettings.config_revision
+  const routeDataCache = useMemo(() => createRouteDataCache<RouteDataKey>(30_000), [fetchJson, userEmail]);
+  const agentPreferences = useAgentPreferences({
+    fetchJson, userEmail, invalidateRouteData: routeDataCache.invalidate, setCapabilities, setModelUnavailable, setErrorMessage, setNoticeMessage,
+    modelCatalogEnabled: databaseReady && ((appRoute.section === "chat" && !workspaceLibraryOpen)
+      || (appRoute.section === "settings" && appRoute.page === "model") || (appRoute.section === "projects" && Boolean(appRoute.projectId)))
   });
-  const currentConversation = conversations.find((item) => item.id === currentConversationId) ?? null;
-  const currentKernel = currentConversation?.kernel ?? kernels.catalog?.default_kernel ?? "tuantuan";
-  const kernelLocked = (currentConversation?.message_count ?? 0) > 0;
-  const activeModelProfiles = modelCatalog.catalog.profiles.filter(profile => profile.enabled && modelCatalog.catalog.connections.some(connection => connection.id === profile.connection_id && connection.enabled));
-  const selectedModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === currentConversation?.model_profile_id);
-  const defaultModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === (modelCatalog.catalog.effective_execution_profile_id || modelCatalog.catalog.default_profile_id));
-  const currentModelName = selectedModelProfile?.model_name || defaultModelProfile?.model_name || capabilities?.active_model_name || (modelSettingsReady ? savedAgentSettings.model_name : "尚未配置");
-  const modelProfileUnavailable = Boolean(currentConversation?.model_profile_id && selectedModelProfile && !activeModelProfiles.some(profile => profile.id === currentConversation.model_profile_id));
-
-  const changeConversationKernel = useCallback(async (kernel: "tuantuan" | "dsh") => {
-    if (!currentConversationId || kernel === currentKernel || conversationBusy) return;
-    if (kernelLocked) {
-      const created = await forkConversation(currentConversationId, kernel);
-      if (created) {
-        navigateRoute({ section: "chat", conversationId: created.id });
-        setNoticeMessage(kernel === "dsh" ? "已新建 DeepSeek Harness 对话，原对话保持不变" : "已新建团团内核对话，原对话保持不变");
-      }
-      return;
-    }
-    try {
-      await fetchJson(`/conversations/${currentConversationId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kernel }),
-      });
-      await refreshConversations();
-      setNoticeMessage(kernel === "dsh" ? "已切换到 DeepSeek Harness 内核" : "已切换到团团内核");
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "切换内核失败");
-    }
-  }, [conversationBusy, currentConversationId, currentKernel, fetchJson, forkConversation, kernelLocked, navigateRoute, refreshConversations, setErrorMessage, setNoticeMessage]);
-  const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
-  const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope: modelSettingsScope, connection: composerConnection, connections: composerServiceConnections, restoreCached: true });
-  const currentPickerProfile = selectedModelProfile || defaultModelProfile;
-  const composerServiceCatalogs = composerCatalogsWithSavedModels(composerDiscovery.catalogs, modelCatalog.catalog.profiles, currentPickerProfile?.id);
-  const defaultModelHasDraft = Boolean(agentSettings.api_key.trim()) || agentSettings.model_name !== savedAgentSettings.model_name
-    || agentSettings.model_base_url !== savedAgentSettings.model_base_url || agentSettings.model_protocol !== savedAgentSettings.model_protocol;
-
-  useEffect(() => {
-    modelSelectionRequestRef.current.id += 1;
-    modelSelectionRequestRef.current.controller?.abort();
-    setModelSelectionBusy(false);
-    setModelSelectionFeedback(null);
-    return () => { modelSelectionRequestRef.current.id += 1; modelSelectionRequestRef.current.controller?.abort(); };
-  }, [currentConversationId, fetchJson, userEmail]);
-
-  useEffect(() => {
-    modelSettingsStateScopeRef.current = null;
-    modelSettingsEditingRef.current = false;
-    setModelSettingsLoaded(false);
-    setModelSettingsLoadError("");
-    setModelSaveUnknown(null);
-    setAgentSettings({ ...defaultAgentSettings });
-    savedAgentSettingsRef.current = { ...defaultAgentSettings };
-    setSavedAgentSettings({ ...defaultAgentSettings });
-    setAgentSettingsBusy(false);
-    setModelSettingsEditing(false);
-    setCapabilities(null);
-    setModelMonitor(null);
-    setModelMonitorBusy(false);
-    setModelCapabilities(null);
-    setModelCapabilitiesBusy(false);
-    invalidateDiscovery();
-    routeDataCacheRef.current = createRouteDataCache<RouteDataKey>(30_000);
-    return () => {
-      for (const controller of modelSettingsScope.controllers) controller.abort();
-      modelSettingsScope.controllers.clear();
-    };
-  }, [modelSettingsScope]);
-
-  function beginModelRequest(kind: ModelRequestKind) {
-    const epoch = modelSettingsScope.epoch;
-    const requestId = ++modelSettingsScope.requests[kind];
-    const controller = new AbortController();
-    modelSettingsScope.controllers.add(controller);
-    return {
-      signal: controller.signal,
-      current: () => modelSettingsScope.active && modelSettingsScopeRef.current === modelSettingsScope
-        && modelSettingsScope.epoch === epoch && modelSettingsScope.requests[kind] === requestId && !controller.signal.aborted,
-      finish: () => modelSettingsScope.controllers.delete(controller)
-    };
-  }
-
-  function invalidateModelRequests() {
-    modelSettingsScope.epoch += 1;
-    for (const controller of modelSettingsScope.controllers) controller.abort();
-    modelSettingsScope.controllers.clear();
-    setModelMonitorBusy(false);
-    setModelCapabilitiesBusy(false);
-  }
-
-  function canDiscoverModels(settings: AgentSettings) {
-    if (modelKeyOptional(settings)) return true;
-    if (settings.api_key.trim()) return true;
-    return settings.api_key_configured && normalizedModelAddress(settings.model_base_url) === normalizedModelAddress(savedAgentSettings.model_base_url);
-  }
-
-  function discoverCurrentModels(force = false) {
-    if (!modelSettingsReady || agentSettingsBusy || modelSaveUnknown) return;
-    if (!canDiscoverModels(agentSettings)) {
-      if (force) setErrorMessage("服务地址已更改，请先填写该服务的 API Key；模型名称也可手动填写。");
-      return;
-    }
-    void discoverModels(agentSettings, { force, silent: !force });
-  }
-
-  function navigateRoute(route: AppRoute, replace = false) {
-    const nextHash = appRouteHash(route);
-    const nextRoute = parseAppHash(nextHash) ?? route;
-    setAppRoute(nextRoute);
-    if (replace) {
-      window.history.replaceState(null, "", nextHash);
-    } else if (window.location.hash !== nextHash) {
-      window.location.hash = nextHash;
-    }
-  }
-
-  function setActiveView(view: ViewKey) {
-    navigateRoute(routeForSection(view));
-  }
-
-  useEffect(() => {
-    const canonicalHash = appRouteHash(initialAppRoute(window.location.hash));
-    if (window.location.hash !== canonicalHash) {
-      window.history.replaceState(null, "", canonicalHash);
-    }
-    function syncRoute() {
-      if (isProductIntroHash(window.location.hash)) return;
-      const next = initialAppRoute(window.location.hash);
-      const canonicalHash = appRouteHash(next);
-      if (window.location.hash !== canonicalHash) {
-        window.history.replaceState(null, "", canonicalHash);
-      }
-      setAppRoute(next);
-    }
-    window.addEventListener("hashchange", syncRoute);
-    return () => window.removeEventListener("hashchange", syncRoute);
-  }, []);
+  const {
+    modelSettingsScope, modelSettingsReady, modelSettingsLoadError, modelSettingsEditing, modelSaveUnknown,
+    savedAgentSettings, agentSettingsBusy, modelCatalog, kernels, changeDefaultKernel,
+    refreshAgentSettings, refreshModelMonitor, refreshModelCapabilities, refreshCapabilities, retryAgentSettings
+  } = agentPreferences;
+  const homeCreation = useHomeCreation({
+    fetchJson, userEmail, creationScope, databaseReady, chatBusy, clearChatMessages: () => setChatMessages([]),
+    selectNewConversationSkill: (id, skillId) => setChatSkillSelection({ id: skillId, scope: skillSelectionScopeFor(id) }),
+    setErrorMessage, setNoticeMessage, navigateRoute, currentConversationId, conversationBusy, setConversationBusy,
+    invalidateConversationReads, setConversations, selectConversation
+  });
+  const conversationModels = useConversationModels({
+    fetchJson, scope: modelSettingsScope, conversation: currentConversation, currentConversationId, currentConversationIdRef,
+    modelCatalog, capabilities, savedModelName: modelSettingsReady ? savedAgentSettings.model_name : "尚未配置",
+    chatBusy, invalidateConversationReads, setConversations, setModelUnavailable, setNoticeMessage
+  });
+  const { activeModelProfiles } = conversationModels;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -478,22 +232,6 @@ export function App({
     }, 3000);
     return () => window.clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (appRoute.section !== "chat" || appRoute.page === "library" || !currentConversationId || !conversations.length) return;
-    const requestedConversationId = appRoute.conversationId;
-    if (requestedConversationId && conversations.some((item) => item.id === requestedConversationId)) {
-      if (requestedConversationId !== currentConversationId) setCurrentConversationId(requestedConversationId);
-      return;
-    }
-    if (requestedConversationId !== currentConversationId) {
-      navigateRoute({ section: "chat", conversationId: currentConversationId }, true);
-    }
-  }, [appRoute, conversations, currentConversationId]);
-
-  useEffect(() => {
-    currentConversationIdRef.current = currentConversationId;
-  }, [currentConversationId]);
 
   useEffect(() => {
     window.localStorage.setItem(preferenceKey("tuantuan-view", userEmail), activeView);
@@ -566,395 +304,9 @@ export function App({
     .find((message) => message.role === "assistant" && message.payload?.agent)?.payload?.agent;
   const waitingForUser = latestAgent?.status === "waiting_user";
 
-  async function refreshCapabilities() {
-    const request = beginModelRequest("serviceCapabilities");
-    try {
-      const next = await fetchJson<AgentCapabilities>("/agent/capabilities", { signal: request.signal });
-      if (request.current()) setCapabilities(next);
-      return next;
-    } catch (error) {
-      if (request.current()) {
-        setCapabilities(null);
-        setErrorMessage(error instanceof Error ? `无法读取服务能力：${error.message}` : "无法读取服务能力");
-      }
-      return null;
-    } finally { request.finish(); }
-  }
-
   async function refreshAttachmentConfig() {
     const next = await fetchJson<AttachmentConfig>("/attachments/config");
     setAttachmentConfig(next);
-  }
-
-  function updateModelSettingsEditing(next: boolean) {
-    modelSettingsEditingRef.current = next;
-    setModelSettingsEditing(next);
-  }
-
-  function applySavedModelSettings(next: AgentSettings, preserveDraft = false) {
-    const clean = { ...next, api_key: "" };
-    savedAgentSettingsRef.current = clean;
-    setSavedAgentSettings(clean);
-    modelSettingsStateScopeRef.current = modelSettingsScope;
-    setModelSettingsLoaded(true);
-    setModelSettingsLoadError("");
-    if (preserveDraft || modelSettingsEditingRef.current) return clean;
-    setAgentSettings(clean);
-    const keyOptional = modelKeyOptional(next);
-    updateModelSettingsEditing(!next.api_key_configured && !keyOptional);
-    if ((next.api_key_configured || keyOptional) && next.credential_status !== "saved_unverified") void discoverModels(clean, { silent: true });
-    return clean;
-  }
-
-  async function refreshAgentSettings(options: { preserveDraft?: boolean } = {}) {
-    const request = beginModelRequest("read");
-    try {
-      const next = await fetchJson<AgentSettings>("/agent/settings", { signal: request.signal });
-      if (request.current()) applySavedModelSettings(next, options.preserveDraft);
-      return next;
-    } catch (error) {
-      if (!request.current()) return null;
-      setModelSettingsLoadError(error instanceof Error ? error.message : "读取模型配置失败");
-      throw error;
-    } finally { request.finish(); }
-  }
-
-  async function refreshModelMonitor() {
-    const request = beginModelRequest("monitor");
-    try {
-      const next = await fetchJson<ModelServiceMonitor>("/agent/model-monitor?hours=24", { signal: request.signal });
-      if (request.current() && matchesModelConfiguration(next, savedAgentSettingsRef.current)) setModelMonitor(next);
-      return next;
-    } catch (error) {
-      if (request.current()) throw error;
-      return null;
-    } finally { request.finish(); }
-  }
-
-  async function refreshModelCapabilities(probe = false) {
-    const request = beginModelRequest("capabilities");
-    setModelCapabilitiesBusy(true);
-    try {
-      const next = probe
-        ? await fetchJson<ModelCapabilityReport>("/agent/models/capabilities", {
-          method: "POST", signal: request.signal,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model_name: savedAgentSettings.model_name, model_base_url: savedAgentSettings.model_base_url,
-            model_protocol: savedAgentSettings.model_protocol, api_key: "", probe: true
-          })
-        })
-        : await fetchJson<ModelCapabilityReport>("/agent/models/capabilities", { signal: request.signal });
-      if (!request.current() || !matchesModelConfiguration(next, savedAgentSettingsRef.current)) return null;
-      setModelCapabilities(next);
-      if (probe && next.probe_error) setErrorMessage(next.probe_error);
-      else if (probe) setNoticeMessage(next.vision.source === "probe" ? "已完成能力检测" : "已读取模型能力");
-      return next;
-    } catch (error) {
-      if (request.current()) setErrorMessage(error instanceof Error ? `模型能力检测失败：${error.message}` : "模型能力检测失败");
-      return null;
-    } finally {
-      if (request.current()) setModelCapabilitiesBusy(false);
-      request.finish();
-    }
-  }
-
-  async function refreshAgentOperations(days = agentOperationsDays, showLoading = true) {
-    if (showLoading) setAgentOperationsBusy(true);
-    try {
-      const next = await fetchJson<AgentOperationsSnapshot>(`/agent/operations?days=${days}&limit=20`);
-      setAgentOperations(next);
-      return next;
-    } finally {
-      if (showLoading) setAgentOperationsBusy(false);
-    }
-  }
-
-  function changeAgentOperationsWindow(days: 7 | 30 | 90) {
-    setAgentOperationsDays(days);
-    void refreshAgentOperations(days).catch((error: unknown) => {
-      setErrorMessage(error instanceof Error ? error.message : "读取 Agent 运行记录失败");
-    });
-  }
-
-  async function checkModelService(afterSave = false) {
-    const request = beginModelRequest("check");
-    // An older polling response must not overwrite the active check result.
-    modelSettingsScope.requests.monitor += 1;
-    setModelMonitorBusy(true);
-    if (!afterSave) setErrorMessage("");
-    try {
-      const next = await fetchJson<ModelServiceCheck>("/agent/model-monitor/check", { method: "POST", signal: request.signal });
-      if (!request.current() || !matchesModelConfiguration(next, savedAgentSettingsRef.current)) return;
-      modelSettingsScope.requests.monitor += 1;
-      setModelMonitor(next);
-      if (next.available) {
-        setModelUnavailable(null);
-        setNoticeMessage(afterSave ? "设置已保存，连接检测成功" : "连接检测成功");
-      } else setErrorMessage(`${afterSave ? "配置已保存，但连接检测失败：" : ""}${next.check_error_message || "模型连接检测失败"}`);
-    } catch (error) {
-      if (request.current()) setErrorMessage(`${afterSave ? "配置已保存，但连接检测失败：" : ""}${error instanceof Error ? error.message : "模型服务检测失败"}`);
-    } finally {
-      if (request.current()) setModelMonitorBusy(false);
-      request.finish();
-    }
-  }
-
-  function changeModelSettings(next: AgentSettings) {
-    if (!modelSettingsReady || agentSettingsBusy || modelSaveUnknown) return;
-    if (normalizedModelAddress(next.model_base_url) !== normalizedModelAddress(agentSettings.model_base_url)) next = { ...next, api_key: "" };
-    const connectionChanged = next.model_base_url !== agentSettings.model_base_url
-      || next.api_key !== agentSettings.api_key || next.model_protocol !== agentSettings.model_protocol;
-    if (connectionChanged) invalidateDiscovery();
-    else if (next.model_name !== agentSettings.model_name) invalidateDiscovery({ keepModels: true });
-    updateModelSettingsEditing(true);
-    setAgentSettings(next);
-  }
-
-  function beginModelSettingsEdit() {
-    if (modelSettingsReady && !agentSettingsBusy && !modelSaveUnknown) updateModelSettingsEditing(true);
-  }
-
-  function cancelModelSettingsEdit() {
-    setAgentSettings({ ...savedAgentSettings, api_key: "" });
-    setModelSaveUnknown(null);
-    updateModelSettingsEditing(false);
-    invalidateDiscovery();
-    if ((savedAgentSettings.api_key_configured || modelKeyOptional(savedAgentSettings)) && savedAgentSettings.credential_status !== "saved_unverified") {
-      void discoverModels(savedAgentSettings, { silent: true });
-    }
-  }
-
-  function completeModelSave(saved: AgentSettings) {
-    invalidateModelRequests();
-    const clean = { ...saved, api_key: "" };
-    setAgentSettings(clean);
-    savedAgentSettingsRef.current = clean;
-    setSavedAgentSettings(clean);
-    modelSettingsStateScopeRef.current = modelSettingsScope;
-    setModelSettingsLoaded(true);
-    setModelSaveUnknown(null);
-    updateModelSettingsEditing(false);
-    setAgentSettingsBusy(false);
-    setModelMonitor(null);
-    setModelCapabilities(null);
-    invalidateDiscovery();
-    routeDataCacheRef.current.invalidate("agentSettings", "modelMonitor", "modelCapabilities", "capabilities");
-    setNoticeMessage("设置已保存，正在检测连接");
-    void checkModelService(true);
-    void refreshCapabilities();
-    void refreshModelCapabilities();
-    if (clean.api_key_configured || modelKeyOptional(clean)) {
-      void discoverModels(clean, { silent: true, force: true });
-    }
-  }
-
-  async function reconcileModelSave(requestId: string, request: ReturnType<typeof beginModelRequest>) {
-    const current = await fetchJson<AgentSettings>("/agent/settings", { signal: request.signal });
-    if (!request.current()) return;
-    if (current.last_save_request_id === requestId) {
-      completeModelSave(current);
-      return;
-    }
-    const receipt = await fetchJson<ModelSaveReceipt>(`/agent/settings/requests/${encodeURIComponent(requestId)}`, { signal: request.signal });
-    if (!request.current()) return;
-    if (receipt.committed) {
-      const superseded = receipt.saved_revision !== null && (receipt.settings.config_revision ?? 0) > receipt.saved_revision;
-      completeModelSave(receipt.settings);
-      if (superseded) setErrorMessage("此前保存已提交，当前配置已由后续更新覆盖。当前显示服务端最新配置。");
-    } else {
-      applySavedModelSettings(receipt.settings, true);
-      setErrorMessage("暂无法确认上次保存结果，请稍后重新确认；也可读取最新配置后继续编辑。");
-    }
-  }
-
-  async function confirmModelSave(requestId = modelSaveUnknown) {
-    if (!requestId || agentSettingsBusy) return;
-    const request = beginModelRequest("save");
-    setAgentSettingsBusy(true);
-    try { await reconcileModelSave(requestId, request); }
-    catch {
-      if (request.current()) setErrorMessage("暂无法确认上次保存结果，请检查连接后重新确认。");
-    } finally {
-      if (request.current()) setAgentSettingsBusy(false);
-      request.finish();
-    }
-  }
-
-  async function resumeModelEditing() {
-    if (!modelSaveUnknown || agentSettingsBusy) return;
-    const request = beginModelRequest("save");
-    setAgentSettingsBusy(true);
-    try {
-      const latest = await fetchJson<AgentSettings>("/agent/settings", { signal: request.signal });
-      if (!request.current()) return;
-      applySavedModelSettings(latest, true);
-      setModelSaveUnknown(null);
-      updateModelSettingsEditing(true);
-      invalidateDiscovery();
-      setErrorMessage("");
-      setNoticeMessage("已读取最新配置，可以继续编辑；再次保存会检查版本冲突，上次提交仍可能稍后完成。");
-    } catch {
-      if (request.current()) setErrorMessage("读取最新配置失败，暂时保留待确认状态。");
-    } finally {
-      if (request.current()) setAgentSettingsBusy(false);
-      request.finish();
-    }
-  }
-
-  async function saveAgentPreferences() {
-    if (!modelSettingsReady || agentSettingsBusy || modelSaveUnknown || !agentSettings.model_name.trim()) return;
-    if (!canDiscoverModels(agentSettings) && normalizedModelAddress(agentSettings.model_base_url) !== normalizedModelAddress(savedAgentSettings.model_base_url)) {
-      setErrorMessage("服务地址已更改，请填写该服务的 API Key 后再保存。");
-      return;
-    }
-    if (agentSettings.api_key.trim() && savedAgentSettings.secret_storage_writable === false) {
-      setErrorMessage(savedAgentSettings.secret_storage === "environment"
-        ? "当前部署使用只读环境密钥，请由服务部署配置更新凭证。"
-        : "本机密钥存储暂不可写，请修复系统钥匙串后再保存密钥。");
-      return;
-    }
-    invalidateModelRequests();
-    invalidateDiscovery();
-    const request = beginModelRequest("save");
-    const requestId = crypto.randomUUID();
-    setAgentSettingsBusy(true);
-    setErrorMessage("");
-    try {
-      const saved = await fetchJson<AgentSettings>("/agent/settings", {
-        method: "PUT", signal: request.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...savedAgentSettings, model_name: agentSettings.model_name, model_base_url: agentSettings.model_base_url,
-          model_protocol: agentSettings.model_protocol, api_key: agentSettings.api_key,
-          expected_revision: savedAgentSettings.config_revision, request_id: requestId
-        })
-      });
-      if (request.current()) completeModelSave(saved);
-    } catch (error) {
-      if (!request.current()) return;
-      const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : null;
-      if (status === 409) {
-        setErrorMessage("配置已在其他页面更新。已读取最新版本，当前修改保留，请检查后重新保存。");
-        await refreshAgentSettings({ preserveDraft: true }).catch(() => undefined);
-      } else if (status === null || status >= 500 || status === 408) {
-        setModelSaveUnknown(requestId);
-        setErrorMessage("保存结果暂未确认，正在读取服务端状态；不会自动重复提交。");
-        try { await reconcileModelSave(requestId, request); }
-        catch { /* Keep the request receipt pending until the user can reconnect. */ }
-      } else setErrorMessage(error instanceof Error ? error.message : "保存模型设置失败");
-    } finally {
-      if (request.current()) setAgentSettingsBusy(false);
-      request.finish();
-    }
-  }
-
-  async function changeDefaultKernel(kernel: "tuantuan" | "dsh") {
-    if (!modelSettingsReady || agentSettingsBusy || modelSaveUnknown || modelSettingsEditing) return;
-    if (!kernels.catalog?.choices.find((choice) => choice.id === kernel && choice.available)) return;
-    const request = beginModelRequest("save");
-    setAgentSettingsBusy(true);
-    setErrorMessage("");
-    try {
-      const saved = await fetchJson<AgentSettings>("/agent/settings", {
-        method: "PUT",
-        signal: request.signal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...savedAgentSettings,
-          default_kernel: kernel,
-          expected_revision: savedAgentSettings.config_revision,
-          request_id: crypto.randomUUID()
-        })
-      });
-      if (!request.current()) return;
-      applySavedModelSettings(saved);
-      routeDataCacheRef.current.invalidate("agentSettings");
-      await kernels.refresh();
-      if (request.current()) {
-        setNoticeMessage(kernel === "dsh" ? "新对话默认使用 DeepSeek Harness" : "新对话默认使用团团内核");
-      }
-    } catch (error) {
-      if (!request.current()) return;
-      const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : null;
-      if (status === 409) {
-        setErrorMessage("设置已在其他页面更新，请重新读取后再试。");
-        await refreshAgentSettings().catch(() => undefined);
-      } else {
-        setErrorMessage(error instanceof Error ? error.message : "保存默认内核失败");
-      }
-    } finally {
-      if (request.current()) setAgentSettingsBusy(false);
-      request.finish();
-    }
-  }
-
-  async function selectConversationModel(profileId: string | null, serviceModel?: { connectionId: string; modelName: string; revision: number }) {
-    const conversationId = currentConversationId;
-    if (!conversationId || chatBusy || modelSelectionBusy) return;
-    if (modelCatalog.busy || (profileId && !activeModelProfiles.some(profile => profile.id === profileId))) return;
-    modelSelectionRequestRef.current.controller?.abort();
-    const requestId = ++modelSelectionRequestRef.current.id;
-    const controller = new AbortController();
-    modelSelectionRequestRef.current.controller = controller;
-    const current = () => !controller.signal.aborted && modelSelectionRequestRef.current.id === requestId
-      && modelSettingsScopeRef.current === modelSettingsScope && currentConversationIdRef.current === conversationId;
-    setModelSelectionBusy(true);
-    setModelSelectionFeedback(null);
-    const targetName = serviceModel?.modelName || activeModelProfiles.find(profile => profile.id === profileId)?.model_name || defaultModelProfile?.model_name || "默认模型";
-    try {
-      if (serviceModel) {
-        profileId = await modelCatalog.ensureProfile(serviceModel.connectionId, serviceModel.modelName, serviceModel.revision);
-        if (!current()) return;
-        if (!profileId) throw new Error("模型未确认保存，继续使用原模型；请重新打开列表或检查模型设置。");
-      }
-      const updated = await fetchJson<Conversation>(`/conversations/${conversationId}`, {
-        method: "PATCH", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_profile_id: profileId })
-      });
-      if (!current()) return;
-      invalidateConversationReads?.();
-      setConversations(items => items.map(item => item.id === conversationId ? { ...item, ...updated, model_profile_id: profileId } : item));
-      setModelUnavailable(null);
-      setModelSelectionFeedback({ kind: "success", text: `已切换至 ${targetName}。新任务生效，待确认任务仍使用原模型。` });
-    } catch (reason) {
-      if (current()) setModelSelectionFeedback({ kind: "error", text: `未能确认切换至 ${targetName}。${reason instanceof Error ? reason.message : "请重试或刷新会话。"}` });
-    } finally { if (current()) setModelSelectionBusy(false); }
-  }
-
-  async function refreshDefaultModelSelection() {
-    invalidateModelRequests();
-    invalidateDiscovery();
-    updateModelSettingsEditing(false);
-    setModelMonitor(null);
-    setModelCapabilities(null);
-    routeDataCacheRef.current.invalidate("agentSettings", "modelMonitor", "modelCapabilities", "capabilities");
-    try { await refreshAgentSettings(); }
-    catch { setErrorMessage("默认模型已更新，但读取最新配置失败，请重新读取配置。"); return; }
-    void refreshModelMonitor().catch(() => undefined);
-    void refreshModelCapabilities();
-    void refreshCapabilities();
-  }
-
-  async function saveComposerModelParameters(profileId: string, revision: number, update: ModelParameterUpdate) {
-    if (chatBusy || modelSelectionBusy || modelCatalog.busy) return false;
-    const saved = await modelCatalog.mutate(`/agent/model-profiles/${encodeURIComponent(profileId)}`, "PATCH", { ...update, expected_revision: revision });
-    if (saved) setNoticeMessage("思考设置已保存，使用此模型的所有对话从后续请求生效。");
-    return saved;
-  }
-
-  async function resetCurrentContext() {
-    if (!currentConversationId || !window.confirm("从当前位置开始新的上下文吗？\n\n历史消息仍然可见，但 Agent 后续不会再读取此前对话。资料库内容会保留。")) return;
-    setAgentSettingsBusy(true);
-    setErrorMessage("");
-    try {
-      await fetchJson(`/conversations/${currentConversationId}/context/reset`, { method: "POST" });
-      await refreshConversations();
-      setNoticeMessage("已重置上下文");
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "重置上下文失败");
-    } finally {
-      setAgentSettingsBusy(false);
-    }
   }
 
   function handleNextStep() {
@@ -1002,30 +354,24 @@ export function App({
     if (!databaseReady) return;
     const loaders: Record<RouteDataKey, () => Promise<unknown>> = {
       attachmentConfig: refreshAttachmentConfig,
-      agentOperations: () => refreshAgentOperations(7, false),
       agentSettings: refreshAgentSettings,
       library: refreshLibrary,
       capabilities: refreshCapabilities,
-      conversations: async () => {
-        const next = await refreshConversations();
-        setCurrentConversationId((current) => current ?? next.find((item) => item.status === "active")?.id ?? next[0]?.id ?? null);
-      },
+      conversations: loadInitialConversations,
       modelMonitor: refreshModelMonitor,
       modelCapabilities: () => refreshModelCapabilities(false),
     };
     void Promise.all(requiredDataForRoute(appRoute).map((key) => (
-      routeDataCacheRef.current.load(key, loaders[key])
+      routeDataCache.load(key, loaders[key])
     ))).catch((error: unknown) => {
       setErrorMessage(error instanceof Error ? error.message : "读取页面数据失败");
     });
   }, [appRoute, databaseReady, fetchJson, userEmail]);
 
   useAsyncPolling({
-    enabled: databaseReady && appRoute.section === "settings" && ["model", "agent"].includes(appRoute.page),
+    enabled: databaseReady && appRoute.section === "settings" && appRoute.page === "model",
     intervalMs: 15_000,
-    poll: () => appRoute.section === "settings" && appRoute.page === "model"
-      ? refreshModelMonitor()
-      : refreshAgentOperations(agentOperationsDays, false),
+    poll: refreshModelMonitor,
     onError: (_reason, failures) => {
       if (failures >= 3) setErrorMessage("设置状态连续刷新失败，当前仍显示上一次数据。");
     }
@@ -1055,7 +401,7 @@ export function App({
       account: { title: "账号与安全", description: "管理跟随登录账号的昵称、头像和密码" },
       library: { title: "文件库管理", description: "整理文件、阅读原件，选取资料用于对话" },
       model: { title: "模型设置", description: "填写服务地址、API Key，选择使用的模型" },
-      agent: { title: "Agent 执行记录", description: "查看 Agent 已完成的任务、工具使用和异常原因" },
+      agent: { title: "智能体设置", description: "设置新对话的执行内核，查看 Agent 任务、工具使用和异常原因" },
       memory: { title: "记忆与个性化", description: "跨会话记住你的事实与偏好，仅存本地" }
     }[appRoute.page]
     : pageMeta[appRoute.section];
@@ -1065,6 +411,20 @@ export function App({
     activeConversationId: appRoute.section === 'chat' && !workspaceLibraryOpen ? currentConversationId : null,
     chatBusy, onMessages: setChatMessages });
   const weixinActive = !!weixinBot?.conversation_id && appRoute.section === 'chat' && !workspaceLibraryOpen && currentConversationId === weixinBot.conversation_id;
+
+  async function openWeixinConversation() {
+    if (weixinBot?.conversation_id) {
+      const intent = navigationIntent.current;
+      try {
+        await refreshConversations();
+        // 会话列表刷新期间发生了其他导航时，保留用户新的位置。
+        if (navigationIntent.current !== intent) return;
+        navigateRoute({ section: "chat", conversationId: weixinBot.conversation_id });
+      } catch {
+        if (navigationIntent.current === intent) setErrorMessage("微信会话读取失败，请稍后重试");
+      }
+    } else navigateRoute({ section: "settings", page: "channels" });
+  }
 
   const documentPageTitle = workspaceLibraryOpen ? "文件库｜AI 工作区" : appRoute.section === "chat"
     ? currentConversation?.title || "新对话"
@@ -1076,6 +436,17 @@ export function App({
     document.title = `${documentPageTitle}｜团团`;
   }, [documentPageTitle]);
 
+  const openTasks = databaseReady ? () => setTaskCenter({ scope: creationScope, view: "tasks" }) : undefined;
+  const openNotifications = databaseReady ? () => setTaskCenter({ scope: creationScope, view: "notifications" }) : undefined;
+  const openSearch = databaseReady ? () => setSearchScope(creationScope) : undefined;
+  const workspaceActions = databaseReady ? (
+    <div className="workspace-actions" role="group" aria-label="工作区工具">
+      <ActionButton variant="ghost" size="sm" aria-label="全局搜索" title="全局搜索" icon={<Search aria-hidden="true" size={17} />} onClick={openSearch}>搜索</ActionButton>
+      <ActionButton variant="ghost" size="sm" aria-label="任务中心" title="任务中心" icon={<ListTodo aria-hidden="true" size={17} />} onClick={openTasks}>任务</ActionButton>
+      <ActionButton variant="ghost" size="sm" aria-label="通知" title="通知" icon={<Bell aria-hidden="true" size={17} />} onClick={openNotifications}>通知</ActionButton>
+    </div>
+  ) : null;
+
   const identityMenu = (
     <AppIdentityMenu
       userEmail={user.qq_only ? "QQ 登录" : userEmail}
@@ -1084,7 +455,9 @@ export function App({
       activeView={activeView}
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
       onOpenAccount={() => navigateRoute({ section: "settings", page: "account" })}
-      onOpenSettings={() => navigateRoute({ section: "settings", page: "overview" })}
+      onOpenTasks={openTasks}
+      onOpenNotifications={openNotifications}
+      onOpenSearch={openSearch}
       onLogout={onLogout}
       onPrefetchPage={(page) => void pagePrefetcher.prefetch(page)}
     />
@@ -1092,20 +465,78 @@ export function App({
 
   function selectProductNav(key: ProductNavKey) {
     if (key === "dashboard") navigateRoute({ section: "dashboard" });
-    else if (key === "chat") navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined });
-    else if (key === "images") navigateRoute({ section: "images" });
-    else if (key === "video") navigateRoute({ section: "video" });
+    else if (key === "history") navigateRoute({ section: "history" });
+    else if (key === "projects") navigateRoute({ section: "projects" });
+    else if (key === "skills") navigateRoute({ section: "skills" });
     else if (key === "works") navigateRoute({ section: "works" });
     else if (key === "library") navigateRoute({ section: "chat", page: "library" });
     else if (key === "settings") navigateRoute({ section: "settings", page: "overview" });
+  }
+
+  const recordNavigation = useRef(0);
+  const recordClient = useRef(fetchJson);
+  recordClient.current = fetchJson;
+
+  function openProjectItem(item: ProjectItem) {
+    if (item.kind === "image_work" || item.kind === "final_work") {
+      navigateRoute({ section: "works", work: `${item.kind}:${item.source_id}` });
+    } else if (item.kind === "library") {
+      setOpenLibraryResultId(Number(item.source_id));
+      navigateRoute({ section: "chat", page: "library" });
+    } else {
+      openCreationRecord({ kind: item.kind, id: item.source_id, conversation_id: item.conversation_id });
+    }
+  }
+
+  function openCreationRecord(record: Pick<CreationRecord, "kind" | "id" | "conversation_id">) {
+    const intent = ++recordNavigation.current;
+    if (record.kind === "image") navigateRoute({ section: "images", taskId: record.id });
+    else if (record.kind === "document") {
+      setInitialDocumentId(record.id);
+      setDocumentsOpen(true);
+    } else if (record.conversation_id !== null) {
+      const conversationId = record.conversation_id;
+      const origin = window.location.hash;
+      const stillOpening = () => recordNavigation.current === intent && recordClient.current === fetchJson && window.location.hash === origin;
+      void (async () => {
+        const available = await refreshConversations();
+        if (!stillOpening()) return;
+        if (!available.some(item => item.id === conversationId)) {
+          setErrorMessage("找不到这条记录的来源对话，请刷新创作记录后再试。");
+          return;
+        }
+        selectConversation(conversationId);
+      })().catch(() => { if (stillOpening()) setErrorMessage("暂时无法打开来源对话，请重试。"); });
+    } else setErrorMessage("这条记录没有可打开的来源对话。");
+  }
+
+  function openTaskSource(source: TaskSource) {
+    setTaskCenter(null);
+    if (source.kind === "image") openCreationRecord({ kind: "image", id: source.id, conversation_id: null });
+    else {
+      const conversationId = Number(source.id);
+      if (Number.isSafeInteger(conversationId) && conversationId > 0) openCreationRecord({ kind: "chat", id: source.id, conversation_id: conversationId });
+    }
+  }
+
+  function openSearchHit(hit: SearchHit) {
+    setSearchScope(null);
+    if (hit.kind === "project") navigateRoute({ section: "projects", projectId: hit.id });
+    else if (hit.kind === "image_work" || hit.kind === "final_work") {
+      navigateRoute({ section: "works", work: `${hit.kind}:${hit.id}` });
+    } else if (hit.kind === "knowledge") {
+      const id = Number(hit.id);
+      if (!Number.isSafeInteger(id) || id < 1) return;
+      setOpenLibraryResultId(id);
+      navigateRoute({ section: "chat", page: "library" });
+    } else openCreationRecord({ kind: hit.kind, id: hit.id, conversation_id: hit.conversation_id });
   }
 
   async function useLibraryForChat(sourceIds: number[]) {
     const result = await fetchJson<{ conversation: Conversation; attachments: ChatAttachment[] }>("/library/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_ids: sourceIds }) });
     await refreshConversations();
     setLibraryAttachments({ conversationId: result.conversation.id, attachments: result.attachments });
-    setCurrentConversationId(result.conversation.id);
-    navigateRoute({ section: "chat", conversationId: result.conversation.id });
+    selectConversation(result.conversation.id);
     setNoticeMessage(`${result.attachments.length} 个文件已加入新对话，输入问题后发送`);
   }
 
@@ -1142,41 +573,28 @@ export function App({
       await refreshConversations();
       if (signal.aborted || documentOwner.current !== service) return;
       setLibraryAttachments({ conversationId: intent.conversationId, attachments: [attachment] });
-      setCurrentConversationId(intent.conversationId);
-      navigateRoute({ section: "chat", conversationId: intent.conversationId });
+      selectConversation(intent.conversationId);
       setNoticeMessage(`文档 v${document.version} 已加入新对话，输入修改要求后发送`);
       documentContinuation.current = null;
     } finally { if (continuingDocument.current === token) continuingDocument.current = null; }
   }
 
-  async function analyzeHomeItem(item: HomeReadableItem) {
-    if (homeAnalysisBusyRef.current || conversationBusy || chatBusy) {
-      throw new Error("请等待当前对话操作完成后再创建资讯分析");
-    }
-    homeAnalysisBusyRef.current = true;
-    const controller = new AbortController();
-    homeAnalysisControllerRef.current = controller;
-    setConversationBusy(true);
-    try {
-      const created = await createHomeAnalysisConversation(fetchJson, item, controller.signal);
-      if (controller.signal.aborted || homeAnalysisControllerRef.current !== controller) return;
-      setConversations(current => [created, ...current.filter(conversation => conversation.id !== created.id)]);
-      setChatMessages([]);
-      setHomeComposerDraft({
-        id: `home-${created.id}`,
-        conversationId: created.id,
-        content: homeAnalysisDraft(item)
-      });
-      setCurrentConversationId(created.id);
-      navigateRoute({ section: "chat", conversationId: created.id });
-      setNoticeMessage("资讯分析草稿已准备，编辑后发送");
-    } finally {
-      if (homeAnalysisControllerRef.current === controller) {
-        homeAnalysisControllerRef.current = null;
-        homeAnalysisBusyRef.current = false;
-        setConversationBusy(false);
+  function openImageConversation(conversationId: number) {
+    const routeAtClick = window.location.hash;
+    const selectedAtClick = currentConversationIdRef.current;
+    const stillOpening = () => window.location.hash === routeAtClick && currentConversationIdRef.current === selectedAtClick;
+    void (async () => {
+      await refreshConversations();
+      if (!stillOpening()) return;
+      // 上次打开的图片可能属于同一会话，重新选择该会话不会自动加载历史消息。
+      if (currentConversationIdRef.current === conversationId && !chatAgentRef.current) {
+        await refreshChat(conversationId, () => stillOpening() && !chatAgentRef.current);
       }
-    }
+      if (!stillOpening()) return;
+      selectConversation(conversationId);
+    })().catch((error: unknown) => {
+      if (stillOpening()) setErrorMessage(error instanceof Error ? error.message : "打开对话失败");
+    });
   }
 
   const libraryModule = (
@@ -1246,37 +664,87 @@ export function App({
         libraryOpen={workspaceLibraryOpen}
         onSelectNav={selectProductNav}
         identity={identityMenu}
+        shortcuts={databaseReady && <WorkspaceShortcuts key={creationScope} fetchJson={fetchJson}
+          projectsOpen={shortcutState?.projects ?? true}
+          recordsOpen={shortcutState?.records ?? true}
+          onOpenChange={(group, open) => setShortcutStates(previous => ({
+            ...previous, [creationScope]: { ...previous[creationScope], [group]: open },
+          }))}
+          projectsActive={activeView === "projects"}
+          projectsRevision={projectsRevision}
+          onViewProjects={() => selectProductNav("projects")}
+          onViewRecords={() => selectProductNav("history")}
+          onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}
         weixinBot={weixinBot}
         weixinActive={weixinActive}
-        onOpenWeixin={async () => {
-          if (weixinBot?.conversation_id) {
-            try {
-              await refreshConversations();
-              navigateRoute({ section: 'chat', conversationId: weixinBot.conversation_id });
-            } catch { setErrorMessage('微信会话读取失败，请稍后重试'); }
-          } else navigateRoute({ section: 'settings', page: 'channels' });
-        }}
+        onOpenWeixin={openWeixinConversation}
       />
 
       <section className={`content${activeView === "chat" ? " chat-content is-chat-focus" : ""}${activeView === "dashboard" ? " home-content" : ""}${appRoute.section === "settings" && appRoute.page === "library" ? " library-content" : ""}${appRoute.section === "images" || appRoute.section === "works" ? " image-studio-host" : ""}${topbarTitle ? "" : " is-titleless"}`}>
-        {activeView !== "dashboard" ? <AppTopBar
-          section={topbarSection}
-          title={topbarTitle}
-        /> : null}
+        {activeView !== "chat" && <AppTopBar section={topbarSection} title={topbarTitle}>
+          {workspaceActions}
+        </AppTopBar>}
 
         {activeView === "dashboard" ? (
           <Suspense fallback={<PageLoading label="正在加载首页…" />}>
             <HomePage
-              key={userEmail}
+              key={creationScope}
               fetchJson={fetchJson}
               accountName={user.display_name?.trim() || (user.qq_only ? "QQ 用户" : userEmail.split("@")[0])}
               accountKey={userEmail}
-              onAnalyze={analyzeHomeItem}
+              creationEntry={<CreationEntry
+                mode={homeCreation.form.mode}
+                drafts={homeCreation.form.drafts}
+                files={homeCreation.homeFiles}
+                onFiles={homeCreation.setHomeFiles}
+                onMode={mode => homeCreation.updateForm(form => ({ ...form, mode }))}
+                onDraft={(mode, text) => homeCreation.updateForm(form => ({ ...form, drafts: { ...form.drafts, [mode]: text } }))}
+                onOpen={homeCreation.openCreationWorkspace}
+                onOpenVideo={() => navigateRoute({ section: "video" })}
+                onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
+                onOpenSkills={() => navigateRoute({ section: "skills" })}
+                onOpenImageSettings={() => navigateRoute({ section: "settings", page: "model", purpose: "image" })}
+                imageSettings={homeCreation.form.imageSettings}
+                onImageSettings={imageSettings => homeCreation.updateForm(form => ({ ...form, imageSettings }))}
+                fetchJson={fetchJson}
+                voiceInput={voiceInput}
+                ready={databaseReady}
+                busy={homeCreation.form.mode === "chat" && (conversationBusy || chatBusy)}
+              />}
+              onAnalyze={homeCreation.analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
               weixinLive={weixinBot ? { connected: weixinBot.connected, unread_count: weixinBot.unread_count } : null}
             />
           </Suspense>
         ) : null}
+
+        {appRoute.section === "history" ? (databaseReady
+          ? <CreationRecords key={creationScope} fetchJson={fetchJson} onOpen={openCreationRecord} onCreate={() => navigateRoute({ section: "dashboard" })} />
+          : <PageLoading label="正在连接创作记录…" />) : null}
+
+        {appRoute.section === "projects" ? (databaseReady
+          ? <ProjectsPage key={creationScope} id={appRoute.projectId} fetchJson={fetchJson}
+            modelOptions={activeModelProfiles.filter(profile => profile.supported_purposes?.includes("chat")).map(profile => ({
+              id: profile.id, label: `${profile.model_name} · ${modelCatalog.catalog.connections.find(connection => connection.id === profile.connection_id)?.name ?? "模型连接"}`,
+            }))}
+            modelLoading={modelCatalog.loading || (!modelCatalog.loaded && !modelCatalog.error)} modelError={modelCatalog.error}
+            onRetryModels={() => { void modelCatalog.reload(); }} conversationBusy={conversationBusy || chatBusy}
+            onProjectsChanged={() => setProjectsRevision(revision => revision + 1)}
+            onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem}
+            onOpenConversation={(create, signal) => homeCreation.openHomeConversation(create, "", "已新建项目对话", { ownerSignal: signal })} />
+          : <PageLoading label="正在连接项目…" />) : null}
+
+        {appRoute.section === "skills" ? (databaseReady ? (
+          <Suspense fallback={<PageLoading label="正在加载技能中心…" />}>
+            <SkillsCenterPage key={creationScope} apiBase={apiBase} accessToken={accessToken} fetchJson={fetchJson}
+              capabilities={capabilities} conversationBusy={conversationBusy || chatBusy}
+              onOpenExtensions={() => navigateRoute({ section: "settings", page: "extensions" })}
+              onOpenAgentSettings={() => navigateRoute({ section: "settings", page: "agent" })}
+              onOpenModelSettings={purpose => navigateRoute(purpose === "image" ? { section: "settings", page: "model", purpose } : { section: "settings", page: "model" })}
+              onOpenImage={() => homeCreation.openCreationWorkspace("images", "")}
+              onOpenSkill={skillId => homeCreation.openNewChatDraft("", "已选择技能，填写任务后发送", skillId)} />
+          </Suspense>
+        ) : <PageLoading label="正在连接技能中心…" />) : null}
 
         {visitedImageWorkspace || appRoute.section === "images" ? <div hidden={appRoute.section !== "images"}>
           <ImageWorkspacePage
@@ -1286,34 +754,20 @@ export function App({
             fetchJson={fetchJson}
             ready={databaseReady}
             active={appRoute.section === "images"}
+            initialTaskId={appRoute.section === "images" ? appRoute.taskId : undefined}
+            onCloseInitialTask={() => navigateRoute({ section: "images" }, true)}
             accountKey={userEmail}
+            creationDraft={homeCreation.imageDraft}
+            onCreationDraftConsumed={homeCreation.consumeImageDraft}
             onOpenWorks={() => navigateRoute({ section: "works" })}
             refreshConversations={refreshConversations}
             onLibraryChanged={refreshLibrary}
-            onOpenConversation={(conversationId) => {
-              const routeAtClick = window.location.hash;
-              const selectedAtClick = currentConversationIdRef.current;
-              const stillOpening = () => window.location.hash === routeAtClick && currentConversationIdRef.current === selectedAtClick;
-              void (async () => {
-                await refreshConversations();
-                if (!stillOpening()) return;
-                // The active chat may already be this conversation from a prior
-                // image; selecting the same ID alone does not reload its history.
-                if (currentConversationIdRef.current === conversationId && !chatAgentRef.current) {
-                  await refreshChat(conversationId, () => stillOpening() && !chatAgentRef.current);
-                }
-                if (!stillOpening()) return;
-                setCurrentConversationId(conversationId);
-                navigateRoute({ section: "chat", conversationId });
-              })().catch((error: unknown) => {
-                if (stillOpening()) setErrorMessage(error instanceof Error ? error.message : "打开对话失败");
-              });
-            }}
-            onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+            onOpenConversation={openImageConversation}
+            onOpenSettings={() => navigateRoute({ section: "settings", page: "model", purpose: "image" })}
           />
         </div> : null}
         {appRoute.section === "video" ? <VideoPage
-          onOpenChat={() => selectProductNav("chat")}
+          onOpenChat={() => navigateRoute({ section: "chat", conversationId: currentConversationId ?? undefined })}
           onOpenLibrary={() => selectProductNav("library")}
           onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
         /> : null}
@@ -1323,6 +777,8 @@ export function App({
           accessToken={accessToken}
           fetchJson={fetchJson}
           ready={databaseReady}
+          linkedWork={appRoute.work}
+          onCloseLinkedWork={() => navigateRoute({ section: "works" }, true)}
           onOpenImages={() => navigateRoute({ section: "images" })}
         /> : null}
 
@@ -1364,79 +820,29 @@ export function App({
               {appRoute.page === "memory" ? <MemorySettingsPage fetchJson={fetchJson} /> : null}
               {appRoute.page === "library" ? libraryModule : null}
               {appRoute.page === "model" ? (
-                modelSettingsReady ? (
-                  <ModelSettingsPage
-                    fetchJson={fetchJson}
-                    kernelSettings={<AgentKernelSettings
-                      choices={kernels.catalog?.choices ?? []}
-                      defaultKernel={savedAgentSettings.default_kernel}
-                      busy={!modelSettingsReady || agentSettingsBusy || modelSettingsEditing || Boolean(modelSaveUnknown) || kernels.busy}
-                      onChange={(kernel) => { void changeDefaultKernel(kernel); }}
-                    />}
-                    manager={modelCatalog.catalog.purpose_defaults ? advanced => <UnifiedModelManager
-                      key={userEmail} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
-                      busy={modelCatalog.busy || agentSettingsBusy || Boolean(modelSaveUnknown)} error={modelCatalog.error}
-                      fetchJson={fetchJson} secretWritable={savedAgentSettings.secret_storage_writable}
-                      onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
-                      onApplied={refreshDefaultModelSelection} advanced={advanced}
-                    /> : undefined}
-                    error={errorMessage}
-                    purposeManager={modelCatalog.catalog.purpose_defaults ? <ModelUsageRules catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} loading={modelCatalog.loading} onMutate={modelCatalog.mutate} onApplied={refreshDefaultModelSelection} /> : modelCatalog.loading ? <p role="status">正在读取使用规则…</p> : undefined}
-                    routingManager={<><ModelFallbackSettings fetchJson={fetchJson} catalog={modelCatalog.catalog} busy={modelCatalog.busy || agentSettingsBusy} /><ModelRoutingPanel key={userEmail} fetchJson={fetchJson} catalog={modelCatalog.catalog}
-                      disabled={agentSettingsBusy || modelCatalog.busy || Boolean(modelSaveUnknown)}
-                      onApplied={async () => { await modelCatalog.reload(); await refreshDefaultModelSelection(); }} /></>}
-                    connectionManager={<ModelConnectionManager
-                      singleService
-                      fetchJson={fetchJson} catalog={modelCatalog.catalog} loading={modelCatalog.loading}
-                      busy={modelCatalog.busy || agentSettingsBusy} error={modelCatalog.error}
-                      secretWritable={savedAgentSettings.secret_storage_writable}
-                      defaultLocked={defaultModelHasDraft || Boolean(modelSaveUnknown)}
-                      onReload={modelCatalog.reload} onMutate={modelCatalog.mutate} onEnsureProfile={modelCatalog.ensureProfile}
-                      onDefaultChanged={refreshDefaultModelSelection}
-                    />}
-                    settings={agentSettings}
-                    savedSettings={savedAgentSettings}
-                    editing={modelSettingsEditing}
-                    busy={agentSettingsBusy || modelCatalog.busy}
-                    saveUnknown={Boolean(modelSaveUnknown)}
-                    onConfirmSave={() => void confirmModelSave()}
-                    onResumeEditing={() => void resumeModelEditing()}
-                    monitor={modelMonitor}
-                    monitorBusy={modelMonitorBusy}
-                    availableModels={availableModels}
-                    discoveryBusy={modelDiscoveryBusy}
-                    discoveryError={modelDiscoveryError}
-                    capabilities={modelCapabilities}
-                    capabilitiesBusy={modelCapabilitiesBusy}
-                    onSettingsChange={changeModelSettings}
-                    onDiscoverModels={discoverCurrentModels}
-                    onCheckService={() => void checkModelService()}
-                    onProbeCapabilities={() => void refreshModelCapabilities(true)}
-                    onBeginEdit={beginModelSettingsEdit}
-                    onCancelEdit={cancelModelSettingsEdit}
-                    onSave={() => void saveAgentPreferences()}
-                  />
-                ) : modelSettingsLoadError ? (
-                  <section className="settings-card model-settings-card" role="alert">
-                    <h3>无法读取模型配置</h3><p>请检查本地服务后重试。读取成功前不会提交默认配置。</p>
-                    <button type="button" onClick={() => {
-                      setModelSettingsLoadError("");
-                      routeDataCacheRef.current.invalidate("agentSettings");
-                      void refreshAgentSettings().catch(() => undefined);
-                    }}>重新读取</button>
-                  </section>
-                ) : <PageLoading label="正在读取模型配置…" />
+                <ModelSettingsRoute preferences={agentPreferences} fetchJson={fetchJson} userEmail={userEmail} purpose={appRoute.purpose} errorMessage={errorMessage} />
               ) : null}
-              {appRoute.page === "agent" ? (
+              {appRoute.page === "agent" ? <>
+                {modelSettingsReady ? <AgentKernelSettings
+                  choices={kernels.catalog?.choices ?? []}
+                  defaultKernel={savedAgentSettings.default_kernel}
+                  busy={agentSettingsBusy || modelSettingsEditing || Boolean(modelSaveUnknown) || kernels.busy}
+                  onChange={kernel => { void changeDefaultKernel(kernel); }}
+                /> : modelSettingsLoadError ? <section className="settings-card" role="alert">
+                  <h3>无法读取智能体配置</h3><p>读取成功前不会修改默认内核。</p>
+                  <button type="button" onClick={retryAgentSettings}>重新读取</button>
+                </section> : <PageLoading label="正在读取智能体配置…" />}
                 <Suspense fallback={<PageLoading label="正在加载 Agent 运行记录…" />}>
-                  <AgentOperationsDashboard
-                    snapshot={agentOperations}
-                    days={agentOperationsDays}
-                    loading={agentOperationsBusy}
-                    onDaysChange={changeAgentOperationsWindow}
-                  />
+                  {databaseReady ? (
+                    <AgentOperationsDashboard
+                      key={JSON.stringify([apiBase, user.id ?? user.email])}
+                      fetchJson={fetchJson}
+                      onOpenConversation={openAgentRunConversation}
+                      theme={resolvedTheme}
+                    />
+                  ) : <PageLoading label="正在连接本地数据…" />}
                 </Suspense>
-              ) : null}
+              </> : null}
             </SettingsWorkspace>
           </Suspense>
         ) : null}
@@ -1469,32 +875,24 @@ export function App({
             onContinueDocument={continueDocument}
             onDocumentArchived={() => { void refreshLibrary(); }}
             density={activeView === "chat" ? "page" : "dock"}
+            workspaceActions={activeView === "chat" ? workspaceActions : null}
             focused={activeView === "chat" && !workspaceLibraryOpen}
             conversationTitle={currentConversation?.title}
-            currentModelName={currentModelName}
-            defaultModelName={defaultModelProfile?.model_name || capabilities?.active_model_name}
+            currentModelName={conversationModels.currentModelName}
+            defaultModelName={conversationModels.defaultModelName}
             modelProfiles={activeModelProfiles.map(profile => ({ id: profile.id, model_name: profile.model_name, connection_id: profile.connection_id, capabilities: profile.capabilities, connection_name: modelCatalog.catalog.connections.find(connection => connection.id === profile.connection_id)?.name || "模型连接" }))}
-            serviceModels={composerServiceCatalogs.find(service => service.connection_id === composerConnection?.id)}
-            additionalServiceModels={composerServiceCatalogs.filter(service => service.connection_id !== composerConnection?.id)}
-            onDiscoverServiceModels={composerDiscovery.discover}
-            onServiceModelChange={async (modelName, connectionId) => { const connection = modelCatalog.catalog.connections.find(item => item.id === (connectionId ?? composerConnection?.id) && item.enabled); if (connection) await selectConversationModel(null, { connectionId: connection.id, modelName, revision: connection.revision }); else setModelSelectionFeedback({ kind: "error", text: "模型连接不可用，请刷新列表后重试。" }); }}
-            selectedModelProfileId={(selectedModelProfile || defaultModelProfile)?.id ?? null}
-            modelSettings={(selectedModelProfile || defaultModelProfile) ? {
-              profile: (selectedModelProfile || defaultModelProfile)!,
-              protocol: composerConnection?.detected_protocol || composerConnection?.model_protocol,
-              fetchJson, onSave: saveComposerModelParameters, error: modelCatalog.error
-            } : undefined}
-            modelSelectionBusy={modelSelectionBusy || modelCatalog.busy}
-            modelSelectionFeedback={modelSelectionFeedback}
-            onDismissModelSelectionFeedback={() => setModelSelectionFeedback(null)}
-            modelProfileUnavailable={modelProfileUnavailable}
+            serviceModels={conversationModels.serviceModels}
+            additionalServiceModels={conversationModels.additionalServiceModels}
+            onDiscoverServiceModels={conversationModels.discoverServiceModels}
+            onServiceModelChange={conversationModels.selectServiceModel}
+            selectedModelProfileId={conversationModels.selectedModelProfileId}
+            modelSettings={conversationModels.composerModelSettings}
+            modelSelectionBusy={conversationModels.modelSelectionBusy}
+            modelSelectionFeedback={conversationModels.modelSelectionFeedback}
+            onDismissModelSelectionFeedback={conversationModels.dismissModelSelectionFeedback}
+            modelProfileUnavailable={conversationModels.modelProfileUnavailable}
             modelConfigured={capabilities ? capabilities.configured !== false : undefined}
-            onModelProfileChange={selectConversationModel}
-            kernelChoices={kernels.catalog?.choices ?? []}
-            currentKernel={currentKernel}
-            kernelLocked={kernelLocked}
-            kernelBusy={kernels.busy || conversationBusy}
-            onKernelChange={(kernel) => { void changeConversationKernel(kernel); }}
+            onModelProfileChange={conversationModels.selectConversationModel}
             messages={visibleChatMessages}
             selectedSkillId={selectedSkillId}
             onSelectSkill={(id) => setChatSkillSelection({ scope: skillSelectionScope, id })}
@@ -1509,9 +907,11 @@ export function App({
             onWebSearchChange={conversationWebSearch.setEnabled}
             libraryAttachments={libraryAttachments}
             onLibraryAttachmentsConsumed={() => setLibraryAttachments(null)}
-            composerDraft={homeComposerDraft}
+            composerDraft={homeCreation.conversationDraft}
+            draftFiles={homeCreation.conversationDraftFiles}
+            onDraftFilesChange={homeCreation.setConversationDraftFiles}
             composerDrafts={composerDrafts}
-            onComposerDraftConsumed={() => setHomeComposerDraft(null)}
+            onComposerDraftConsumed={homeCreation.consumeConversationDraft}
             conversations={conversations}
             conversationBusy={conversationBusy}
             waitingForUser={waitingForUser}
@@ -1525,17 +925,9 @@ export function App({
               analysisLabel: null,
             }}
             onLoadMore={() => setVisibleMessageCount((count) => count + 12)}
-            onSelectConversation={(conversationId) => {
-              setCurrentConversationId(conversationId);
-              navigateRoute({ section: "chat", conversationId });
-            }}
+            onSelectConversation={selectConversation}
             onCreateConversation={() => void createNewConversation()}
-            onEnsurePresentationConversation={async () => {
-              if (currentConversationIdRef.current) return currentConversationIdRef.current;
-              const created = await createNewConversation({ onlyIfUnchanged: true });
-              if (!created) throw new Error("会话创建失败，请重试。");
-              return created.id;
-            }}
+            onEnsurePresentationConversation={ensurePresentationConversation}
             onRenameConversation={(conversation) => setConversationDialog({ kind: "rename", conversation })}
             onArchiveConversation={(conversation) => void archiveConversation(conversation)}
             onRemoveConversation={(conversation) => setConversationDialog({ kind: "delete", conversation })}
@@ -1593,6 +985,10 @@ export function App({
       {noticeMessage ? (
         <div className="feedback-banner notice-banner global-notice-toast" role="status" aria-live="polite"><CheckCircle2 size={16} /><span>{noticeMessage}</span></div>
       ) : null}
+      {databaseReady && taskCenter?.scope === creationScope && <TaskCenter key={creationScope} view={taskCenter.view} fetchJson={fetchJson}
+        onClose={() => setTaskCenter(null)} onChange={view => setTaskCenter({ scope: creationScope, view })} onOpenSource={openTaskSource} />}
+      {databaseReady && searchScope === creationScope && <GlobalSearch key={creationScope} fetchJson={fetchJson}
+        onClose={() => setSearchScope(null)} onOpen={openSearchHit} />}
       {documentsOpen ? <DocumentLibraryDialog key={user.id ?? user.email} initialDocumentId={initialDocumentId} service={documentService} folders={libraryFolders} onClose={() => { setDocumentsOpen(false); setInitialDocumentId(null); }} onContinue={continueDocument} onArchived={() => { void refreshLibrary(); }} /> : null}
       {conversationDialog ? (
         <ConversationDialog

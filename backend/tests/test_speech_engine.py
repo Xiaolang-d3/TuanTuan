@@ -34,6 +34,18 @@ def test_short_speech_gets_a_final_result_even_without_a_streaming_preview():
     assert len(model.transcribe.call_args.args[0]) == 3200
 
 
+@pytest.mark.parametrize("onset_detected", [True, False])
+def test_explicit_finish_includes_short_tail_without_waiting_for_silence(onset_detected):
+    onset = [[[0, -1]]]
+    model = engine([onset, []] if onset_detected else [[], onset])
+    stream = DictationStream(model)
+    audio = np.arange(3200, dtype=np.float32)
+    assert stream.push(audio) == []
+    assert stream.finish() == [{"segmentId": 0, "revision": 1, "text": "边说边出字。", "final": True}]
+    assert model.vad.call_args.kwargs["param_dict"]["is_final"] is True
+    np.testing.assert_array_equal(model.transcribe.call_args.args[0], audio)
+
+
 def test_silence_keeps_bounded_pre_roll_and_never_calls_asr():
     model = engine([[]] * 100)
     stream = DictationStream(model)

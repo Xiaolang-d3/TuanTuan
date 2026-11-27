@@ -10,11 +10,47 @@ function image(id: string, name: string) {
   return { id, origin: "generated" as const, kind: "image" as const, original_filename: name, parse_status: "parsed" as const, width: 740, height: 480 };
 }
 
+test("unconfigured image workspace guides users to image model settings", async ({ page }) => {
+  const output = resolve("..", "tmp", "image-workspace");
+  await mkdir(output, { recursive: true });
+  await page.addInitScript(() => sessionStorage.setItem("tuantuan-auth-token", "image-workspace-fixture"));
+  await seedFirstRunDone(page, "e2e@local.test");
+  await page.route(`${origin}/**`, async route => {
+    const request = route.request();
+    if (!["fetch", "xhr"].includes(request.resourceType())) return route.continue();
+    const path = new URL(request.url()).pathname.replace(/^\/api(?=\/)/, "");
+    if (path === "/auth/me") return route.fulfill({ json: { user: { id: 1, email: "e2e@local.test", display_name: "测试用户", has_avatar: false } } });
+    if (path === "/system/database-status") return route.fulfill({ json: { status: "ready" } });
+    if (path === "/image-studio/history") return route.fulfill({ json: { items: [], has_more: false } });
+    if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
+    if (path === "/agent/model-selection/preview") return route.fulfill({ json: { eligible: false, selection: null, candidates: [], reason_code: "not_configured" } });
+    return route.fulfill({ status: 404, json: { detail: "Fixture route not needed" } });
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/#/images`);
+  const guide = page.getByRole("region", { name: "尚未配置模型" });
+  await expect(guide.getByText("还没有可用的图片模型")).toBeVisible();
+  await page.screenshot({ path: resolve(output, "onboarding-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const tutorial = guide.getByText("模型接入说明和配置教程");
+  await tutorial.focus();
+  await tutorial.press("Enter");
+  await expect(guide.getByText(/测试连接，然后添加支持图片生成的模型/)).toBeVisible();
+  await tutorial.press("Enter");
+  await expect(guide.getByRole("heading", { name: "尚未配置模型" })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: resolve(output, "onboarding-mobile.png"), animations: "disabled" });
+  await guide.getByRole("button", { name: "配置图片模型" }).click();
+  await expect(page).toHaveURL(/#\/settings\/model\?purpose=image$/);
+});
+
 test("image workspace makes three drafts, restores settings, edits and archives the final result", async ({ page }) => {
   const history: StudioTask[] = [];
   const works: StudioWork[] = [];
   const requests: StudioRequest[] = [];
   const reads: string[] = [];
+  let finishFirst!: () => void;
+  const firstGeneration = new Promise<void>(resolve => { finishFirst = resolve; });
   const created_at = "2026-11-18T00:00:00Z";
   const output = resolve("..", "tmp", "image-workspace");
   await mkdir(output, { recursive: true });
@@ -59,6 +95,7 @@ test("image workspace makes three drafts, restores settings, edits and archives 
       expect(body).toMatchObject({ profile_id: "selected", size: "1536x1024", comparison_key: "a".repeat(64) });
       expect(requests.some(prior => prior.request_id === body.request_id)).toBe(false);
       requests.push(body);
+      if (requests.length === 1) await firstGeneration;
       const asset = image(`result-${requests.length}`, `海报-${requests.length}.png`);
       if (requests.length === 2) Object.assign(asset, { width: 480, height: 740 });
       history.unshift({ id: body.request_id, prompt: body.prompt, size: body.size, profile_id: body.profile_id, model_name: "横图模型", status: "done", created_at, conversation_id: 42, assets: [asset] });
@@ -76,6 +113,15 @@ test("image workspace makes three drafts, restores settings, edits and archives 
       return route.fulfill({ json: { assets: [edited], conversation_id: 42, message_id: 44 } });
     }
     if (path === "/image-studio/works") return route.fulfill({ json: { items: works } });
+    if (path === "/works/final") return route.fulfill({ json: { items: [
+      { id: "doc-work", kind: "document", filename: "活动方案.md", media_type: "text/markdown", created_at, size: 18 },
+      { id: "ppt-work", kind: "presentation", filename: "活动演示.pptx", media_type: "application/vnd.openxmlformats-officedocument.presentationml.presentation", created_at, size: 1024 },
+    ] } });
+    if (path === "/works/final/doc-work/file") {
+      expect(request.method()).toBe("GET");
+      expect(request.headers().authorization).toBe("Bearer image-workspace-fixture");
+      return route.fulfill({ contentType: "text/markdown", body: "# 活动方案" });
+    }
     if (path === "/image-studio/works/edited" && request.method() === "POST") {
       if (!works.length) works.push({ id: "final-work", asset: image("edited", "海报-定稿.png"), created_at });
       return route.fulfill({ json: works[0] });
@@ -109,6 +155,30 @@ test("image workspace makes three drafts, restores settings, edits and archives 
     const submit = workspace.getByRole("button", { name: "生成图片", exact: true });
     await expect(submit).toBeEnabled();
     await submit.click();
+    const stage = workspace.getByRole("region", { name: "本次图片生成" });
+    if (text === prompts[0]) {
+      try {
+        await expect(stage.getByRole("heading", { name: "生成中" })).toBeVisible();
+        await expect(workspace.getByLabel("创作历史", { exact: true })).toHaveCount(0);
+        const field = stage.locator(".studio-dot-matrix");
+        const wave = () => field.evaluate(el => getComputedStyle(el, "::after").animationName);
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        expect(await wave()).toBe("studio-dot-wave");
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await field.evaluate(el => el.clientWidth === el.parentElement!.clientWidth && el.clientHeight === el.parentElement!.clientHeight)).toBe(true);
+        }
+        await page.screenshot({ path: resolve(output, "generation.png") });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        expect(await wave()).toBe("none");
+        await page.emulateMedia({ reducedMotion: null });
+      } finally {
+        finishFirst();
+      }
+    }
+    await expect(stage.getByRole("heading", { name: "图片已生成" })).toBeVisible();
+    await expect(stage.getByRole("img", { name: /^海报-/ })).toBeVisible();
+    await stage.getByRole("button", { name: "返回创作广场" }).click();
     const tile = workspace.getByRole("article").filter({ has: page.getByRole("button", { name: `查看 ${text}`, exact: true }) });
     await expect(tile.locator("img")).toBeVisible();
     await expect(tile.getByText("已完成", { exact: true })).toHaveCount(0);
@@ -156,7 +226,17 @@ test("image workspace makes three drafts, restores settings, edits and archives 
   await page.getByRole("button", { name: "已归档 · 查看作品", exact: true }).click();
   await expect(page.getByRole("heading", { name: "我的作品" })).toBeVisible();
   await expect(page.getByText("海报-定稿.png", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "查看作品", exact: true }).click();
+  const types = page.getByRole("group", { name: "作品类型" });
+  await expect(page.getByText("活动演示.pptx", { exact: true })).toBeVisible();
+  await types.getByRole("button", { name: "文档", exact: true }).click();
+  await expect(page.getByText("海报-定稿.png", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "打开 活动方案.md" }).click();
+  const documentDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "下载定稿" }).click();
+  expect((await documentDownload).suggestedFilename()).toBe("活动方案.md");
+  await page.getByRole("button", { name: "关闭详情" }).click();
+  await types.getByRole("button", { name: "图片", exact: true }).click();
+  await page.getByRole("button", { name: "打开 海报-定稿.png", exact: true }).click();
   const download = page.waitForEvent("download");
   await page.getByRole("dialog", { name: "作品详情" }).getByRole("button", { name: "下载原图", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("海报-定稿.png");

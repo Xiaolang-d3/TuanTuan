@@ -179,6 +179,7 @@ export function ModelSettingsPage({
   onSave
 }: Props) {
   const [dialogOpen, setDialogOpen] = useState(editing || saveUnknown);
+  const dialogTrigger = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(editing);
   useEffect(() => {
     if (editing) wasEditing.current = true;
@@ -286,7 +287,12 @@ export function ModelSettingsPage({
             {monitor ? <em className={monitor.status}>{statusLabels[monitor.status]}</em> : null}
           </div>
         </div>
-        <ActionButton variant="primary" onClick={() => { setManualModel(false); setModelSearch(""); setShowKey(false); setDialogOpen(true); }}>配置模型</ActionButton>
+        <ActionButton variant="primary" ref={dialogTrigger} onClick={() => {
+          setManualModel(false);
+          setModelSearch("");
+          setShowKey(false);
+          setDialogOpen(true);
+        }}>配置模型</ActionButton>
       </section>
       <section className="settings-card model-settings-card model-purpose-summary" aria-labelledby="model-purpose-title">
         <div>
@@ -301,7 +307,7 @@ export function ModelSettingsPage({
         <p>实际模型由系统路由和高级设置共同决定，尚不支持分别设置聊天与图片默认模型。可在服务连接中管理模型。</p>
       </section>
       </>}
-      {dialogOpen && <ModelSettingsDialog title="配置模型" locked={fieldsBusy} onClose={closeDialog}>
+      <ModelSettingsDialog title="配置模型" open={dialogOpen} locked={fieldsBusy} onClose={closeDialog} trigger={dialogTrigger}>
         {error && <p role="alert" className="model-capability-error">{error}</p>}
         {savedSettings.secret_migration_warning ? <p className="model-settings-warning" role="alert">{savedSettings.secret_migration_warning}。旧密钥仍保留在本地数据库中，修复钥匙串后再次保存即可迁移。</p> : null}
         {storageReadOnly ? <p className="model-settings-warning" role="status">{managedKey ? "当前使用只读环境变量密钥，页面无法更换；本地 macOS 可使用系统钥匙串保存个人密钥。" : "本机密钥存储暂不可写。已保存密钥仍可使用；更换密钥前请修复系统钥匙串。"}</p> : null}
@@ -383,7 +389,7 @@ export function ModelSettingsPage({
           </div>
           <p className="model-save-note">{monitorBusy && !busy ? "配置已保存，连接检测中；可以继续编辑。" : "保存后从下一次对话生效。"}</p>
         </section>
-      </ModelSettingsDialog>}
+      </ModelSettingsDialog>
     </>
   );
   const advancedContent = (

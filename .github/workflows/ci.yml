@@ -128,8 +128,17 @@ jobs:
               --tmpfs /tmp:rw,nosuid,nodev,size=64m --mount "type=bind,source=$workspace,target=/workspace" \
               tuantuan-quick-ppt-ci python3 -I /opt/quick-ppt/run.py "$action"
           done
-          test -s "$workspace/deck.pptx"
           test -s "$workspace/previews/03.png"
+          PYTHONPATH=backend python - "$workspace" <<'PY'
+          import sys
+          from pathlib import Path
+          from app.presentations.quick_plan import DeckPlan
+          from app.presentations.validation import validate_quick_delivery
+
+          root = Path(sys.argv[1])
+          plan = DeckPlan.model_validate_json((root / "plan.json").read_bytes())
+          validate_quick_delivery(root / "deck.pptx", root, plan)
+          PY
       - name: Summarize failing backend tests
         if: failure()
         working-directory: backend

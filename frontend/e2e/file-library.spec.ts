@@ -90,17 +90,51 @@ for (const { width, theme } of [
     await expect(toolbar.getByRole("button", { name: "加入主题集合" })).toBeVisible();
     await expect(toolbar.getByRole("button", { name: "移动", exact: true })).toBeVisible();
     await assertNoOverflow();
-    if (width === 375) await page.screenshot({ path: resolve(evidenceDir, "selection-mobile.png"), fullPage: true });
+    if (width === 375) {
+      await page.screenshot({ path: resolve(evidenceDir, "selection-mobile.png"), fullPage: true });
+      const joinCollection = toolbar.getByRole("button", { name: "加入主题集合" });
+      await joinCollection.click();
+      const dialog = page.getByRole("dialog", { name: "加入主题集合" });
+      await expect(dialog).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole("combobox", { name: "目标主题集合" })).toHaveValue("10");
+      await expect(page.getByRole("table", { name: "文件列表" })).toHaveCount(0);
+      await page.screenshot({ path: resolve(evidenceDir, "shadcn-library-dialog-mobile.png"), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(joinCollection).toBeFocused();
+      await expect(toolbar).toContainText("已选 2 个文件");
+    }
 
     await toolbar.getByRole("button", { name: "取消选择" }).click();
     await page.getByRole("button", { name: "文件库更多选项" }).click();
     await page.getByRole("button", { name: "搜索与筛选" }).click();
-    await page.getByRole("button", { name: "筛选", exact: true }).click();
-    await page.getByLabel("筛选来源").selectOption("note");
-    await page.getByLabel("筛选来源").press("Escape");
-    await expect(page.getByLabel("筛选来源")).toBeHidden();
+    const filterTrigger = page.getByRole("button", { name: "筛选", exact: true });
+    const filters = page.getByRole("dialog", { name: "文件筛选" });
+    const closeFilters = filters.getByRole("button", { name: "关闭筛选" });
+    const origin = filters.getByRole("combobox", { name: "筛选来源" });
+    const knowledge = filters.getByRole("combobox", { name: "筛选 AI 使用" });
+    await filterTrigger.press("Enter");
+    await expect(filters).toBeInViewport({ ratio: 1 });
+    await expect(closeFilters).toBeFocused();
+    await expect(filters.locator("select")).toHaveCount(2);
+    await expect(knowledge).toHaveValue("all");
+    await origin.selectOption("note");
+    await origin.press("Escape");
+    await expect(filters).toBeHidden();
+    await expect(filterTrigger).toBeFocused();
     await expect(list.locator("tbody tr")).toHaveCount(1);
     await expect(page.locator(".fl-filter-summary")).toContainText("文本笔记");
+    if (width === 320) {
+      await filterTrigger.click();
+      await expect(origin).toHaveValue("note");
+      await page.getByRole("heading", { name: "文件库", exact: true }).click();
+      await expect(filters).toBeHidden();
+      await filterTrigger.click();
+      await page.screenshot({ path: resolve(evidenceDir, "shared-library-filters-mobile.png"), animations: "disabled" });
+      await closeFilters.click();
+      await expect(filters).toBeHidden();
+      await expect(filterTrigger).toBeFocused();
+    }
     await assertNoOverflow();
     await page.getByRole("button", { name: "清除筛选", exact: true }).click();
     await page.getByLabel("筛选目录").selectOption("3");

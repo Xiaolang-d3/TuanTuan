@@ -2,7 +2,6 @@ import type { AppRoute } from "./routing";
 
 export type RouteDataKey =
   | "attachmentConfig"
-  | "agentOperations"
   | "agentSettings"
   | "library"
   | "capabilities"
@@ -15,7 +14,11 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
     case "chat":
       if (route.page === "library") return ["library"];
       return ["conversations", "capabilities", "attachmentConfig"];
+    case "skills":
+      return ["capabilities"];
     case "dashboard":
+    case "history":
+    case "projects":
     case "images":
     case "video":
     case "works":
@@ -26,7 +29,7 @@ export function requiredDataForRoute(route: AppRoute): RouteDataKey[] {
       if (route.page === "memory") return [];
       if (route.page === "library") return ["library"];
       if (route.page === "appearance") return [];
-      if (route.page === "agent") return ["agentOperations", "conversations", "capabilities", "attachmentConfig"];
+      if (route.page === "agent") return ["agentSettings", "conversations", "capabilities", "attachmentConfig"];
       if (route.page === "model") return ["agentSettings", "modelMonitor", "modelCapabilities", "conversations", "capabilities", "attachmentConfig"];
       if (route.page === "overview") return ["library", "agentSettings", "conversations", "capabilities", "attachmentConfig"];
       return ["library", "conversations", "capabilities", "attachmentConfig"];

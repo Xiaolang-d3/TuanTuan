@@ -1,6 +1,8 @@
 """Production imports must not load retired tools through package exports."""
+import ast
 import subprocess
 import sys
+from importlib.util import resolve_name
 from pathlib import Path
 
 
@@ -43,6 +45,28 @@ assert not any(name.startswith(('app.profile', 'app.jobs', 'app.resume', 'app.in
         capture_output=True,
         text=True,
     )
+
+
+def test_agent_bootstrap_is_private_to_agent_package():
+    """生产调用方通过 app.agent 的公开接口使用 Agent 装配。"""
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    violations = []
+    for path in app_dir.rglob("*.py"):
+        relative = path.relative_to(app_dir)
+        if relative.parts[0] in {"agent", "_vendor"}:
+            continue
+        package = ".".join(("app", *relative.parts[:-1]))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+            if isinstance(node, ast.Import):
+                targets = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                module = resolve_name("." * node.level + (node.module or ""), package)
+                targets = [f"{module}.{alias.name}" for alias in node.names]
+            else:
+                continue
+            if any(target == "app.agent.bootstrap" or target.startswith("app.agent.bootstrap.") for target in targets):
+                violations.append(f"{relative.as_posix()}:{node.lineno}")
+    assert not violations, violations
 
 
 def test_current_services_do_not_import_http_or_legacy_readers():

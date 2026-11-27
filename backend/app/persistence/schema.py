@@ -427,6 +427,37 @@ CREATE INDEX IF NOT EXISTS idx_library_sources_enabled_updated
 CREATE INDEX IF NOT EXISTS idx_library_sources_content_hash
     ON library_sources(content_hash);
 
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    default_model_profile_id TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z')
+);
+CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC, id DESC);
+
+-- Polymorphic links never own the underlying source. Only the project cascades.
+CREATE TABLE IF NOT EXISTS project_items (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'image', 'document', 'presentation', 'library', 'image_work', 'final_work')),
+    source_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now') || '000Z'),
+    PRIMARY KEY (project_id, kind, source_id)
+);
+
+-- Keep the scope marker on project deletion so the conversation never falls back to global retrieval.
+CREATE TABLE IF NOT EXISTS conversation_project_scopes (
+    conversation_id INTEGER NOT NULL PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS conversation_project_sources (
+    conversation_id INTEGER NOT NULL REFERENCES conversation_project_scopes(conversation_id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES library_sources(id) ON DELETE CASCADE,
+    PRIMARY KEY (conversation_id, source_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_conversation ON chat_messages(conversation_id, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_conversation ON conversation_tasks(conversation_id, status);
 CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge_chunks(source_type, source_id);
@@ -455,10 +486,25 @@ CREATE TABLE IF NOT EXISTS memory_rules (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS memory_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    last_extracted_message_id INTEGER NOT NULL DEFAULT 0,
-    last_extraction_at TEXT NOT NULL DEFAULT ''
+-- Keep the copied payload and its metadata in one transaction, without a
+-- source foreign key: deleting the original does not delete the archive.
+CREATE TABLE IF NOT EXISTS final_works (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('document', 'presentation')),
+    source_id TEXT NOT NULL,
+    source_version INTEGER NOT NULL CHECK(source_version > 0),
+    filename TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK(size >= 0),
+    payload BLOB NOT NULL CHECK(typeof(payload) = 'blob' AND length(payload) = size),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE(kind, source_id, source_version)
+);
+
+CREATE TABLE IF NOT EXISTS memory_conversation_state (
+    conversation_id INTEGER PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    last_extracted_message_id INTEGER NOT NULL,
+    last_extraction_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 """ + LIBRARY_CORE_SCHEMA + EXTENSION_SCHEMA + JOB_SCHEMA + PRESENTATION_SCHEMA + MODEL_CATALOG_SCHEMA + VERSION_SCHEMA + AUTHORED_DOCUMENT_SCHEMA

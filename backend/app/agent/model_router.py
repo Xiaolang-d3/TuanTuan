@@ -10,11 +10,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..domain import ModelRequest
 from ..model_protocol import protocol_requires_api_key
 from ..models import ModelProviderError
+from ..models.selection import is_chatgpt_subscription
 from .model_binding import internal_model_selection, is_bound_selection, selection_identity
+from .research_context import reduce_old_web_excerpts
 from . import settings
 
 
 STAGES = ("classify", "plan", "execute")
+_SUBSCRIPTION_STAGE_ERROR = "ChatGPT 订阅只能统一用于当前聊天的所有阶段，不能单独配置为阶段模型"
 
 
 class RoutingPolicy(BaseModel):
@@ -53,6 +56,8 @@ def save_routing_policy(values: dict[str, Any], db_path=None) -> dict[str, Any]:
                 connection = _connection(conn, profile["connection_id"])
                 if not profile["enabled"] or not connection["enabled"]:
                     raise ValueError("阶段模型或连接已停用，请选择其他模型")
+                if is_chatgpt_subscription(connection):
+                    raise ValueError(_SUBSCRIPTION_STAGE_ERROR)
         previous = json.loads(conn.execute("SELECT payload_json FROM model_routing_policy WHERE id=1").fetchone()[0])
         merged = {**previous, **policy.model_dump()}
         conn.execute("UPDATE model_routing_policy SET version=version+1, payload_json=? WHERE id=1", (json.dumps(merged),))
@@ -88,18 +93,30 @@ def bind_model_stages(
         result.update(policy_version=selection.get("policy_version", 1), strict_capabilities=bool(selection.get("strict_capabilities", False)))
     else:
         policy = policy or {"version": 1, "roles": {}, "strict_capabilities": False}
-        roles = policy["roles"]
-        default = connection if not explicit_profile else resolve()
-        stages = {}
-        for stage in STAGES:
-            if stage == "execute" and explicit_profile:
-                chosen, reason = connection, "explicit_profile"
-            elif roles.get(stage):
-                chosen, reason = resolve(roles[stage]), "stage_role"
-            else:
-                chosen, reason = default, "default_profile"
-            stages[stage] = {**chosen, "selection_reason": reason}
+        if is_chatgpt_subscription(connection):
+            # One explicit authorization covers the whole turn. Do not resolve
+            # unrelated stage roles or a legacy default (which may not exist).
+            reason = "explicit_profile" if explicit_profile else connection.get("selection_reason", "default_profile")
+            stages = {stage: {**connection, "selection_reason": reason} for stage in STAGES}
+        else:
+            roles = policy["roles"]
+            default = connection if not explicit_profile else resolve()
+            stages = {}
+            for stage in STAGES:
+                if stage == "execute" and explicit_profile:
+                    chosen, reason = connection, "explicit_profile"
+                elif roles.get(stage):
+                    chosen, reason = resolve(roles[stage]), "stage_role"
+                else:
+                    chosen, reason = default, "default_profile"
+                stages[stage] = {**chosen, "selection_reason": reason}
         result = {**stages["execute"], "policy_version": policy["version"], "strict_capabilities": policy["strict_capabilities"]}
+    if any(is_chatgpt_subscription(value) for value in stages.values()) and not all(
+        is_chatgpt_subscription(value) and selection_identity(value) == selection_identity(result)
+        and value.get("credential_fingerprint") == result.get("credential_fingerprint")
+        for value in stages.values()
+    ):
+        raise ValueError(_SUBSCRIPTION_STAGE_ERROR)
     result["stage_connections"] = stages
     for value in stages.values():
         value["policy_version"] = result["policy_version"]
@@ -109,8 +126,11 @@ def bind_model_stages(
 
 def _replace_executor(connection: dict[str, Any], chosen: dict[str, Any], reason: str) -> dict[str, Any]:
     chosen = {**chosen, "selection_reason": reason, "policy_version": connection["policy_version"]}
-    stages = deepcopy(connection["stage_connections"])
-    stages["execute"] = chosen
+    if is_chatgpt_subscription(chosen):
+        stages = {stage: {**chosen} for stage in STAGES}
+    else:
+        stages = deepcopy(connection["stage_connections"])
+        stages["execute"] = chosen
     return {
         **connection, **chosen, "stage_connections": stages,
         "stage_selections": {stage: internal_model_selection(value) for stage, value in stages.items()},
@@ -124,7 +144,8 @@ def _binding_catalog(catalog, connection):
     if profile_id and connection_id:
         profile = {**connection, "id": profile_id, "enabled": True}
         source = {"id": connection_id, "enabled": True, "protocol": connection.get("model_protocol", "auto"),
-                  "effective_base_url": connection.get("model_base_url", ""),
+                  "effective_base_url": connection.get("model_base_url", ""), "auth_kind": connection.get("auth_kind"),
+                  "credential_status": connection.get("credential_status"),
                   "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
         # Do not overwrite saved source metadata shared by other profiles.
         if not any(item["id"] == connection_id for item in result.get("connections", [])):
@@ -135,7 +156,7 @@ def _binding_catalog(catalog, connection):
 
 def _live_purpose_exclusion(connection, purpose, *, strict_capabilities=False):
     from ..models.selection import purpose_exclusion
-    source = {"protocol": connection.get("model_protocol", "auto"), "effective_base_url": connection.get("model_base_url", ""),
+    source = {**connection, "protocol": connection.get("model_protocol", "auto"),
               "api_key_configured": connection.get("api_key_configured", bool(connection.get("api_key")))}
     return purpose_exclusion(connection, source, purpose, strict_capabilities=strict_capabilities)
 
@@ -207,7 +228,20 @@ class ModelRouter:
         self._strict = strict_capabilities
 
     def select(self, stage: str, request: ModelRequest, *, streaming: bool = False) -> tuple[Any, dict[str, Any]]:
+        provider, selection, _ = self._select(stage, request, streaming=streaming, compact=False)
+        return provider, selection
+
+    def select_for_call(self, stage: str, request: ModelRequest, *, streaming: bool = False) -> tuple[Any, dict[str, Any], ModelRequest]:
+        return self._select(stage, request, streaming=streaming, compact=True)
+
+    def _select(self, stage: str, request: ModelRequest, *, streaming: bool, compact: bool) -> tuple[Any, dict[str, Any], ModelRequest]:
         connection = self._connections[stage]
+        if is_chatgpt_subscription(connection) and (
+            request.response_format is not None or request.parameters.get("background")
+            or request.image_generation or request.image_size
+            or any(message.payload.get("image_urls") for message in request.messages)
+        ):
+            raise ModelProviderError("subscription_sharing_unsupported_capability", "ChatGPT 订阅仅支持交互式文本聊天")
         required = []
         if request.tools and request.tool_choice != "none":
             required.append("tools")
@@ -236,14 +270,20 @@ class ModelRouter:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段包含图片，当前无法可靠估算图片上下文用量；请使用未设置文本上下文限制的档案")
             from ..models.openai_compatible import SYSTEM_PROMPT
 
-            input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8"))
-            input_bound += len((SYSTEM_PROMPT + settings.persona_prompt(settings.get_agent_settings())).encode("utf-8"))
+            system_bound = len((SYSTEM_PROMPT + settings.persona_prompt(settings.get_agent_settings())).encode("utf-8"))
             profile_limit = connection.get("parameters", {}).get("max_output_tokens")
             if profile_limit is None and "max_output_tokens" not in request.parameters:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段已设置上下文限制，请同时配置输出长度上限")
             output_limit = request.parameters.get("max_output_tokens", profile_limit or 0)
             if profile_limit is not None:
                 output_limit = min(profile_limit, output_limit)
+            input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8")) + system_bound
+            excess = input_bound + output_limit - context_limit
+            if compact and excess > 0:
+                messages = reduce_old_web_excerpts(request.messages, excess)
+                if messages is not request.messages:
+                    request = request.model_copy(update={"messages": messages})
+                    input_bound = len(request.model_dump_json(exclude={"parameters"}).encode("utf-8")) + system_bound
             if input_bound + output_limit > context_limit:
                 raise ModelProviderError("model_context_limit", f"{stage} 阶段输入与输出预留超过所选模型的上下文限制")
         provider = self._providers.get(stage)
@@ -252,4 +292,4 @@ class ModelRouter:
         selection = internal_model_selection(connection)
         selection["stage"] = stage
         selection["capability_status"] = "unverified" if unknown else "satisfied"
-        return provider, selection
+        return provider, selection, request

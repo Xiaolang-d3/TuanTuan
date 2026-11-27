@@ -11,11 +11,13 @@ import { webSearchTopicLabels } from "./webSearchOptions";
 import { AttachmentPreviewContext } from "./AttachmentPreviewDialog";
 import { ResultActionsContext, DocumentActionsContext } from "./result-types";
 import { HistoryAttachment } from "./HistoryAttachment";
-import { GeneratedImage } from "./GeneratedImage";
+import { GeneratedImage, GeneratedImageActions } from "./GeneratedImage";
 import { ImageGenerationProgress } from "./ImageGenerationProgress";
 import { copyMessageText, MessageCopyInProgressError } from "./messageCopy";
+import { Popover, PopoverContent } from "../../components/ui/Popover";
 import { ActionBarPrimitive, ComposerPrimitive, MessagePrimitive, type AppendMessage, type MessageState } from "@assistant-ui/react";
-import { BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Copy, LoaderCircle, Pencil, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Copy, ListChecks, Pencil, RefreshCw, Search, Trash2, X } from "lucide-react";
+import "./approval-card.css";
 
 function resultOnlyContent(content: string, hasThoughtSummary: boolean): string {
   if (!hasThoughtSummary) return content;
@@ -143,7 +145,9 @@ function isGenericTaskMessage(message: string, toolName: string): boolean {
   return trimmed === toolName || trimmed === `正在执行 ${toolName}`;
 }
 
-function planStepsFromAgent(agent?: AgentRunResult): Array<{ title: string; tool_name: string; status: string }> {
+type TaskStep = { id?: string; title: string; tool_name: string; status: string };
+
+function planStepsFromAgent(agent?: AgentRunResult): TaskStep[] {
   if (agent?.plan?.steps?.length) return agent.plan.steps;
   const rawPlan = agent?.events?.find((event) => event.tool_name === "agent_planner")?.data?.plan;
   if (!rawPlan || typeof rawPlan !== "object" || !("steps" in rawPlan) || !Array.isArray(rawPlan.steps)) return [];
@@ -152,9 +156,10 @@ function planStepsFromAgent(agent?: AgentRunResult): Array<{ title: string; tool
     const record = step as Record<string, unknown>;
     if (typeof record.title !== "string" || typeof record.tool_name !== "string") return [];
     return [{
+      id: typeof record.id === "string" ? record.id : undefined,
       title: record.title,
       tool_name: record.tool_name,
-      status: typeof record.status === "string" ? record.status : "pending"
+      status: typeof record.status === "string" ? record.status : "unknown"
     }];
   });
 }
@@ -276,6 +281,25 @@ function isImagePending(agent: AgentRunResult | undefined, streaming: boolean, s
     && latestEvents(agent).some((event) => event.tool_name === "image_generation");
 }
 
+const taskStatusLabels: Record<string, string> = {
+  pending: "待执行", running: "进行中", done: "已完成", failed: "失败", blocked: "受阻"
+};
+
+function TaskRows({ steps, active }: { steps: TaskStep[]; active: boolean }) {
+  const done = steps.filter((step) => step.status === "done").length;
+  return <section className="run-task-rows" aria-label="任务步骤">
+    <div className="run-task-heading"><ListChecks size={15} aria-hidden="true" /><strong>任务步骤</strong><small>已完成 {done}/{steps.length}</small></div>
+    <ol>{steps.map((step, index) => {
+      const status = Object.hasOwn(taskStatusLabels, step.status) ? step.status : "unknown";
+      const label = status === "running" && !active ? "未完成" : taskStatusLabels[status] || "状态未知";
+      return <li key={step.id || index} aria-current={status === "running" && active ? "step" : undefined}>
+        <span className="run-task-number" aria-hidden="true">{status === "done" ? <Check size={12} /> : index + 1}</span>
+        <span>{step.title}</span><small className={`run-task-status is-${status === "running" && !active ? "unknown" : status}`}>{label}</small>
+      </li>;
+    })}</ol>
+  </section>;
+}
+
 export function RunProcess({ agent, streaming, stopping = false, content = "" }: {
   agent?: AgentRunResult;
   streaming: boolean;
@@ -283,6 +307,7 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
   content?: string;
 }) {
   const bodyId = useId();
+  const summaryId = useId();
   const [expanded, setExpanded] = useState(streaming);
   const [openNode, setOpenNode] = useState<string | null>(null);
   const previousStreaming = useRef(streaming);
@@ -322,7 +347,13 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
   // The header already describes the active image operation. Keep other
   // records, and restore this operation's record when it finishes.
   const visibleEntries = entries.filter(entry => !(streaming && entry.id === liveEntry?.id && entry.tool === "image_generation"));
-  const compactProgress = streaming && !visibleEntries.length;
+  const steps = planStepsFromAgent(agent);
+  const compactProgress = streaming && !visibleEntries.length && !steps.length;
+  const failedCount = visibleEntries.filter(entry => entry.status === "failed").length;
+  const blockedCount = visibleEntries.filter(entry => entry.status === "blocked").length;
+  const summary = visibleEntries.length > 1 || failedCount || blockedCount
+    ? [`${visibleEntries.length} 条执行记录`, failedCount ? `${failedCount} 条失败` : "", blockedCount ? `${blockedCount} 条受阻` : ""].filter(Boolean).join(" · ")
+    : "";
   const imageFailure = agent?.events.some(event => event.tool_name === "image_generation") && !agent?.assets?.length;
   const outcome = !streaming ? agent?.status === "failed" ? isUncertainWrite(agent) ? "写入结果待核对" : imageFailure ? "未生成图片" : agent.error?.code === "citation_validation_failed" ? "引用校验未通过" : "生成失败"
     : agent?.status === "cancelled" ? "已停止" : agent?.status === "waiting_user" ? "等待确认" : "" : "";
@@ -343,18 +374,20 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
     following.current = false;
   }
   if (isImagePending(agent, streaming, stopping)) return null;
-  if (!streaming && !entries.length && !outcome && elapsed === null) return null;
+  if (!streaming && !entries.length && !steps.length && !outcome && elapsed === null) return null;
   const headerContent = <>
-    {streaming ? <LoaderCircle size={14} className="spinning" aria-hidden="true" /> : null}
-    <span className={`run-current-content${streaming && !stopping ? " is-current-execution" : ""}`} role={streaming ? "status" : undefined} title={title}>{title}</span>
-    {streaming && elapsed !== null ? <small>已用时 {formatExecutionTime(elapsed)}</small> : null}
+    {streaming ? <span className="run-loading-indicator" aria-hidden="true"><i /><i /><i /></span> : null}
+    <span className="run-current-content" role={streaming ? "status" : undefined} title={title}>{title}</span>
+    {streaming && elapsed !== null ? <small className="run-elapsed">已用时 {formatExecutionTime(elapsed)}</small> : null}
     {outcome ? <span className={`run-process-outcome${agent?.status === "failed" ? " is-failed" : ""}`}>{outcome}</span> : null}
   </>;
   return (
     <section className={`run-process${streaming ? " is-running" : ""}${expanded && !compactProgress ? " is-expanded" : ""}`} aria-label="思考与执行过程">
       {compactProgress ? <div className="run-process-toggle is-static">{headerContent}</div> : <button type="button" className="run-process-toggle" aria-expanded={expanded} aria-controls={bodyId}
-        aria-label={`${expanded ? "收起" : "展开"}思考与执行过程`} onClick={() => setExpanded((open) => !open)}>
+        aria-label={`${expanded ? "收起" : "展开"}思考与执行过程`} aria-describedby={summary ? summaryId : undefined}
+        onClick={() => setExpanded((open) => !open)}>
         {headerContent}
+        {summary ? <span id={summaryId} className="run-process-summary">{summary}</span> : null}
         <ChevronDown size={15} className="run-process-chevron" aria-hidden="true" />
       </button>}
       {!compactProgress ? <div id={bodyId} className="run-process-fixed" hidden={!expanded}>
@@ -364,9 +397,10 @@ export function RunProcess({ agent, streaming, stopping = false, content = "" }:
             if (!node) return;
             following.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24;
           }}>
+          {steps.length ? <TaskRows steps={steps} active={streaming && !stopping} /> : null}
           {visibleEntries.map(entry => <ToolCallDetails key={entry.id} event={entry.event} title={entry.text} streaming={streaming} stopping={stopping} now={now}
             open={openNode === entry.id} onToggle={() => { inspect(); setOpenNode(value => value === entry.id ? null : entry.id); }} />)}
-          {!visibleEntries.length ? <p className="run-process-empty">{streaming ? "等待模型响应…" : "未记录更多过程信息。"}</p> : null}
+          {!visibleEntries.length && !steps.length ? <p className="run-process-empty">{streaming ? "等待模型响应…" : "未记录更多过程信息。"}</p> : null}
         </div>
       </div> : null}
       {!streaming ? <RunErrorNote run={agent} content={content} /> : null}
@@ -385,35 +419,43 @@ export function ComposerClarification({
   onChoose: (text: string) => void;
   onCancel: () => void;
 }) {
+  return <ApprovalChoices key={JSON.stringify(clarification)} clarification={clarification} busy={busy} onChoose={onChoose} onCancel={onCancel} />;
+}
+
+function ApprovalChoices({ clarification, busy, onChoose, onCancel }: Parameters<typeof ComposerClarification>[0]) {
+  const groupName = useId();
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [customText, setCustomText] = useState("");
+  const customSelected = clarification.allowCustom && (selectedIndex === -1 || !clarification.options.length);
+  const response = customSelected ? customText.trim() : selectedIndex === null ? "" : clarification.options[selectedIndex]?.send;
   return (
     <section className="composer-clarification" aria-label="需要你确认后继续">
       <div className="composer-clarification-head">
-        <span className="composer-clarification-icon"><CircleHelp size={16} /></span>
+        <span className="composer-clarification-icon"><CircleHelp size={16} aria-hidden="true" /></span>
         <div className="composer-clarification-copy">
           <span>需要你确认</span>
           <strong>{clarification.question || "选一项后继续，或直接说下一件"}</strong>
         </div>
-        <button className="task-cancel-button" type="button" onClick={onCancel} disabled={busy}>
-          {busy ? "结束中…" : "结束任务"}
-        </button>
       </div>
-      {clarification.options.length ? (
-        <div className="composer-clarification-options" role="group" aria-label="可选回复">
-          {clarification.options.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              disabled={busy}
-              onClick={() => onChoose(option.send)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {clarification.allowCustom ? (
-        <p className="composer-clarification-hint">答当前问题则继续；换一件事直接说，或点结束任务</p>
-      ) : null}
+      {clarification.options.length ? <fieldset className="composer-clarification-options" disabled={busy}>
+        <legend>可选回复</legend>
+        {clarification.options.map((option, index) => <label key={option.id}>
+          <input type="radio" name={groupName} checked={selectedIndex === index} onChange={() => setSelectedIndex(index)} />
+          <span>{option.label}</span>
+        </label>)}
+        {clarification.allowCustom ? <label>
+          <input type="radio" name={groupName} checked={customSelected} onChange={() => setSelectedIndex(-1)} />
+          <span>自定义回复</span>
+        </label> : null}
+      </fieldset> : null}
+      {customSelected ? <textarea className="approval-custom" aria-label="填写自定义回复" rows={2} maxLength={200_000} value={customText} disabled={busy}
+        onChange={(event) => setCustomText(event.target.value)} /> : null}
+      {clarification.allowCustom ? <p className="composer-clarification-hint">答当前问题则继续；换一件事可在下方直接发送。</p> : null}
+      <div className="approval-actions">
+        <button className="task-cancel-button" type="button" onClick={onCancel} disabled={busy}>{busy ? "结束中…" : "结束任务"}</button>
+        {clarification.options.length || clarification.allowCustom ? <button className="task-action-button" type="button" disabled={busy || !response?.trim()}
+          onClick={() => { if (response?.trim()) onChoose(response); }}>继续<ChevronRight size={14} aria-hidden="true" /></button> : null}
+      </div>
     </section>
   );
 }
@@ -618,8 +660,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
   const openDocument = useContext(DocumentActionsContext);
   const source = state.metadata.custom.source as ChatMessage | undefined;
   const [quoted, setQuoted] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => { setQuoted(""); setConfirmDelete(false); }, [source?.id]);
+  useEffect(() => { setQuoted(""); }, [source?.id]);
   if (!source) return null;
   const modelSelection = source.payload?.agent?.model_selection ?? source.payload?.model_selection;
   const answerModelName = modelSelection?.answered_model_name?.trim()
@@ -641,7 +682,7 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
     const asset = assets.find(item => item.id === id);
     if (!asset || seenAssets.has(id)) return null;
     seenAssets.add(id);
-    return <GeneratedImage key={id} asset={asset} messageId={source.id} prompt={source.payload?.agent?.image_generation_prompt} />;
+    return <GeneratedImage key={id} asset={asset} prompt={agent?.image_generation_prompt} />;
   };
   const webSources = webSourcesFromAgent(source.payload?.agent);
   const localEvidence = source.payload?.agent?.evidence ?? [];
@@ -676,16 +717,17 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
             {imagePending ? <section className="message-image-output" aria-label="输出结果"><ImageGenerationProgress /></section> : assets.length ? <section className="message-image-output" aria-label="输出结果">{blocks.length ? blocks.map((block, index) => block.type === "image" ? imageBlock(block.asset_id) : <MarkdownContent key={`text-${index}`} sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{block.text}</MarkdownContent>) : resultContent ? <MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent> : null}{assets.filter(asset => !seenAssets.has(asset.id)).map(asset => imageBlock(asset.id))}</section> : <>
               {resultContent ? <section className="message-result message-dialog" aria-label="输出结果"><MarkdownContent sources={webSources} localEvidence={localEvidence} streaming={isActiveAssistant} onOpenSource={openResearch}>{resultContent}</MarkdownContent></section> : null}
             </>}
-            {quoted ? <button type="button" className="message-quote-action" onMouseDown={(event) => event.preventDefault()} onClick={() => { quoteSelection?.(quoted); setQuoted(""); }}>针对这段提问</button> : null}
             {!isActiveAssistant ? <div className="message-footer">
+              {quoted ? <button type="button" className="message-quote-action" onMouseDown={(event) => event.preventDefault()} onClick={() => { quoteSelection?.(quoted); setQuoted(""); }}>针对这段提问</button> : null}
               <div className="message-footer-tools">
                 <WebSourcesPanel sources={webSources} onOpen={() => openResearch()} />
                 <ActionBarPrimitive.Root className="message-actions" hideWhenRunning>
-                  <MessageCopyButton content={resultContent} label="复制回答" />
-                  {openDocument && source.id > 0 && (resultContent.trim() || assets.length) ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
+                  {(!assets.length || resultContent.trim()) ? <MessageCopyButton content={resultContent} label={assets.length ? "复制文字" : "复制回答"} /> : null}
+                  {openDocument && source.id > 0 && !assets.length && resultContent.trim() ? <button type="button" className="message-icon-action" aria-label="编辑文档" title="将完整回答编辑为文档" onClick={() => openDocument(source.id)}><Pencil size={14} aria-hidden="true" /></button> : null}
                   {!uncertainWrite && <ActionBarPrimitive.Reload className="message-icon-action" aria-label={failed ? "重试回答" : "重新生成回答"} title={failed ? "重试回答，将替换本轮及后续消息" : "重新生成，将替换本轮及后续消息"} aria-describedby={`regenerate-impact-${source.id}`}>
                     <RefreshCw size={14} aria-hidden="true" />
                   </ActionBarPrimitive.Reload>}
+                  <GeneratedImageActions assets={assets} messageId={source.id} />
                 </ActionBarPrimitive.Root>
               </div>
               {answerModelName ? <span className="message-answer-model" aria-label={`回答模型：${answerModelName}`} title={answerModelName}>{answerModelName}</span> : null}
@@ -705,9 +747,15 @@ export function ChatTurn({ state, chatBusy, stopping = false }: { state: Message
             <ActionBarPrimitive.Root className="message-actions user-message-actions" hideWhenRunning>
               <MessageCopyButton content={source.content} label="复制消息" />
               <ActionBarPrimitive.Edit className="message-icon-action" aria-label="编辑消息" title="编辑消息"><Pencil size={14} aria-hidden="true" /></ActionBarPrimitive.Edit>
-              {deleteTurn && source.id > 0 && !confirmDelete ? <button type="button" className="message-icon-action" aria-label="删除这轮问答" title="只删除这轮问答" onClick={() => setConfirmDelete(true)}><Trash2 size={14} aria-hidden="true" /></button> : null}
+              {deleteTurn && source.id > 0 ? (
+                <Popover.Root key={source.id}>
+                  <Popover.Trigger type="button" className="message-icon-action" aria-label="删除这轮问答" title="只删除这轮问答"><Trash2 size={14} aria-hidden="true" /></Popover.Trigger>
+                  <PopoverContent className="message-turn-delete-popover" aria-label="删除这轮问答" align="end">
+                    <Popover.Close type="button" className="ui-button ui-button-danger" aria-label="确认删除这轮问答" onClick={() => void deleteTurn(source.id)}>确认删除</Popover.Close>
+                  </PopoverContent>
+                </Popover.Root>
+              ) : null}
             </ActionBarPrimitive.Root>
-            {confirmDelete ? <button type="button" className="message-quote-action message-turn-delete" aria-label="确认删除这轮问答" onClick={() => void deleteTurn?.(source.id)}>确认删除</button> : null}
           </>
         )}
       </div>

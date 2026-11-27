@@ -41,14 +41,22 @@ def model_retry_attempts() -> int:
     return attempts if 0 <= attempts <= 5 else 2
 
 
+def _require_presentation_model(connection: dict) -> None:
+    if (connection.get("auth_kind") == "chatgpt_subscription"
+            or connection.get("secret_ref") == "chatgpt_subscription"):
+        raise ValueError("ChatGPT 订阅仅支持团团对话，不可用于 PPT 制作")
+
+
 def build_bound_provider(selection: dict, *, timeout_seconds: float | None = None):
-    from ..agent.bootstrap import get_profile_connection
+    from ..agent import get_profile_connection
     from ..models.configured import configure_model_provider
     from ..models.factory import build_model_provider
 
     if not is_bound_selection(selection):
         raise ValueError("PPT 制作需要固定的模型版本绑定")
+    _require_presentation_model(selection)
     connection = get_profile_connection(selection=selection)
+    _require_presentation_model(connection)
     configured = connection.get("model_protocol", "auto")
     # Resolve exactly one wire protocol, without negotiation or router fallback.
     protocol = (connection.get("detected_protocol") or connection["resolved_model_protocol"]) if configured == "auto" else configured
@@ -76,6 +84,7 @@ class PptModelRunner:
     async def generate_stage(self, stage: str, inputs: dict, selection: dict, *, instructions: str, retry_attempts: int | None = None) -> dict:
         if not is_bound_selection(selection):
             raise ValueError("PPT 制作需要固定的模型版本绑定")
+        _require_presentation_model(selection)
         stage = stage_name(stage, self.retry)
         if self.allow_replay:
             self.repository.check_owner(self.job["id"], self.job["owner_token"], self.context)

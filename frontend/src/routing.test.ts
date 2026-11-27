@@ -17,12 +17,20 @@ describe("product destination routes", () => {
   it.each([
     ["images", "#/images"],
     ["video", "#/video"],
-    ["works", "#/works"]
+    ["works", "#/works"],
+    ["history", "#/history"],
+    ["projects", "#/projects"],
+    ["skills", "#/skills"]
   ] as const)("keeps %s addressable after refresh", (section, hash) => {
     expect(parseAppHash(hash)).toEqual({ section });
     expect(initialAppRoute(hash)).toEqual({ section });
     expect(routeForSection(section)).toEqual({ section });
     expect(appRouteHash({ section })).toBe(hash);
+  });
+  it("preserves encoded image record links without changing the old workspace URL", () => {
+    const task = { section: "images", taskId: "a/b & c" } as const;
+    expect(parseAppHash(appRouteHash(task))).toEqual(task);
+    expect(parseAppHash("#/images?task=")).toEqual({ section: "images" });
   });
 });
 
@@ -36,7 +44,6 @@ describe("retired product routes", () => {
     "opportunities/jobs/9",
     "interview-prep",
     "interview-records",
-    "projects",
     "projects/experience-1/questions/experience-1-contribution",
     "project",
     "project/project-1/interview",
@@ -76,6 +83,15 @@ describe("model settings route", () => {
     expect(parseAppHash("#/settings/model")).toEqual({ section: "settings", page: "model" });
     expect(parseAppHash("#/settings/models")).toEqual({ section: "settings", page: "model" });
     expect(appRouteHash({ section: "settings", page: "model" })).toBe("#/settings/model");
+  });
+
+  it("restores only the image default-model intent when reloading model settings", () => {
+    const route = { section: "settings", page: "model", purpose: "image" } as const;
+    expect(appRouteHash(route)).toBe("#/settings/model?purpose=image");
+    expect(initialAppRoute(appRouteHash(route))).toEqual(route);
+    expect(parseAppHash("#/settings/models?purpose=image")).toEqual(route);
+    expect(parseAppHash("#/settings/model?purpose=unknown")).toEqual({ section: "settings", page: "model" });
+    expect(parseAppHash("#/settings/appearance?purpose=image")).toEqual({ section: "settings", page: "appearance" });
   });
 });
 

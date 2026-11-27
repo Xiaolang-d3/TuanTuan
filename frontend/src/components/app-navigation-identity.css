@@ -12,29 +12,32 @@
   min-height: 44px;
 }
 .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity:focus-visible {
-  outline: 2px solid var(--home-accent, var(--color-brand));
+  outline: 2px solid var(--color-brand);
   outline-offset: 3px;
-}
-.app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .app-identity-menu {
-  top: auto;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: auto;
-  max-height: calc(100dvh - 160px);
 }
 
 @media (min-width: 821px) {
-  .app-shell.has-chat-dock .sidebar.context-navigation .brand { gap: 8px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .brand { gap: 8px; padding-bottom: 12px; }
   .app-shell.has-chat-dock .sidebar.context-navigation .brand-home {
     flex: 1 1 auto;
     min-width: 0;
   }
   .app-shell.has-chat-dock .sidebar.context-navigation .brand-mark { flex: 0 0 auto; }
   .app-shell.has-chat-dock .sidebar.context-navigation .brand-copy { min-width: 0; }
-  .app-shell.has-chat-dock .sidebar.context-navigation .brand-copy :is(strong, small) {
+  .app-shell.has-chat-dock .sidebar.context-navigation .brand-copy small { display: none; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .brand-copy strong {
+    font-size: 23px;
+    font-weight: 800;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .app-shell.has-chat-dock .sidebar.context-navigation .nav-item { min-height: 38px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation:not(.collapsed) .nav-item { padding-inline: 8px; gap: 8px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .nav-item.active {
+    color: var(--color-text);
+    background: var(--color-surface-subtle);
+    box-shadow: none;
   }
   .app-shell.has-chat-dock .sidebar.context-navigation .brand > .sidebar-header-toggle {
     position: relative;
@@ -122,13 +125,6 @@
     padding: 0;
   }
   .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .sidebar-identity { width: 44px; }
-  .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot .app-identity-menu {
-    top: calc(100% + 8px);
-    bottom: auto;
-    left: auto;
-    right: 0;
-    max-height: calc(100dvh - 80px);
-  }
 }
 
 /* Keep the theme shortcut within reach in both expanded and compact navigation. */
@@ -158,10 +154,85 @@
 .sidebar-theme-toggle:hover { color: var(--color-brand-strong); background: var(--color-brand-soft); }
 .sidebar-theme-toggle:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
 @media (min-width: 821px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation:not(.collapsed) .sidebar-identity-slot {
+    flex-wrap: wrap;
+    padding: 8px 0 0;
+    gap: 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .sidebar-footer-settings { flex: 0 0 100%; }
   .app-shell.has-chat-dock .sidebar.context-navigation.collapsed .sidebar-identity-slot { flex-direction: column; justify-content: center; gap: 4px; }
   .sidebar.collapsed .sidebar-theme-toggle { margin-inline: auto; }
 }
 @media (max-width: 820px) {
+  .sidebar-footer-settings { display: none; }
   .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot { flex-direction: row; align-items: center; gap: 4px; }
   .sidebar .sidebar-theme-toggle, .sidebar.collapsed .sidebar-theme-toggle { width: 36px; height: 40px; margin: 0; }
+}
+@media (max-width: 420px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation:has(.weixin-bot-entry) { column-gap: 4px; }
+  .sidebar-identity-slot:has(.weixin-bot-entry) .sidebar-theme-toggle { display: none; }
+}
+
+/* Short desktop windows: the rail scrolls instead of pushing account, theme and
+   settings below the viewport, and the footer stays pinned at the bottom edge. */
+@media (min-width: 821px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--home-panel, var(--color-surface));
+  }
+}
+@media (min-width: 821px) and (max-height: 560px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation { padding-block: 12px 8px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .brand { padding-bottom: 8px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .nav-item { min-height: 36px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation.collapsed .nav-item { min-height: 40px; }
+  .app-shell.has-chat-dock .sidebar.context-navigation .sidebar-identity-slot { padding-top: 6px; }
+}
+
+/* Phone tab strip: seven tabs cannot fit beside the account, theme and Weixin
+   buttons on a narrow screen. Overflowing tabs used to paint over their
+   neighbours (a tap on the visible label hit another destination, and the last
+   tab left the viewport). The strip now scrolls inside its own grid column and
+   each tab clips an over-long label instead of overlapping. */
+@media (max-width: 820px) {
+  .app-shell.has-chat-dock .sidebar.context-navigation .nav-mobile {
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: flex-start;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .app-shell.has-chat-dock .sidebar.context-navigation .nav-mobile::-webkit-scrollbar { display: none; }
+  .sidebar .nav-mobile .mobile-nav-item,
+  .sidebar.collapsed .nav-mobile .mobile-nav-item {
+    flex: 1 0 44px;
+    min-width: 44px;
+    overflow: hidden;
+  }
+  .sidebar .nav-mobile .mobile-nav-item span,
+  .sidebar.collapsed .nav-mobile .mobile-nav-item span {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Destinations are anchors (so they can open in a new tab); keep the box and text
+   behaviour they had as buttons. */
+a.nav-item {
+  box-sizing: border-box;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }

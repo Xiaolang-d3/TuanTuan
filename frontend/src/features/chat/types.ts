@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { AgentCapabilities, Conversation, ModelCatalogEntry, ModelProtocol } from "../../types";
 import type { ResultServices } from "./result-types";
 import type { ComposerModelSettings } from "./ComposerModelParameters";
@@ -176,9 +176,8 @@ export type ServiceModelCatalog = {
   discoveredAt?: string;
 };
 
-export type KernelChoice = { id: "tuantuan" | "dsh"; name: string; available: boolean; reason: string };
-
 export type ChatWorkspaceProps = ResultServices & {
+  workspaceActions?: ReactNode;
   documentReviewService?: import("./document-review-service").DocumentReviewService;
   selectedSkillId?: string | null;
   onSelectSkill?: (id: string | null) => void;
@@ -204,11 +203,6 @@ export type ChatWorkspaceProps = ResultServices & {
   modelUnavailable?: string | null;
   sendError?: string | null;
   onOpenModelSettings?: () => void;
-  kernelChoices?: KernelChoice[];
-  currentKernel?: string;
-  kernelLocked?: boolean;
-  kernelBusy?: boolean;
-  onKernelChange?: (kernel: "tuantuan" | "dsh") => void;
   messages: ChatMessage[];
   hiddenMessageCount: number;
   chatBusy: boolean;
@@ -219,6 +213,8 @@ export type ChatWorkspaceProps = ResultServices & {
   libraryAttachments?: { conversationId: number; attachments: ChatAttachment[] } | null;
   onLibraryAttachmentsConsumed?: () => void;
   composerDraft?: ChatComposerDraft | null;
+  draftFiles?: File[];
+  onDraftFilesChange?: (conversationId: number, files: File[]) => void;
   composerDrafts?: Map<number, string>;
   onComposerDraftConsumed?: () => void;
   conversations: Conversation[];
@@ -253,7 +249,7 @@ export type ChatWorkspaceProps = ResultServices & {
   onRegenerate: (userMessageId: number) => Promise<void>;
   onDeleteTurn?: (userMessageId: number) => Promise<void>;
   onExportConversation?: () => void;
-  onSearchConversations?: (query: string) => Promise<Conversation[]>;
+  onSearchConversations?: (query: string) => Promise<Conversation[] | null>;
   pinnedConversationIds?: number[];
   onTogglePinConversation?: (conversation: Conversation) => void;
   conversationFolders?: Array<{ id: string; name: string }>;

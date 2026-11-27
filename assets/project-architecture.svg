@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="510" viewBox="0 0 960 510" role="img" aria-labelledby="title desc">
+  <title id="title">团团项目架构</title>
+  <desc id="desc">用户通过对话提出任务，团团理解需求并按需使用资料、模型和工具，最后交付回答、文档、演示文稿或图片。</desc>
+  <defs>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#dce6f3"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7592b3"/></marker>
+  </defs>
+  <rect width="960" height="510" rx="24" fill="#f8fbff"/>
+  <rect x="1" y="1" width="958" height="508" rx="23" fill="url(#dots)" stroke="#dce6f3"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif">
+    <text x="38" y="53" fill="#172c4a" font-size="24" font-weight="700">从想法到成果</text>
+    <text x="38" y="81" fill="#607792" font-size="15">通过对话，让团团帮你完成工作</text>
+    <g fill="none" stroke="#91a9c4" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 236 226 H 295"/>
+      <path d="M 621 226 H 680"/>
+      <path d="M 458 287 V 332"/>
+    </g>
+    <rect x="38" y="158" width="198" height="136" rx="16" fill="#e7f6fc" stroke="#9fd9eb"/>
+    <circle cx="66" cy="187" r="13" fill="#c2eaf6"/>
+    <text x="66" y="192" text-anchor="middle" fill="#087d9c" font-size="14" font-weight="700">1</text>
+    <text x="88" y="193" fill="#173a50" font-size="20" font-weight="700">提出任务</text>
+    <text x="58" y="232" fill="#426879" font-size="15">在 Web 中与团团对话</text>
+    <text x="58" y="258" fill="#426879" font-size="15">分享想法和资料</text>
+    <rect x="296" y="144" width="324" height="144" rx="18" fill="#e5f7ef" stroke="#8dd9b8"/>
+    <circle cx="325" cy="174" r="13" fill="#bcebd5"/>
+    <text x="325" y="179" text-anchor="middle" fill="#168057" font-size="14" font-weight="700">2</text>
+    <text x="348" y="180" fill="#164635" font-size="20" font-weight="700">团团处理任务</text>
+    <text x="317" y="220" fill="#3c6f5c" font-size="15">理解需求 · 组织步骤 · 按需行动</text>
+    <text x="317" y="249" fill="#3c6f5c" font-size="15">过程中与你交流，并持续返回进展</text>
+    <rect x="681" y="158" width="241" height="136" rx="16" fill="#eeeaff" stroke="#c9b9f5"/>
+    <circle cx="709" cy="187" r="13" fill="#ded4fb"/>
+    <text x="709" y="192" text-anchor="middle" fill="#7250bc" font-size="14" font-weight="700">3</text>
+    <text x="731" y="193" fill="#40315d" font-size="20" font-weight="700">交付成果</text>
+    <text x="701" y="232" fill="#655781" font-size="15">回答、文档、演示文稿</text>
+    <text x="701" y="258" fill="#655781" font-size="15">图片等成果回到对话中</text>
+    <rect x="205" y="333" width="506" height="123" rx="16" fill="#ffffff" stroke="#d6e2ef"/>
+    <text x="229" y="365" fill="#536c88" font-size="14" font-weight="700">团团按需使用</text>
+    <g font-size="16" font-weight="600" text-anchor="middle">
+      <rect x="228" y="384" width="128" height="45" rx="10" fill="#f0f6ff"/><text x="292" y="412" fill="#426a9d">资料与文件</text>
+      <rect x="378" y="384" width="128" height="45" rx="10" fill="#f0f6ff"/><text x="442" y="412" fill="#426a9d">模型能力</text>
+      <rect x="528" y="384" width="158" height="45" rx="10" fill="#f0f6ff"/><text x="607" y="412" fill="#426a9d">工具与联网搜索</text>
+    </g>
+  </g>
+</svg>

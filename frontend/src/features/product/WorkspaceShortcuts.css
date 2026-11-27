@@ -1,0 +1,61 @@
+.workspace-shortcuts {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  margin: 16px 0 0;
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  overscroll-behavior-y: contain;
+}
+.workspace-shortcut-group + .workspace-shortcut-group { margin-top: 6px; }
+.workspace-shortcut-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-shortcut-trigger:hover { background: var(--color-surface-subtle); }
+.workspace-shortcut-trigger:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.workspace-shortcut-trigger svg { flex: none; color: var(--color-text-muted); }
+.workspace-shortcut-trigger[data-panel-open] svg { transform: rotate(90deg); }
+.workspace-shortcut-panel { padding-inline-start: 6px; }
+.workspace-shortcuts p { margin: 4px 6px 8px; color: var(--color-text-muted); }
+.workspace-shortcuts ul { list-style: none; padding: 0; margin: 0; }
+.workspace-shortcuts :is(li > button, .workspace-shortcut-index) {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding-inline: 8px;
+  justify-content: flex-start;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.workspace-shortcut-index { max-width: 100%; font-size: 12px; }
+.workspace-shortcuts .workspace-shortcut-index[aria-current="page"] { background: var(--color-surface-subtle); color: var(--color-text); }
+.workspace-shortcuts .ui-button { border: 0; border-radius: 6px; }
+.workspace-shortcuts .ui-button:focus-visible { outline-offset: -2px; }
+.workspace-shortcuts li > button > svg { display: none; }
+.workspace-shortcuts li > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.workspace-actions { display: flex; align-items: center; gap: 4px; }
+.home-content > .app-topbar { width: 100%; margin: 0; padding-inline: 0; position: static; background: transparent; backdrop-filter: none; }
+.chat-session-header > .workspace-actions { flex: none; }
+
+@media (max-width: 820px) {
+  .workspace-shortcuts { display: none; }
+  .workspace-actions > button { width: 34px; min-width: 34px; padding: 0; justify-content: center; }
+  .workspace-actions > button > span { display: none; }
+}

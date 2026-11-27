@@ -75,6 +75,7 @@ export function PresentationJobCard({ job, service, onChange, onRecreate, onOpen
   const [artifacts, setArtifacts] = useState<FileArtifact[]>([]);
   const [artifactError, setArtifactError] = useState("");
   const [artifactAttempt, setArtifactAttempt] = useState(0);
+  const [finalArchive, setFinalArchive] = useState<string>();
   const [now, setNow] = useState(Date.now);
   const startedAt = requestStart(job.progress?.started_at);
   useEffect(() => {
@@ -152,6 +153,10 @@ export function PresentationJobCard({ job, service, onChange, onRecreate, onOpen
         if (mounted.current && latest.current.stage === job.stage && latest.current.confirmation_required && !latest.current.cancel_requested) { setConfirmation(url); setOpened(!url); }
       })}>{job.stage === "stage1_recommended" ? "确认需求" : "确认设计"}</button> : null}
       {job.status === "succeeded" && pptx ? <button type="button" className="extension-button primary" disabled={busy} onClick={() => void operate(() => service.activity.download(pptx))}><Download size={15} />下载 PPTX</button> : null}
+      {job.status === "succeeded" && pptx && service.archiveFinal ? <button type="button" className="extension-button" disabled={busy || finalArchive === `${pptx.id}:${pptx.version}`} onClick={() => void operate(async () => {
+        await service.archiveFinal(pptx.id, pptx.version);
+        if (mounted.current) setFinalArchive(`${pptx.id}:${pptx.version}`);
+      })}>{finalArchive === `${pptx.id}:${pptx.version}` ? "已保存到我的作品" : "保存到我的作品"}</button> : null}
       {previews.length ? <button className="extension-button" type="button" onClick={() => setExpanded(true)}>查看逐页预览</button> : null}
       {job.error_code && ["authentication_failed", "model_unavailable", "protocol_unsupported", "service_unavailable"].includes(job.error_code) ? <button type="button" className="extension-button" onClick={onOpenModelSettings}>检查模型设置</button> : null}
       {retryable ? <button type="button" className="extension-button primary" disabled={busy} onClick={() => uncertainRetry ? setConfirmRetry(true) : retry()}><RotateCcw size={14} />重试制作</button> : null}

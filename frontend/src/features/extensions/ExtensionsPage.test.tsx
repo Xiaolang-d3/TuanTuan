@@ -17,15 +17,29 @@ describe("extensions UI", () => {
     expect(screen.queryByRole("button", { name: "体验流程" })).not.toBeInTheDocument();
   });
 
-  it("supports keyboard tabs and a searchable empty state", () => {
+  it("supports keyboard tabs and a searchable empty state", async () => {
     render(<ExtensionsPage />);
-    fireEvent.keyDown(screen.getByRole("tab", { name: /技能/ }), { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: /插件/ })).toHaveFocus();
-    expect(screen.getByRole("tab", { name: /插件/ })).toHaveAttribute("aria-selected", "true");
+    const skills = screen.getByRole("tab", { name: /技能/ });
+    const plugins = screen.getByRole("tab", { name: /插件/ });
+    const mcp = screen.getByRole("tab", { name: /MCP/ });
+    skills.focus();
+    fireEvent.keyDown(skills, { key: "ArrowLeft" });
+    await waitFor(() => expect(mcp).toHaveFocus());
+    expect(mcp).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(mcp, { key: "Home" });
+    await waitFor(() => expect(skills).toHaveFocus());
+    fireEvent.keyDown(skills, { key: "ArrowRight" });
+    await waitFor(() => expect(plugins).toHaveFocus());
+    expect(plugins).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("id", plugins.getAttribute("aria-controls"));
     fireEvent.change(screen.getByLabelText("搜索扩展"), { target: { value: "不存在" } });
     expect(screen.getByText("没有匹配的扩展")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "清空搜索" }));
     expect(screen.getByText("演示文稿工具包")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("搜索扩展"), { target: { value: "不存在" } });
+    fireEvent.click(mcp);
+    fireEvent.click(plugins);
+    expect(screen.getByLabelText("搜索扩展")).toHaveValue("");
   });
 
   it("opens details in a focused dialog and returns to the selected row", async () => {
@@ -94,7 +108,7 @@ describe("extensions UI", () => {
     render(<ExtensionPreviewProvider apiBase="/api" accessToken="test-token"><SkillPicker selectedSkillId={null} onSelectSkill={() => undefined} /></ExtensionPreviewProvider>);
     fireEvent.click(screen.getByRole("button", { name: "技能" }));
 
-    const picker = await screen.findByRole("region", { name: "可用技能" });
+    const picker = await screen.findByRole("dialog", { name: "可用技能" });
     const skill = await within(picker).findByRole("button", { name: "周报助手" });
     expect(within(picker).queryByRole("heading")).not.toBeInTheDocument();
     expect(within(picker).queryByRole("button", { name: "普通对话" })).not.toBeInTheDocument();
@@ -116,13 +130,14 @@ describe("extensions UI", () => {
     const onSelectSkill = vi.fn();
     render(<ExtensionPreviewProvider apiBase="/api" accessToken="test-session"><SkillPicker selectedSkillId="weekly" onSelectSkill={onSelectSkill} /></ExtensionPreviewProvider>);
     const trigger = screen.getByRole("button", { name: "技能" });
+    trigger.focus();
     fireEvent.click(trigger);
     const option = await screen.findByRole("button", { name: "周报助手" });
     expect(option).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(option);
     expect(onSelectSkill).toHaveBeenCalledWith(null);
-    expect(trigger).toHaveFocus();
-    expect(screen.queryByRole("region", { name: "可用技能" })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "可用技能" })).not.toBeInTheDocument();
   });
 
   it("selects a skill from its list row and restores focus to the trigger", async () => {
@@ -133,11 +148,12 @@ describe("extensions UI", () => {
     const onSelectSkill = vi.fn();
     render(<ExtensionPreviewProvider apiBase="/api" accessToken="test-token"><SkillPicker selectedSkillId={null} onSelectSkill={onSelectSkill} /></ExtensionPreviewProvider>);
     const trigger = screen.getByRole("button", { name: "技能" });
+    trigger.focus();
     fireEvent.click(trigger);
     const option = await screen.findByRole("button", { name: "周报助手" });
     fireEvent.click(option);
     expect(onSelectSkill).toHaveBeenCalledWith("weekly");
-    expect(trigger).toHaveFocus();
-    expect(screen.queryByRole("region", { name: "可用技能" })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "可用技能" })).not.toBeInTheDocument();
   });
 });

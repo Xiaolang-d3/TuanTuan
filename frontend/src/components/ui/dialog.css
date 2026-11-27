@@ -1,0 +1,19 @@
+.ui-dialog-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  pointer-events: none;
+}
+
+.ui-dialog-viewport > [data-slot="dialog-content"] {
+  pointer-events: auto;
+  outline: none;
+}
+
+.fl-dialog-backdrop + .ui-dialog-viewport {
+  z-index: 100;
+}

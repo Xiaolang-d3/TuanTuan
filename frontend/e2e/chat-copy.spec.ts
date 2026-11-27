@@ -123,9 +123,14 @@ test("keeps the copy failure visible after focus and pointer leave on a narrow s
       value: () => Promise.reject(new DOMException("Clipboard permission denied", "NotAllowedError"))
     });
   });
-  const message = await clickCopy(page, "user");
+  const message = page.locator(".message.user");
+  const answer = page.locator(".message.assistant");
+  const [messageBefore, answerBefore] = await Promise.all([message.boundingBox(), answer.boundingBox()]);
+  await clickCopy(page, "user");
   const feedback = message.getByText(copyError, { exact: true });
   await expect(feedback).toBeVisible();
+  expect((await message.boundingBox())!.height).toBeCloseTo(messageBefore!.height, 0);
+  expect((await answer.boundingBox())!.y).toBeCloseTo(answerBefore!.y, 0);
   const composer = page.getByRole("textbox", { name: "输入消息", exact: true });
   await composer.focus();
   await page.mouse.move(1, 1);

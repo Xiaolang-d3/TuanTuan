@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, FolderPlus, History, MessageCircle, MoreHorizontal, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import type { Conversation } from "../types";
+import { DropdownMenu, DropdownMenuContent } from "./ui/DropdownMenu";
 
 export type ConversationTimeGroup = {
   label: string;
@@ -115,7 +116,13 @@ type Props = {
   onRename: (conversation: Conversation) => void;
   onArchive: (conversation: Conversation) => void;
   onRemove: (conversation: Conversation) => void;
-  onSearch?: (query: string) => Promise<Conversation[]>;
+  onSearch?: (query: string) => Promise<Conversation[] | null>;
+  /**
+   * Whether the open drawer covers the surrounding content. When omitted it is
+   * read from the drawer's own computed position (fixed/absolute = overlay), so
+   * the inline wide layout stays non-modal and every overlay host is isolated.
+   */
+  overlay?: boolean;
   pinnedIds?: number[];
   onTogglePin?: (conversation: Conversation) => void;
   folders?: Array<{ id: string; name: string }>;
@@ -138,6 +145,7 @@ export function ConversationHistoryPanel({
   onArchive,
   onRemove,
   onSearch,
+  overlay,
   pinnedIds = [],
   onTogglePin,
   folders = [],
@@ -154,29 +162,80 @@ export function ConversationHistoryPanel({
   const [query, setQuery] = useState("");
   const [remoteResults, setRemoteResults] = useState<Conversation[] | null>(null);
   const [searchPending, setSearchPending] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const panelRef = useRef<HTMLElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const lastQuery = useRef("");
+  const seenIds = useRef(new Set<number>());
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const [measuredOverlay, setMeasuredOverlay] = useState(false);
+  const modal = open && (overlay ?? measuredOverlay);
+
   useEffect(() => {
-    if (!onSearch) {
-      setRemoteResults(null);
-      setSearchPending(false);
-      return;
-    }
+    if (!open || overlay !== undefined) return;
+    const measure = () => {
+      const position = panelRef.current ? window.getComputedStyle(panelRef.current).position : "";
+      setMeasuredOverlay(position === "fixed" || position === "absolute");
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, overlay]);
+
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  // While an overlay drawer covers the page, the content behind it must not be
+  // reachable by Tab. Closing hands focus back to the opener so it is never
+  // stranded on a hidden control. Both live in one effect so the opener is
+  // captured before focus moves in and un-inerted before focus goes back.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !panel?.contains(active)) returnFocus.current = active;
+    const siblings = modal
+      ? Array.from(panel?.parentElement?.children ?? []).filter(
+        (element): element is HTMLElement => element !== panel && element instanceof HTMLElement
+          && !element.classList.contains("conversation-history-backdrop") && !element.hasAttribute("inert")
+      )
+      : [];
+    for (const element of siblings) element.setAttribute("inert", "");
+    if (modal) panel?.querySelector<HTMLElement>(".conversation-history-close")?.focus({ preventScroll: true });
+    return () => {
+      for (const element of siblings) element.removeAttribute("inert");
+      if (openRef.current) return;
+      const current = document.activeElement;
+      const lost = !current || current === document.body || Boolean(panel?.contains(current));
+      if (!lost) return;
+      const opener = returnFocus.current?.isConnected ? returnFocus.current : document.querySelector<HTMLElement>('[aria-controls="conversation-history-drawer"]');
+      opener?.focus({ preventScroll: true });
+    };
+  }, [open, modal]);
+
+  // Re-run the server search whenever the list changes (rename, archive, delete)
+  // so an old hit cannot outlive the write that made it stale.
+  useEffect(() => {
     const needle = query.trim();
-    if (!needle) {
+    const queryChanged = lastQuery.current !== needle;
+    lastQuery.current = needle;
+    if (!onSearch || !needle) {
       setRemoteResults(null);
       setSearchPending(false);
+      setSearchFailed(false);
       return;
     }
     setSearchPending(true);
-    setRemoteResults(null);
+    setSearchFailed(false);
+    if (queryChanged) setRemoteResults(null);
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void onSearch(needle).then((items) => {
-        if (!cancelled) setRemoteResults(items);
+        // null: a newer write or refresh superseded this response; the list
+        // change that caused it re-triggers this effect.
+        if (!cancelled && items) setRemoteResults(items);
       }).catch(() => {
-        if (!cancelled) setRemoteResults(null);
+        if (!cancelled) { setRemoteResults(null); setSearchFailed(true); }
       }).finally(() => {
         if (!cancelled) setSearchPending(false);
       });
@@ -185,9 +244,19 @@ export function ConversationHistoryPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onSearch, query]);
+  }, [onSearch, query, conversations, searchAttempt]);
   const filtered = useMemo(() => {
-    if (remoteResults) return remoteResults;
+    if (remoteResults) {
+      // Drop hits that no longer exist and show the current title/status of the rest.
+      const current = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+      for (const id of current.keys()) seenIds.current.add(id);
+      return remoteResults.flatMap((hit) => {
+        const live = current.get(hit.id);
+        if (live) return [{ ...hit, title: live.title, status: live.status }];
+        // Seen in the list before but gone now: deleted since the search ran.
+        return seenIds.current.has(hit.id) ? [] : [hit];
+      });
+    }
     const needle = query.trim().toLocaleLowerCase();
     return conversations.filter((conversation) => !needle || `${conversation.title} ${conversation.summary}`.toLocaleLowerCase().includes(needle));
   }, [conversations, query, remoteResults]);
@@ -195,65 +264,13 @@ export function ConversationHistoryPanel({
     () => groupConversationsByTime(filtered, new Date(), pinnedIds, query.trim() ? [] : folders, query.trim() ? {} : folderAssignments),
     [filtered, pinnedIds, folders, folderAssignments, query]
   );
-  useEffect(() => setOpenMenuId(null), [query]);
-  useEffect(() => {
-    if (openMenuId === null) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true });
-    const dismiss = (event: PointerEvent) => {
-      if (!(event.target instanceof Element)
-        || (!event.target.closest(".conversation-history-actions") && !menuRef.current?.contains(event.target))) setOpenMenuId(null);
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [openMenuId]);
+  useEffect(() => setOpenMenuId(null), [currentConversationId, open, query]);
 
-  const menuConversation = filtered.find(conversation => conversation.id === openMenuId);
-  useLayoutEffect(() => {
-    if (openMenuId === null || !open) return;
-    const panel = panelRef.current;
-    const menu = menuRef.current;
-    const trigger = panel?.querySelector<HTMLButtonElement>(`[data-menu-trigger="${openMenuId}"]`);
-    if (!panel || !menu || !trigger) return;
-    const place = () => {
-      const panelRect = panel.getBoundingClientRect();
-      const triggerRect = trigger.getBoundingClientRect();
-      const top = triggerRect.top - panelRect.top - panel.clientTop;
-      const bottom = triggerRect.bottom - panelRect.top - panel.clientTop;
-      const below = Math.max(0, panel.clientHeight - bottom - 12);
-      const above = Math.max(0, top - 12);
-      const menuHeight = menu.scrollHeight + menu.offsetHeight - menu.clientHeight;
-      const opensDown = menuHeight <= below || below >= above;
-      const maxHeight = opensDown ? below : above;
-      setMenuStyle({
-        left: Math.max(8, Math.min(triggerRect.right - panelRect.left - panel.clientLeft - menu.offsetWidth, panel.clientWidth - menu.offsetWidth - 8)),
-        top: opensDown ? bottom + 4 : Math.max(8, top - 4 - Math.min(menuHeight, maxHeight)),
-        maxHeight,
-        visibility: "visible"
-      });
-    };
-    place();
-    const list = panel.querySelector(".conversation-history-list");
-    const followOnScroll = () => {
-      const listRect = list?.getBoundingClientRect();
-      const triggerRect = trigger.getBoundingClientRect();
-      if (listRect && (triggerRect.bottom <= listRect.top || triggerRect.top >= listRect.bottom)) closeMenu();
-      else place();
-    };
-    list?.addEventListener("scroll", followOnScroll);
-    window.addEventListener("resize", place);
-    return () => {
-      list?.removeEventListener("scroll", followOnScroll);
-      window.removeEventListener("resize", place);
-    };
-  }, [openMenuId, open, filtered, folders.length, onTogglePin]);
-
-  function closeMenu() {
-    const id = openMenuId;
-    setOpenMenuId(null);
-    panelRef.current?.querySelector<HTMLButtonElement>(`[data-menu-trigger="${id}"]`)?.focus({ preventScroll: true });
+  function openConversationDialog(action: (conversation: Conversation) => void, conversation: Conversation) {
+    // Restore the row trigger before the dialog captures focus for its close behavior.
+    panelRef.current?.querySelector<HTMLButtonElement>(`[data-menu-trigger="${conversation.id}"][aria-expanded="true"]`)?.focus({ preventScroll: true });
+    action(conversation);
   }
-
-  useEffect(() => setOpenMenuId(null), [currentConversationId, open]);
 
   function closeDrawer() {
     onClose?.();
@@ -265,7 +282,15 @@ export function ConversationHistoryPanel({
       id="conversation-history-drawer"
       className={`conversation-history-panel ${open ? "drawer-open" : ""}`}
       hidden={!open}
+      role={modal ? "dialog" : undefined}
       aria-label="对话记录"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !modal || event.defaultPrevented || openMenuId !== null) return;
+        // Escape inside a row menu closes that menu first; only a bare Escape closes the drawer.
+        if (event.target instanceof Element && event.target.closest('[role="menu"]')) return;
+        event.stopPropagation();
+        closeDrawer();
+      }}
     >
       <header>
         <div><History size={15} /><strong>对话记录</strong></div>
@@ -297,10 +322,26 @@ export function ConversationHistoryPanel({
           if (event.key === "Escape" && query) { event.stopPropagation(); setQuery(""); }
         }} />
       </label>
-      <div className="conversation-history-list">
-        {!groups.length && !searchPending ? <p className="conversation-history-empty" role="status">{query.trim() ? "没有匹配的对话，试试其他关键词" : "还没有对话，点击上方开始"}</p> : null}
+      <div className="conversation-history-list" onScroll={(event) => {
+        if (openMenuId === null) return;
+        const list = event.currentTarget;
+        const trigger = list.querySelector<HTMLButtonElement>(`[data-menu-trigger="${openMenuId}"]`);
+        if (!trigger) return;
+        const listBounds = list.getBoundingClientRect();
+        const triggerBounds = trigger.getBoundingClientRect();
+        if (triggerBounds.bottom <= listBounds.top || triggerBounds.top >= listBounds.bottom) {
+          setOpenMenuId(null);
+        }
+      }}>
+        {searchFailed && query.trim() ? (
+          <p className="conversation-history-empty" role="alert">
+            全文搜索暂时不可用，下面只匹配标题和摘要。
+            <button type="button" onClick={() => setSearchAttempt((attempt) => attempt + 1)}>重试</button>
+          </p>
+        ) : null}
+        {!groups.length && !searchPending ? <p className="conversation-history-empty" role="status">{query.trim() ? (searchFailed ? "标题和摘要中没有匹配项" : "没有匹配的对话，试试其他关键词") : "还没有对话，点击上方开始"}</p> : null}
         {groups.map((group) => (
-          <section className="conversation-history-group" key={group.label} aria-label={group.label}>
+          <section className="conversation-history-group" key={group.folderId ? `folder:${group.folderId}` : group.label} aria-label={group.label}>
             <FolderHeading
               label={group.label}
               folder={folders.find((item) => item.id === group.folderId)}
@@ -317,35 +358,44 @@ export function ConversationHistoryPanel({
                   <span><strong>{conversation.title}</strong><small>{conversationSubtitle(conversation)}</small></span>
                 </button>
                 <div className="conversation-history-actions">
-                  <button type="button" onClick={() => setOpenMenuId((current) => current === conversation.id ? null : conversation.id)} data-menu-trigger={conversation.id} aria-haspopup="menu" title="更多操作" aria-label={`${conversation.title} 的更多操作`} aria-expanded={openMenuId === conversation.id}>
-                    <MoreHorizontal size={16} />
-                  </button>
+                  <DropdownMenu.Root
+                    modal={false}
+                    open={open && openMenuId === conversation.id}
+                    onOpenChange={(next, details) => {
+                      if (details.reason === "escape-key") details.event.stopPropagation();
+                      setOpenMenuId((current) => next ? conversation.id : current === conversation.id ? null : current);
+                    }}
+                  >
+                    <DropdownMenu.Trigger data-menu-trigger={conversation.id} title="更多操作" aria-label={`${conversation.title} 的更多操作`}>
+                      <MoreHorizontal size={16} aria-hidden="true" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenuContent
+                      className="conversation-history-menu"
+                      aria-label={`${conversation.title} 的操作`}
+                      align="end"
+                      container={panelRef}
+                      collisionBoundary={panelRef.current ?? undefined}
+                    >
+                      <DropdownMenu.Item onClick={() => openConversationDialog(onRename, conversation)}><Pencil size={13} aria-hidden="true" />重命名</DropdownMenu.Item>
+                      <DropdownMenu.Item onClick={() => onArchive(conversation)}><Archive size={13} aria-hidden="true" />{conversation.status === "active" ? "归档" : "恢复"}</DropdownMenu.Item>
+                      {onTogglePin && <DropdownMenu.Item onClick={() => onTogglePin(conversation)}><Pin size={13} aria-hidden="true" />{pinnedIds.includes(conversation.id) ? "取消置顶" : "置顶"}</DropdownMenu.Item>}
+                      {onAssignFolder && folders.map((folder) => {
+                        const assigned = folderAssignments[conversation.id] === folder.id;
+                        return (
+                          <DropdownMenu.Item key={folder.id} onClick={() => onAssignFolder(conversation, assigned ? null : folder.id)}>
+                            <FolderPlus size={13} aria-hidden="true" />{assigned ? `移出${folder.name}` : `放入${folder.name}`}
+                          </DropdownMenu.Item>
+                        );
+                      })}
+                      <DropdownMenu.Item className="danger" onClick={() => openConversationDialog(onRemove, conversation)}><Trash2 size={13} aria-hidden="true" />删除</DropdownMenu.Item>
+                    </DropdownMenuContent>
+                  </DropdownMenu.Root>
                 </div>
               </div>
             ))}
           </section>
         ))}
       </div>
-      {/* Keep the popup outside the list's scroll clipping boundary. */}
-      {menuConversation ? <div className="conversation-history-menu" ref={menuRef} style={menuStyle} role="menu" aria-label={`${menuConversation.title} 的操作`} onKeyDown={(event) => {
-        if (event.key === "Escape") { event.stopPropagation(); closeMenu(); return; }
-        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-        const current = items.indexOf(document.activeElement as HTMLButtonElement);
-        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        items[next]?.focus();
-      }}>
-        <button role="menuitem" onClick={() => { onRename(menuConversation); closeMenu(); }}><Pencil size={13} />重命名</button>
-        <button role="menuitem" onClick={() => { onArchive(menuConversation); closeMenu(); }}><Archive size={13} />{menuConversation.status === "active" ? "归档" : "恢复"}</button>
-        {onTogglePin ? <button role="menuitem" onClick={() => { onTogglePin(menuConversation); closeMenu(); }}><Pin size={13} />{pinnedIds.includes(menuConversation.id) ? "取消置顶" : "置顶"}</button> : null}
-        {onAssignFolder && folders.length ? folders.map((folder) => (
-          <button role="menuitem" key={folder.id} onClick={() => { onAssignFolder(menuConversation, folderAssignments[menuConversation.id] === folder.id ? null : folder.id); closeMenu(); }}>
-            <FolderPlus size={13} />{folderAssignments[menuConversation.id] === folder.id ? `移出${folder.name}` : `放入${folder.name}`}
-          </button>
-        )) : null}
-        <button className="danger" role="menuitem" onClick={() => { onRemove(menuConversation); closeMenu(); }}><Trash2 size={13} />删除</button>
-      </div> : null}
     </aside>
   );
 }

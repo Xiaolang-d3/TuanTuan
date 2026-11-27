@@ -1,6 +1,9 @@
+export type ProjectContext = { id: string; name: string; sources: Array<{ id: number; title: string }> };
+
 export type Conversation = {
   id: number;
   model_profile_id?: string | null;
+  project_context?: ProjectContext | null;
   kernel?: "tuantuan" | "dsh";
   title: string;
   status: "active" | "archived";
@@ -92,6 +95,9 @@ export type AgentCapabilities = {
 
 export type ViewKey =
   | "dashboard"
+  | "history"
+  | "projects"
+  | "skills"
   | "chat"
   | "images"
   | "video"
@@ -121,6 +127,7 @@ export type ModelConnection = {
   /** Protocol that auto negotiation actually settled on for this connection. */
   detected_protocol?: ResolvedModelProtocol | null;
   protocol_label?: string;
+  auth_kind?: "chatgpt_subscription";
   api_key_configured: boolean;
   credential_status?: "saved_unverified" | "available" | "missing" | "unavailable";
   enabled: boolean;
@@ -340,6 +347,8 @@ export type ModelServiceCheck = ModelServiceMonitor & {
   suggested_protocol?: ResolvedModelProtocol | null;
 };
 
+export type AgentRunStatus = "done" | "failed" | "waiting_user" | "cancelled";
+
 export type AgentOperationsSnapshot = {
   window_days: 7 | 30 | 90;
   generated_at: string;
@@ -359,7 +368,7 @@ export type AgentOperationsSnapshot = {
     total_tokens: number;
   };
   status_breakdown: Array<{
-    status: "done" | "failed" | "waiting_user" | "cancelled";
+    status: AgentRunStatus;
     count: number;
   }>;
   trend: Array<{
@@ -381,13 +390,15 @@ export type AgentOperationsSnapshot = {
     route: string;
     count: number;
   }>;
+  matching_runs: number;
   recent_runs: Array<{
     id: string;
     message_id: number;
     conversation_id: number;
+    conversation_available: boolean;
     conversation_title: string;
     task_id: number | null;
-    status: "done" | "failed" | "waiting_user" | "cancelled";
+    status: AgentRunStatus;
     stop_reason: string;
     provider: string;
     platform: string;

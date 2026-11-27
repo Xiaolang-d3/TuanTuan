@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from uuid import UUID
 
-from openai import APIStatusError
+from openai import APIError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..agent.image_design_skill import image_design_prompt
@@ -19,6 +19,7 @@ from ..domain import AgentMessage, ModelRequest
 from ..model_protocol import model_protocol_for_profile
 from ..models import ModelProviderError
 from ..models.image_adapters import ImageAdapter, ImageSize, connection_image_adapter, image_adapter
+from ..models.image_errors import ImageRequestError, image_request_error
 from ..models.selection import select_model_for_purpose
 from ..observability.model_context import model_call_scope
 from ..workspace import resolve_db_path
@@ -229,7 +230,13 @@ async def _execute(task_id: str, cid: int, request: GenerateIn, connection: dict
             if cached is None:
                 with model_call_scope(connection, task_id, selection_reason=connection.get("selection_reason", "")):
                     sent = True
-                    response = await provider.generate(call)
+                    try:
+                        response = await provider.generate(call)
+                    except (ModelProviderError, APIError) as exc:
+                        upstream = exc if isinstance(exc, APIError) else exc.__cause__
+                        if isinstance(upstream, APIError):
+                            raise image_request_error(upstream) from None
+                        raise
                 cached = persist_images(task_id, response, connection["model_name"], prompt=effective_prompt)
             _publish(task_id, cid, cached, provider.name)
     except asyncio.CancelledError:
@@ -238,10 +245,9 @@ async def _execute(task_id: str, cid: int, request: GenerateIn, connection: dict
     except Exception as exc:
         # Downstream storage/decoding failures, timeout, disconnect and 5xx do
         # not prove non-execution. Never store arbitrary upstream error strings.
-        cause = exc.__cause__
-        rejected = isinstance(exc, ModelProviderError) and isinstance(cause, APIStatusError) and cause.status_code in {400,401,403,404,405,422}
-        if rejected or not sent:
-            message = "服务拒绝了所选模型或参数。请检查模型权限和画幅。" if rejected else "尚未调用生图服务，请检查模型配置。"
-            _set_error(task_id, "failed", message)
+        if isinstance(exc, ImageRequestError):
+            _set_error(task_id, "failed" if exc.definitely_rejected else "uncertain", str(exc))
+        elif not sent:
+            _set_error(task_id, "failed", "尚未调用生图服务，请检查模型配置。")
         else:
             _set_error(task_id, "uncertain", _UNCERTAIN)

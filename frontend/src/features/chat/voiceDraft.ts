@@ -28,7 +28,7 @@ export class VoiceDraftEditor {
     }
   }
 
-  apply(draft: string, update: VoiceTranscript, selection: Selection): { text: string; selection: Selection } | null {
+  apply(draft: string, update: VoiceTranscript, selection: Selection, maxLength = 200_000): { text: string; selection: Selection } | null {
     this.observe(draft);
     let range = this.range;
     if (range && update.segmentId < range.segmentId) return null;
@@ -47,7 +47,7 @@ export class VoiceDraftEditor {
     const spoken = update.text.trim();
     const insertion = spoken ? separator(before, spoken) + spoken + separator(spoken, after) : "";
     const text = before + insertion + after;
-    if (text.length > 200_000) return null;
+    if (text.length > maxLength) return null;
     const oldEnd = range.end;
     const delta = insertion.length - (oldEnd - range.start);
     const remap = (index: number) => index >= oldEnd ? index + delta : index <= range.start ? index : range.start + insertion.length;

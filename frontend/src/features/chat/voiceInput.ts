@@ -3,6 +3,7 @@ import type { createApiClient } from "../../api/client";
 export type VoiceTranscript = { segmentId: number; revision: number; text: string; final: boolean };
 export type VoiceInputSession = {
   accept: (audio: Blob, signal: AbortSignal) => Promise<VoiceTranscript[]>;
+  finish: (signal: AbortSignal) => Promise<VoiceTranscript[]>;
   close: () => Promise<void>;
 };
 export type VoiceInputService = {
@@ -45,6 +46,12 @@ export function createVoiceInputService(client: ReturnType<typeof createApiClien
           body.append("file", audio, "dictation.wav");
           const result = await client<{ updates: VoiceTranscript[] }>(`/speech/sessions/${id}/audio?sequence=${sequence}`, { method: "POST", body, signal: audioSignal }, 10_000);
           sequence += 1;
+          return result.updates;
+        },
+        async finish(finishSignal) {
+          if (closed || finishSignal.aborted) throw new DOMException("Aborted", "AbortError");
+          const result = await client<{ updates: VoiceTranscript[] }>(`/speech/sessions/${id}/finish?sequence=${sequence}`, { method: "POST", signal: finishSignal }, 10_000);
+          closed = true;
           return result.updates;
         },
         async close() {

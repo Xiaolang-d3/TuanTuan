@@ -17,9 +17,9 @@ describe("continuous offline voice input", () => {
   const track = { stop: vi.fn(), onended: null as (() => void) | null };
   const stream = { getTracks: () => [track] };
   const getUserMedia = vi.fn();
-  const inputSession = { accept: vi.fn(), close: vi.fn() };
+  const inputSession = { accept: vi.fn(), finish: vi.fn(), close: vi.fn() };
   const service = { prepare: vi.fn(), open: vi.fn() };
-  const capture = { start: vi.fn(), close: vi.fn() };
+  const capture = { start: vi.fn(), finish: vi.fn(), close: vi.fn() };
   let emit: (blob: Blob) => void;
   let emitLevel: (level: number) => void;
 
@@ -28,9 +28,11 @@ describe("continuous offline voice input", () => {
     service.prepare.mockResolvedValue(undefined);
     service.open.mockResolvedValue(inputSession);
     inputSession.close.mockResolvedValue(undefined);
+    inputSession.finish.mockResolvedValue([]);
     inputSession.accept.mockResolvedValue([{ segmentId: 0, revision: 1, text: "离线识别内容", final: false }]);
     getUserMedia.mockResolvedValue(stream);
     capture.start.mockResolvedValue(undefined);
+    capture.finish.mockResolvedValue(undefined);
     audio.supported.mockReturnValue(true);
     audio.create.mockImplementation((onSegment, _onError, onLevel) => { emit = onSegment; emitLevel = onLevel; return capture; });
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
@@ -84,6 +86,28 @@ describe("continuous offline voice input", () => {
     await act(async () => second.resolve([{ segmentId: 0, revision: 2, text: "第一句，第二句。", final: true }]));
     expect(onText.mock.calls.map(([update]) => update.text)).toEqual(["第一句", "第一句，第二句。"]);
     expect(result.current.listening).toBe(true);
+  });
+
+  it("stops the microphone, drains queued and buffered audio, and returns the final transcript", async () => {
+    const first = deferred<import("../features/chat/voiceInput").VoiceTranscript[]>();
+    const preview = { segmentId: 0, revision: 1, text: "语音", final: false };
+    const final = { segmentId: 0, revision: 2, text: "语音尾句。", final: true };
+    inputSession.accept.mockReturnValueOnce(first.promise).mockResolvedValue([]);
+    capture.finish.mockImplementationOnce(async () => { emit(segment()); });
+    inputSession.finish.mockResolvedValueOnce([final]);
+    const onText = vi.fn();
+    const { result } = renderHook(() => useVoiceAnswer(onText, service));
+    await act(async () => { await result.current.startListening(); emit(segment()); });
+    let finishing!: Promise<boolean>;
+    act(() => { finishing = result.current.finishListening(); });
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(result.current.status).toBe("finishing");
+    expect(inputSession.finish).not.toHaveBeenCalled();
+    await act(async () => { first.resolve([preview]); await expect(finishing).resolves.toBe(true); });
+    expect(inputSession.accept).toHaveBeenCalledTimes(2);
+    expect(inputSession.finish).toHaveBeenCalledOnce();
+    expect(onText.mock.calls).toEqual([[preview], [final]]);
+    expect(result.current.status).toBe("idle");
   });
 
   it("captures during preparation and releases the microphone when cancelled", async () => {

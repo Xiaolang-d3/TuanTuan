@@ -33,12 +33,50 @@ async function mockWorkspace(page: Page, theme: "light" | "dark", signedIn = tru
     if (path === "/chat/messages") return route.fulfill({ json: [] });
     if (path === "/library") return route.fulfill({ json: { profile: { name: "主题预览", privacy_mode: "redacted" }, facts: [], sources: [] } });
     if (path === "/agent/capabilities") return route.fulfill({ json: { configured: true, active_model_provider: "openai_compatible", active_model_name: "mock-model", tools: [], model_providers: [], platforms: [] } });
+    if (path === "/image-studio/options") return route.fulfill({ json: { default_profile_id: null, models: [] } });
+    if (path === "/projects") return route.fulfill({ json: { items: [] } });
+    if (path === "/creation-records") return route.fulfill({ json: { items: [], has_more: false } });
     if (path === "/presentations") return route.fulfill({ json: { jobs: [], next_cursor: null } });
     if (path === "/document-reviews") return route.fulfill({ json: { jobs: [] } });
     if (path === "/agent/runs/current") return route.fulfill({ json: { run: null } });
     return route.fulfill({ json: {} });
   });
 }
+
+test("registration email suggestions support keyboard selection and native Tab at 320px", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await mockWorkspace(page, "dark", false);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "没有账号？创建账号", exact: true }).click();
+  const email = page.getByRole("combobox", { name: "邮箱" });
+  const suggestions = page.getByRole("listbox", { name: "常见邮箱建议" });
+  await email.fill("reader@");
+  await expect(suggestions).toBeInViewport({ ratio: 1 });
+  await email.press("Home");
+  await email.press("End");
+  await email.press("ArrowDown");
+  await email.press("ArrowDown");
+  const choice = suggestions.getByRole("option", { name: "reader@163.com" });
+  await expect(email).toHaveAttribute("aria-activedescendant", (await choice.getAttribute("id"))!);
+  await email.press("Enter");
+  await expect(email).toHaveValue("reader@163.com");
+  await expect(email).toBeFocused();
+  await expect(email).toHaveAttribute("aria-invalid", "false");
+  await expect(suggestions).toBeHidden();
+
+  await email.fill("reader@q");
+  await expect(suggestions).toBeVisible();
+  await email.press("Tab");
+  await expect(page.getByLabel("密码", { exact: true })).toBeFocused();
+  await expect(suggestions).toBeHidden();
+  await expect(email).toHaveValue("reader@q");
+  await email.fill("reader@company.test");
+  await email.press("Escape");
+  await expect(email).toHaveValue("reader@company.test");
+  expect(errors).toEqual([]);
+});
 
 for (const theme of ["light", "dark"] as const) {
   test(`${theme} validation keeps filled fields readable`, async ({ page }) => {
@@ -48,7 +86,7 @@ for (const theme of ["light", "dark"] as const) {
     const email = page.getByLabel("邮箱", { exact: true });
     await email.fill("not-an-email");
     await expect(page.getByRole("listbox", { name: "常见邮箱建议" })).toBeVisible();
-    await page.getByRole("button", { name: "创建账号", exact: true }).click();
+    await page.locator('button[type="submit"]').filter({ hasText: /^创建账号$/ }).click();
     await expect(email).toHaveAttribute("aria-invalid", "true");
     const contrast = await email.evaluate(element => {
       const style = getComputedStyle(element);

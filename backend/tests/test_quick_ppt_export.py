@@ -1,9 +1,11 @@
+import hashlib
 import os
 from zipfile import ZipFile
 
 import pytest
 
 from app.presentations.quick_plan import DeckPlan
+from app.presentations.validation import validate_quick_delivery
 
 pytest.importorskip("pptx", reason="requires the isolated PPT runner dependencies")
 
@@ -33,7 +35,10 @@ def sample_deck():
 
 def test_export_contains_native_text_in_each_slide(tmp_path):
     destination = tmp_path / "result.pptx"
-    export_deck(sample_deck(), destination)
+    plan = sample_deck()
+    plan.slides[0].takeaway = "这一行文字在实际渲染时会被拆成两个独立段落，导出后仍应能核对每个字。"
+    export_deck(plan, destination)
+    assert validate_quick_delivery(destination, tmp_path, plan) == hashlib.sha256(destination.read_bytes()).hexdigest()
     with ZipFile(destination) as archive:
         assert archive.testzip() is None
         for number, slide in enumerate(sample_deck().slides, 1):

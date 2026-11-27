@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { createExtensionPreview, parsePlugin, parseSkill } from "./preview-service";
-import { createExtensionService } from "./extension-service";
+import { createExtensionService, type ExtensionExecution } from "./extension-service";
 import type { ExtensionKind, ExtensionSummary, McpDraft } from "./types";
 
 function useExtensionState(apiBase?: string, accessToken?: string) {
@@ -11,14 +11,14 @@ function useExtensionState(apiBase?: string, accessToken?: string) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [executionReason, setExecutionReason] = useState("");
+  const [execution, setExecution] = useState<ExtensionExecution | null>(null);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!service) return;
     setLoading(true);
     try {
       const catalog = await service.list(signal);
       if (signal?.aborted) return;
-      setItems(catalog.extensions); setConnections(catalog.connections); setExecutionReason(catalog.execution.reason); setError("");
+      setItems(catalog.extensions); setConnections(catalog.connections); setExecution(catalog.execution); setError("");
     } catch (caught) {
       if (!signal?.aborted) setError(caught instanceof Error ? caught.message : "扩展目录读取失败");
       throw caught;
@@ -31,7 +31,7 @@ function useExtensionState(apiBase?: string, accessToken?: string) {
     finally { setBusy(false); }
   }
   return {
-    items, connections, loading, busy, error, executionReason, isPreview: !service,
+    items, connections, loading, busy, error, execution, executionReason: execution?.reason ?? "", isPreview: !service,
     activityService: service?.activity,
     presentationService: service?.presentations,
     discoveryService: service,

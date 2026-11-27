@@ -111,6 +111,7 @@ _PUBLIC_FRONTEND_FILES = {
     "/tuantuan-legacy-mark-v2.png",
     "/tuantuan-logo.png",
     "/tuantuan-favicon.png",
+    "/tuantuan-mark.svg",
     "/tuantuan-legacy-icon-v1.png",
     "/tuantuan-legacy-mark-v1.png",
     "/tuantuan-legacy-favicon-v1.png",
@@ -256,7 +257,7 @@ async def require_login(request: Request, call_next: Any) -> Any:
     root = ensure_workspace(int(user["id"]))
     with use_workspace(int(user["id"]), root):
         response = await call_next(request)
-        if path.startswith(("/auth/", "/image-studio/")):
+        if path in ("/works/final", "/projects") or path.startswith(("/auth/", "/image-studio/", "/works/final/", "/projects/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 

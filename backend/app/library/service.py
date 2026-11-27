@@ -25,18 +25,18 @@ def get_library(db_path: str | Path | None = None) -> dict[str, Any]:
     }
 
 
-def model_context(db_path: str | Path | None = None) -> dict[str, Any]:
+def model_context(db_path: str | Path | None = None, *, source_ids: set[int] | None = None) -> dict[str, Any]:
     settings = get_agent_settings(db_path)
-    if not settings["library_memory_enabled"]:
+    if not settings["library_memory_enabled"] or (source_ids is not None and not settings["knowledge_memory_enabled"]):
         return {"document": "", "confirmed_facts": [], "sources": [], "disabled": True}
-    bundle = get_library(db_path)
+    bundle = get_library(db_path) if source_ids is None else {"profile": None, "facts": []}
     profile = bundle["profile"]
     facts = [
         {"id": fact["id"], "statement": fact["statement"]}
         for fact in bundle["facts"] if fact["status"] == "confirmed"
     ] if settings["knowledge_memory_enabled"] else []
     facts = [{**fact, "statement": scan_and_redact(fact["statement"])[1]} for fact in facts]
-    sources = enabled_source_details(db_path)
+    sources = enabled_source_details(db_path, source_ids=source_ids)
     excerpts: list[str] = []
     evidence: list[dict] = []
     legacy_excerpts: list[str] = []

@@ -3,14 +3,24 @@ import type { ImageStudioApi, StudioPreview, StudioPreviewRequest } from "./imag
 import { failureMessage } from "./useImageWorkspace";
 
 const reasons: Record<string, string> = {
+  not_configured: "尚未配置图片模型",
+  api_key_invalid: "API Key 无效，请在模型管理中更新密钥后测试连接。",
+  model_connection_failed: "模型连接失败，请检查 API 地址和网络后测试连接。",
+  insufficient_quota: "模型额度不足，请检查服务商账户额度或更换模型。",
+  model_temporarily_unavailable: "模型暂时不可用，请稍后再试或选择其他模型。",
+  operation_unsupported: "模型不支持当前图片功能，请在模型管理中确认图片生成能力。",
   profile_missing: "模型已删除",
   profile_disabled: "模型已停用",
   service_disabled: "服务已停用",
-  credential_missing: "缺少 API 密钥",
-  credential_unavailable: "凭证不可用",
-  operation_unsupported: "模型不支持此操作",
-  capability_unconfirmed: "模型能力待确认",
+  credential_missing: "缺少 API Key，请在模型管理中配置凭证。",
+  credential_unavailable: "已保存的凭证暂时不可用，请检查本机密钥存储。",
+  capability_unconfirmed: "模型能力待确认，请在模型管理中确认图片生成能力。",
 };
+
+export function studioPreviewReason(data?: StudioPreview) {
+  const code = data?.reason_code ?? data?.reason;
+  return (code && Object.hasOwn(reasons, code) ? reasons[code] : undefined) || data?.reason || "没有可用的图片模型服务";
+}
 
 export function useStudioModelPreview(api: ImageStudioApi, enabled: boolean, { operation, profile_id, asset_id }: StudioPreviewRequest) {
   const [revision, setRevision] = useState(0);
@@ -65,7 +75,7 @@ export function StudioModelPicker({ label, profileId, onChange, preview, busy }:
   const unavailableModel = profileId && displayData?.candidates.find(candidate => candidate.profile_id === profileId);
   const placeholder = profileId
     ? `${unavailableModel ? unavailableModel.model_name : "已选模型"}（${loading ? "待确认" : "不可用"}）`
-    : options.length ? "请选择模型" : loading ? "正在读取模型…" : "没有可用的模型";
+    : options.length ? "请选择模型" : loading ? "正在读取模型…" : "没有可用的图片模型";
   return <div className="studio-model-picker">
     <label>模型 <select aria-label={label} aria-busy={loading} value={hasSelection ? selectedId : ""}
       disabled={busy || !options.length} onChange={event => onChange(event.target.value)}>
@@ -73,7 +83,7 @@ export function StudioModelPicker({ label, profileId, onChange, preview, busy }:
       {options.map(model => <option key={model.profile_id} value={model.profile_id}>{model.model_name}</option>)}
     </select></label>
     {!loading && (error || (data && (!data.eligible || !data.comparison_key || !data.selection))) &&
-      <span role="alert" className="studio-error">{error || reasons[data?.reason ?? ""] || data?.reason || "没有可用的模型服务"} <button type="button" disabled={busy} onClick={() => refresh()}>重新确认模型</button></span>}
+      <span role="alert" className="studio-error">{error || reasons[data?.reason_code ?? data?.reason ?? ""] || data?.reason || "没有可用的图片模型服务"} <button type="button" disabled={busy} onClick={() => refresh()}>重新确认模型</button></span>}
     {notice && <span role="alert" className="studio-error">{notice}</span>}
   </div>;
 }

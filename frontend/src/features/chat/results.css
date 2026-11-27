@@ -1,4 +1,5 @@
-.chat-result-backdrop { position: fixed; inset: 0; z-index: 165; display: grid; place-items: center; padding: 24px; background: rgba(18,17,32,.5); backdrop-filter: blur(3px); }
+.chat-result-backdrop { position: fixed; inset: 0; z-index: 165; background: rgba(18,17,32,.5); backdrop-filter: blur(3px); }
+.chat-result-backdrop + .ui-dialog-viewport { z-index: 165; padding: 24px; }
 .chat-result-dialog { display: flex; flex-direction: column; width: min(100%,1060px); height: min(860px,calc(100dvh - 48px)); min-height: 0; overflow: hidden; border: 1px solid var(--color-border); border-radius: 18px; color: var(--color-text); background: var(--color-surface); box-shadow: 0 24px 72px rgba(16,13,40,.2); }
 .chat-result-dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--color-border); }
 .chat-result-dialog h2 { font-size: 16px; margin: 0; }
@@ -25,7 +26,13 @@
 .chat-result-body a { color: var(--color-brand-strong); }
 .chat-result-body img { max-width: 100%; }
 .chat-result-empty { text-align: center; padding: 40px 24px; color: var(--color-text-muted); }
-@media (max-width: 640px) { .chat-result-backdrop { padding: 0; } .chat-result-dialog { height: 100dvh; border-radius: 0; } .chat-result-tools, .chat-result-save { padding: 12px; } .chat-result-body { padding: 16px; } .chat-result-tools label { width: 100%; } .chat-result-tools select { flex: 1; } }
+@media (max-width: 640px) { .chat-result-backdrop + .ui-dialog-viewport { padding: 0; } .chat-result-dialog { height: 100dvh; border-radius: 0; } .chat-result-tools, .chat-result-save { padding: 12px; } .chat-result-body { padding: 16px; } .chat-result-tools label { width: 100%; } .chat-result-tools select { flex: 1; } }
+.chat-discard-draft-backdrop, .chat-discard-draft-backdrop + .ui-dialog-viewport { z-index: 176; }
+.chat-discard-draft-backdrop { backdrop-filter: none; }
+.chat-discard-draft-dialog { width: min(calc(100% - 32px), 420px); height: auto; padding: 20px; border-radius: 12px; }
+.chat-discard-draft-dialog > p { margin: 10px 0 20px; color: var(--color-text-secondary); font-size: 14px; }
+.chat-discard-draft-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.chat-discard-draft-dialog button.chat-discard-draft-confirm { color: var(--color-danger); }
 .chat-history-attachment { display: inline-flex; flex-direction: column; align-items: flex-start; max-width: min(100%,300px); }
 .chat-workspace .message-attachments .chat-history-attachment > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .chat-workspace .message-attachments .chat-history-attachment.is-image > button:first-child { display: grid; place-items: center; width: 100%; min-height: 64px; padding: 0; overflow: hidden; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface-subtle); cursor: zoom-in; }
@@ -52,15 +59,23 @@
 .chat-workspace .chat-generated-image .generated-image-preview > button:first-child:focus-visible { border-color: transparent; outline: 2px solid var(--color-brand); outline-offset: -2px; box-shadow: none; }
 .chat-generated-image .generated-image-preview img { display: block; width: auto; max-width: 100%; height: auto; max-height: 320px; object-fit: contain; border-radius: 0; }
 .chat-generated-image .generated-image-preview > button:not(:first-child) { margin-top: 6px; padding: 5px 0; border: 0; color: var(--color-text-muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
-.chat-generated-image figcaption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin-top: 6px; padding: 0 2px; color: var(--color-text-muted); font-size: 12px; }
-.generated-image-dimensions { color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.generated-image-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; }
-.chat-workspace .chat-generated-image figcaption button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; min-height: 34px; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; color: var(--color-text-secondary); background: transparent; font: inherit; font-size: 12px; line-height: 1.5; white-space: nowrap; cursor: pointer; }
-.chat-workspace .chat-generated-image figcaption button:hover:not(:disabled) { color: var(--color-brand-strong); background: var(--color-brand-soft); }
-.chat-workspace .chat-generated-image figcaption button:disabled { opacity: .55; cursor: wait; }
 .chat-generated-image button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
-@media (max-width: 480px) { .chat-workspace .chat-generated-image figcaption button { min-height: 40px; } }
 .chat-result-notice { color: var(--color-text-muted); font-size: 12px; padding: 0 24px; }
+
+.message-actions:has(> .generated-image-actions-menu), .generated-image-save-menu { position: relative; }
+.generated-image-actions-menu > summary, .generated-image-save-menu > summary { display: flex; align-items: center; border-radius: 6px; color: var(--color-text-muted); cursor: pointer; list-style: none; }
+.generated-image-actions-menu > summary::-webkit-details-marker, .generated-image-save-menu > summary::-webkit-details-marker { display: none; }
+.generated-image-actions-menu[open] > summary, .generated-image-actions-menu > summary:hover, .generated-image-save-menu[open] > summary, .generated-image-save-menu > summary:hover { color: var(--color-text); background: var(--color-surface-subtle); }
+.generated-image-message-action:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.generated-image-message-action[aria-busy="true"] { cursor: progress; }
+.generated-image-action-list { position: absolute; z-index: 2; inset-inline-start: 0; bottom: calc(100% + 4px); width: min(240px, 70vw); max-height: 180px; overflow: auto; box-sizing: border-box; margin: 0; padding: 4px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); list-style: none; }
+.generated-image-action-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-inline: 6px; }
+.generated-image-action-list > li > span:first-child { flex: 1 0 0; min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.generated-image-save-choices { position: absolute; z-index: 3; bottom: calc(100% + 4px); inset-inline-start: 0; min-width: 150px; padding: 4px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+.generated-image-save-choice { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 5px; color: var(--color-text); background: transparent; font: inherit; font-size: 12px; text-align: start; cursor: pointer; }
+.generated-image-save-choice:hover, .generated-image-save-choice:focus-visible { background: var(--color-surface-subtle); }
+.message-actions:has(> .generated-image-action-error) { max-width: 100%; flex-wrap: wrap; }
+.generated-image-action-error { flex-basis: 100%; color: var(--color-danger); font-size: 12px; overflow-wrap: anywhere; }
 
 .chat-workspace .generated-image-prompt { margin-top: 6px; color: var(--color-text-muted); font-size: 12px; }
 .chat-workspace .generated-image-prompt > summary { display: flex; align-items: center; gap: 4px; width: fit-content; min-height: 34px; cursor: pointer; list-style: none; }
@@ -74,8 +89,10 @@
 .chat-workspace .generated-image-prompt-body > [role=status] { margin-left: 10px; }
 @media (max-width: 480px) { .chat-workspace .generated-image-prompt > summary, .chat-workspace .generated-image-prompt-body > button { min-height: 40px; } }
 
-/* Keep the hit area stable while moving from an older image to its actions. */
 @media (hover: hover) and (pointer: fine) {
-  .chat-generated-image[data-actions="hover"] > :is(figcaption, .generated-image-prompt) { opacity: 0; pointer-events: none; }
-  .chat-generated-image[data-actions="hover"]:is(:hover, :focus-within, :has(details[open])) > :is(figcaption, .generated-image-prompt) { opacity: 1; pointer-events: auto; }
+  .chat-generated-image[data-actions="hover"] > .generated-image-prompt { opacity: 0; pointer-events: none; }
+  .chat-generated-image[data-actions="hover"]:is(:hover, :focus-within, :has(details[open])) > .generated-image-prompt { opacity: 1; pointer-events: auto; }
+  .message:not(:hover, :focus-within) .message-actions > button.generated-image-message-action:not([aria-busy="true"]),
+  .message:not(:hover, :focus-within) .generated-image-actions-menu:not([open]) > summary,
+  .message:not(:hover, :focus-within) .generated-image-save-menu:not([open]) > summary { opacity: 0; pointer-events: none; }
 }

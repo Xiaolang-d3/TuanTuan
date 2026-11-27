@@ -130,9 +130,11 @@
 .home-skeleton-title { width: 90%; height: 16px; }
 .home-skeleton-line { width: 100%; height: 12px; }
 .home-skeleton-line.short { width: 64%; }
-.home-menu { position: fixed; z-index: 100; min-width: 216px; border: 1px solid; border-radius: 12px; padding: 4px; }
+.ui-dropdown-positioner:has(> .home-menu) { z-index: 130; }
+.home-menu { min-width: 216px; max-height: var(--available-height); overflow-y: auto; border: 1px solid; border-radius: 12px; padding: 4px; }
 .home-menu button { display: flex; width: 100%; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; text-align: left; font-size: 13px; line-height: 20px; white-space: nowrap; }
-.home-modal-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 24px; background: rgba(16, 16, 24, .4); }
+.home-modal-backdrop { position: fixed; inset: 0; z-index: 120; background: rgba(16, 16, 24, .4); }
+.home-modal-backdrop + .ui-dialog-viewport { z-index: 120; padding: 24px; }
 .home-dialog { width: min(560px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; overscroll-behavior: contain; padding: 24px; border: 1px solid; border-radius: 16px; }
 .home-dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .home-dialog h2 { margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; }
@@ -161,7 +163,7 @@
 .home-page[data-mode="compact"] .home-card-media, .home-page[data-mode="compact"] .home-card-summary, .home-page[data-mode="compact"] .home-featured-flag { display: none; }
 .home-page[data-mode="compact"] .home-card-title { font-size: 14px; line-height: 22px; font-weight: 500; -webkit-line-clamp: 1; min-height: 0; align-self: center; }
 .home-page[data-mode="compact"] .home-card-foot { gap: 16px; container-type: normal; align-self: center; }
-.home-page[data-mode="compact"] .home-action-label, .home-page[data-mode="compact"] .home-card .home-primary, .home-page[data-mode="compact"] .home-source-icon { display: none; }
+:is(.home-page, .home-dialog)[data-mode="compact"] .home-action-label, .home-page[data-mode="compact"] .home-card .home-primary, .home-page[data-mode="compact"] .home-source-icon { display: none; }
 .home-page[data-mode="compact"] .home-card .home-act { padding: 0 4px; }
 .home-page[data-mode="compact"] .home-card .home-source { max-width: 160px; }
 .home-page[data-mode="compact"] .home-repo { grid-template-rows: 24px 24px; grid-template-areas: "rank logo name actions" "rank logo meta meta"; height: 64px; }
@@ -185,7 +187,7 @@
 .home-bookmark-row h3 a:hover { color: var(--home-accent-text); }
 .home-bookmark-row p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 8px 0; color: var(--home-text-2); font-size: 13px; line-height: 20px; }
 .home-bookmark-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--home-text-3); font-size: 12px; line-height: 16px; }
-.home-menu { z-index: 130; }
+
 /* Trending metrics retain complete values when a language or delta is long. */
 .home-repo { grid-template-rows: 24px 20px minmax(20px, auto); height: auto; min-height: 80px; }
 .home-repo-meta { flex-wrap: wrap; gap: 4px 12px; overflow: visible; }
@@ -284,6 +286,23 @@
 .home-skill-name { font-size: 14px; line-height: 22px; font-weight: 600; }
 .home-skill-summary { font-size: 13px; line-height: 20px; }
 .home-skill-source { font-size: 12px; line-height: 16px; }
+
+/* V2 feed summary and its inline controls. */
+.home-news-summary { margin-block: 24px; }
+.home-news-summary-head { justify-content: space-between; margin-bottom: 12px; }
+.home-news-summary-head .home-head-tools { flex-wrap: wrap; }
+.home-news-summary-list { margin: 0; padding: 0; list-style: none; }
+.home-news-summary-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 0; border-top: 1px solid var(--home-line); }
+.home-news-summary-copy { flex: 1 1 216px; min-width: 0; }
+.home-news-summary-title { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.home-news-summary-title a { border-radius: 4px; }
+.home-news-summary-title a:hover { text-decoration: underline; }
+.home-news-summary-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 2px 0 4px; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.home-news-summary-message { margin: 0 0 12px; }
+.home-news-summary-foot { display: flex; justify-content: flex-end; }
+.home-news-summary-notice { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--home-line); border-radius: 8px; }
+.home-news-summary-notice span { flex: 1; overflow-wrap: anywhere; }
+.home-news-summary-notice button { display: inline-flex; align-items: center; flex: none; padding: 0; border: 0; }
 
 /* Info-stream tabs: AI 动态 / 技术热榜 / 我的技术栈 with lazy panels. */
 .home-info-tabs { margin-top: 24px; }

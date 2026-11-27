@@ -9,7 +9,13 @@ import re
 from ..model_protocol import is_image_generation_model, model_protocol_for_profile, protocol_requires_api_key, resolve_model_protocol, supports_image_edit
 
 
+def is_chatgpt_subscription(connection):
+    return bool(connection and connection.get("auth_kind") == "chatgpt_subscription")
+
+
 def model_output_types(profile, connection):
+    if is_chatgpt_subscription(connection):
+        return ["chat"], "provider"
     name = profile["model_name"].strip().lower().rsplit("/", 1)[-1]
     caps = profile.get("capabilities") or {}
     explicit = [kind for kind, key in (("chat", "chat"), ("image", "image_generation"), ("video", "video_generation")) if caps.get(key) == "supported"]
@@ -30,6 +36,8 @@ def model_output_types(profile, connection):
 
 
 def supported_purposes(profile, connection):
+    if is_chatgpt_subscription(connection):
+        return ["chat"]
     types, _ = model_output_types(profile, connection)
     base = connection.get("effective_base_url", connection.get("model_base_url", ""))
     protocol = model_protocol_for_profile(profile["model_name"], connection.get("protocol", connection.get("model_protocol", "auto")), profile.get("capabilities"), base)
@@ -49,39 +57,54 @@ def vision_status(profile):
 
 
 def purpose_exclusion(profile, connection, purpose, *, strict_capabilities=False, action=None):
-    """Explain the first unmet requirement without resolving a credential."""
+    rejection = _purpose_exclusion(profile, connection, purpose, strict_capabilities=strict_capabilities, action=action)
+    return rejection[1] if rejection else None
+
+
+def _purpose_exclusion(profile, connection, purpose, *, strict_capabilities=False, action=None):
+    """Return the code and message for the first unmet requirement."""
     if purpose == "video":
-        return "视频生成接口暂未接入"
+        return "operation_unsupported", "视频生成接口暂未接入"
     if purpose not in {"chat", "image", "vision"}:
-        return "暂不支持此模型用途"
+        return "operation_unsupported", "暂不支持此模型用途"
     if not profile.get("enabled", True):
-        return "模型已停用"
+        return "profile_disabled", "模型已停用"
     if not connection or not connection.get("enabled", True):
-        return "连接不存在或已停用"
+        return "service_disabled", "连接不存在或已停用"
+    if is_chatgpt_subscription(connection):
+        if purpose != "chat" or action is not None:
+            return "operation_unsupported", "ChatGPT 订阅仅支持交互式文本聊天"
+        if connection.get("credential_status") != "available":
+            return "credential_unavailable", "ChatGPT 订阅授权不可用，请在模型设置中重新登录或切回该账号"
+        return None
     types, _ = model_output_types(profile, connection)
     capability = {"chat": "chat", "image": "image_generation", "vision": "vision"}[purpose]
     status = vision_status(profile) if purpose == "vision" else (profile.get("capabilities") or {}).get(capability, "unknown")
     if status == "unsupported":
-        return "模型已明确不支持此用途"
+        return "operation_unsupported", "模型已明确不支持此用途"
     if ("chat" if purpose == "vision" else purpose) not in types:
-        return "模型输出能力未知，请先确认此用途" if not types else "模型输出类型不支持此用途"
+        if not types:
+            return "capability_unconfirmed", "模型输出能力未知，请先确认此用途"
+        return "operation_unsupported", "模型输出类型不支持此用途"
     if purpose == "vision" and status != "supported":
-        return "请先确认模型支持图片输入"
+        return "capability_unconfirmed", "请先确认模型支持图片输入"
     if purpose == "vision" and profile.get("context_limit") is not None:
-        return "图像理解需要使用未设置文本上下文限制的模型档案"
+        return "operation_unsupported", "图像理解需要使用未设置文本上下文限制的模型档案"
     if purpose == "vision" and (profile.get("capabilities") or {}).get("streaming") == "unsupported":
-        return "图像理解需要使用支持流式输出的模型"
+        return "operation_unsupported", "图像理解需要使用支持流式输出的模型"
     if purpose not in supported_purposes(profile, connection):
-        return "当前连接接口尚未接入此模型的执行动作"
+        return "operation_unsupported", "当前连接接口尚未接入此模型的执行动作"
     base = connection.get("effective_base_url", connection.get("model_base_url", ""))
     protocol = model_protocol_for_profile(profile["model_name"], connection.get("protocol", connection.get("model_protocol", "auto")), profile.get("capabilities"), base)
     resolved = resolve_model_protocol(profile["model_name"], protocol, base)
     if action == "image_edit" and not supports_image_edit(profile["model_name"], resolved, base):
-        return "当前模型或接口不支持图片编辑"
+        return "operation_unsupported", "当前模型或接口不支持图片编辑"
     if strict_capabilities and status != "supported":
-        return "严格能力模式需要先确认模型用途能力"
+        return "capability_unconfirmed", "严格能力模式需要先确认模型用途能力"
     if protocol_requires_api_key(resolved) and not connection.get("api_key_configured"):
-        return "此连接尚未配置可用凭证"
+        if connection.get("credential_status") == "unavailable":
+            return "credential_unavailable", "此连接的凭证暂不可用"
+        return "credential_missing", "此连接尚未配置可用凭证"
     return None
 
 
@@ -95,9 +118,13 @@ def select_model_for_purpose(catalog, purpose, profile_id=None, *, strict_capabi
     candidates, excluded = [], []
     profiles = sorted(catalog.get("profiles", []), key=lambda item: (item.get("created_at", ""), item["connection_id"], item["model_name"], item["id"]))
     for profile in profiles:
-        rejection = purpose_exclusion(profile, sources.get(profile["connection_id"]), purpose, strict_capabilities=strict_capabilities, action=action)
+        rejection = _purpose_exclusion(profile, sources.get(profile["connection_id"]), purpose, strict_capabilities=strict_capabilities, action=action)
         if rejection:
-            excluded.append({"profile_id": profile["id"], "reason": rejection})
+            code, message = rejection
+            exclusion = {"profile_id": profile["id"], "reason": message}
+            if purpose == "image":
+                exclusion["reason_code"] = code
+            excluded.append(exclusion)
         else:
             candidates.append(profile)
     result = {"purpose": purpose, "eligible": False, "profile_id": profile_id, "connection_id": None, "model_name": None, "reason": "", "excluded": excluded}
@@ -116,6 +143,12 @@ def select_model_for_purpose(catalog, purpose, profile_id=None, *, strict_capabi
             preferences.extend((value, "default_profile") for value in (catalog.get("effective_execution_profile_id"), catalog.get("default_profile_id")))
         chosen, reason = None, "automatic"
         for preferred, preferred_reason in preferences:
+            if preferred and action == "structured_output":
+                profile = next((item for item in profiles if item["id"] == preferred), None)
+                if profile and is_chatgpt_subscription(sources.get(profile["connection_id"])):
+                    error = "ChatGPT 订阅仅支持交互式文本聊天"
+                    result.update(profile_id=preferred, connection_id=profile["connection_id"], model_name=profile["model_name"], reason=error, error=error)
+                    return result
             chosen = next((item for item in candidates if item["id"] == preferred), None)
             if chosen:
                 reason = preferred_reason

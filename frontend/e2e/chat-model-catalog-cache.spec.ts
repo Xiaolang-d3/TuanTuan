@@ -40,11 +40,17 @@ test("restores service models immediately and retains them if refresh fails", as
   });
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1243, height: 900 });
   await page.goto("/#/chat/1");
   const trigger = page.getByRole("button", { name: /切换模型，当前 claude-sonnet-5/ });
   await expect(trigger).toBeEnabled();
   await expect(trigger).toHaveAttribute("title", /测试服务/);
+  await expect(page.getByRole("button", { name: /内核|DeepSeek Harness/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+  const output = resolve("..", "output", "chat-model-catalog-cache");
+  await mkdir(output, { recursive: true });
+  await page.screenshot({ path: resolve(output, "chat-composer-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 390, height: 844 });
   await trigger.click();
   const menu = page.getByRole("dialog", { name: "模型与参数" });
   await expect(menu.getByRole("option", { name: "cached-model" })).toBeVisible();
@@ -54,8 +60,6 @@ test("restores service models immediately and retains them if refresh fails", as
   const box = (await menu.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
-  const output = resolve("..", "output", "chat-model-catalog-cache");
-  await mkdir(output, { recursive: true });
   await page.screenshot({ path: resolve(output, "cached-models-narrow.png"), animations: "disabled" });
   release();
   await expect(menu.getByRole("alert")).toContainText("测试服务暂不可用");

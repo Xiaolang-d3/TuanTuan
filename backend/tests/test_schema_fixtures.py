@@ -46,7 +46,7 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         migrations = dict(conn.execute("SELECT version, name FROM schema_migrations"))
         assert migrations[old_version] == ("litellm_model_layer" if version == "29_litellm" else "independent_library")
-        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "image_studio_history_and_works"
+        assert migrations[DB_SCHEMA_VERSION] == migration_name(DB_SCHEMA_VERSION) == "project_context"
         # No existing row is lost (schema_migrations gains one row).
         for table, count in before_counts.items():
             expected = count + 1 if table == "schema_migrations" else count
@@ -61,6 +61,9 @@ def test_real_old_workspace_upgrades_to_current(tmp_path, version):
         assert {"model_fallback_policy", "model_capability_records", "chat_image_assets", "chat_image_operations"} <= tables
         assert {"library_collections", "library_collection_sources"} <= tables
         assert {"conversation_context_seeds", "image_studio_tasks", "image_studio_works"} <= tables
+        assert {"projects", "project_items"} <= tables
+        assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM project_items").fetchone()[0] == 0
         assert {"model_selection_json"} <= columns(conn, "agent_execution_runs")
 
     backup = tmp_path / ".upgrade-backups" / f"before-schema-v{DB_SCHEMA_VERSION}" / "tuantuan.db"
@@ -77,8 +80,35 @@ def test_fresh_workspace_records_named_current_migration(tmp_path):
     init_db(path)
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT version, name FROM schema_migrations").fetchall() == [
-            (DB_SCHEMA_VERSION, "image_studio_history_and_works"),
+            (DB_SCHEMA_VERSION, "project_context"),
         ]
+
+
+def test_project_context_upgrade_preserves_projects_and_legacy_sources(tmp_path):
+    path = tmp_path / "tuantuan.db"
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DROP TABLE conversation_project_sources")
+        conn.execute("DROP TABLE conversation_project_scopes")
+        conn.execute("ALTER TABLE projects DROP COLUMN default_model_profile_id")
+        conn.execute("INSERT INTO projects (id, name) VALUES ('prior-project', '旧项目')")
+        conn.execute("UPDATE schema_migrations SET version=48, name='workspace_projects'")
+        conn.execute("INSERT INTO library_sources(title, content_hash, content) VALUES ('旧资料', 'old', 'legacy body')")
+        before_sources = conn.execute("SELECT * FROM library_sources").fetchall()
+        before_chats = conn.execute("SELECT * FROM conversations").fetchall()
+
+    init_db(path)
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT version, name FROM schema_migrations ORDER BY version").fetchall() == [
+            (48, "workspace_projects"), (49, "project_context"),
+        ]
+        assert conn.execute("SELECT id, name, default_model_profile_id FROM projects").fetchall() == [("prior-project", "旧项目", None)]
+        assert conn.execute("SELECT * FROM conversation_project_scopes").fetchall() == []
+        assert conn.execute("SELECT * FROM conversation_project_sources").fetchall() == []
+        assert conn.execute("SELECT * FROM library_sources").fetchall() == before_sources
+        assert conn.execute("SELECT * FROM conversations").fetchall() == before_chats
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_v36_services_remain_visible_after_removal_migration(tmp_path):

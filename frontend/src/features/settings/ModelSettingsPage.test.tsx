@@ -126,7 +126,7 @@ describe("ModelSettingsPage", () => {
   });
 
   it("explains image defaults and text routing", () => {
-    render(<ModelSettingsPage {...props({ savedSettings: { ...settings, model_name: "gpt-image-2.5-sunburst" } })} />);
+    baseRender(<ModelSettingsPage {...props({ savedSettings: { ...settings, model_name: "gpt-image-2.5-sunburst" } })} />);
     expect(screen.getByRole("heading", { name: "默认模型" })).toBeInTheDocument();
     expect(screen.getByText(/图片生成模型 · 普通文字请求会尝试使用已启用的聊天模型/)).toBeInTheDocument();
   });
@@ -139,27 +139,32 @@ describe("ModelSettingsPage", () => {
     expect(within(summary).getByText("暂未接入")).toBeInTheDocument();
   });
 
-  it("keeps fields in a dialog and restores focus after cancel", () => {
+  it("focuses the first field and restores focus after Escape", async () => {
     const onCancelEdit = vi.fn();
     baseRender(<ModelSettingsPage {...props({ onCancelEdit })} />);
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
     const trigger = screen.getByRole("button", { name: "配置模型" });
     trigger.focus();
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: "配置模型" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Base URL")).toHaveFocus();
-    fireEvent.keyDown(screen.getByLabelText("Base URL"), { key: "Escape" });
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "配置模型" });
+    const url = within(dialog).getByLabelText("Base URL");
+    await waitFor(() => expect(url).toHaveFocus());
+    expect(screen.queryByRole("heading", { name: "默认模型" })).not.toBeInTheDocument();
+    fireEvent.keyDown(url, { key: "Escape" });
+    expect(dialog).not.toBeInTheDocument();
     expect(onCancelEdit).toHaveBeenCalledOnce();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("keeps a failed save open and closes only after editing finishes", () => {
     const page = props({ editing: true });
     const { rerender } = baseRender(<ModelSettingsPage {...page} />);
     rerender(<ModelSettingsPage {...page} busy />);
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "关闭模型设置" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(dialog).toBeInTheDocument();
     expect(page.onCancelEdit).not.toHaveBeenCalled();
     rerender(<ModelSettingsPage {...page} />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -167,19 +172,14 @@ describe("ModelSettingsPage", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("traps keyboard focus and shows save errors inside the dialog", () => {
-    baseRender(<ModelSettingsPage {...props({ editing: true, error: "保存失败，请重试" })} />);
+  it("shows save errors inside the dialog and allows an explicit cancel", () => {
+    const onCancelEdit = vi.fn();
+    baseRender(<ModelSettingsPage {...props({ editing: true, error: "保存失败，请重试", onCancelEdit })} />);
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toContainElement(screen.getByRole("alert"));
-    const close = screen.getByRole("button", { name: "关闭模型设置" });
-    const save = screen.getByRole("button", { name: "保存并应用" });
-    save.focus();
-    fireEvent.keyDown(save, { key: "Tab" });
-    expect(close).toHaveFocus();
-    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
-    expect(save).toHaveFocus();
-    fireEvent.mouseDown(dialog.parentElement!);
-    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("保存失败，请重试");
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭模型设置" }));
+    expect(dialog).not.toBeInTheDocument();
+    expect(onCancelEdit).toHaveBeenCalledOnce();
   });
 
   it("shows newly entered keys by default and allows hiding them", () => {
@@ -261,11 +261,12 @@ describe("ModelSettingsPage", () => {
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     expect(screen.queryByText("已锁定")).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "模型列表", hidden: true })).not.toBeInTheDocument();
-    expect(screen.getByText("高级设置").closest("details")).not.toHaveAttribute("open");
+    const advanced = screen.getByText("高级设置").closest("details")!;
+    expect(advanced).not.toHaveAttribute("open");
     expect(screen.getByLabelText(/^接口协议/)).not.toBeVisible();
-    expect(screen.getByRole("heading", { name: "模型额度" })).not.toBeVisible();
-    expect(screen.getByRole("heading", { name: "模型能力检测" })).not.toBeVisible();
-    expect(screen.getByRole("heading", { name: "连接状态与调用质量" })).not.toBeVisible();
+    for (const title of ["模型额度", "模型能力检测", "连接状态与调用质量"]) {
+      expect(within(advanced).getByText(title, { selector: "h3" })).not.toBeVisible();
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -410,9 +411,15 @@ describe("ModelSettingsPage", () => {
   it("offers protocol, quota, capability and connection diagnostics after opening advanced settings", () => {
     const onProbeCapabilities = vi.fn();
     render(<ModelSettingsPage {...props({ onProbeCapabilities })} />);
+    const dialog = screen.getByRole("dialog", { name: "配置模型" });
+    const protocol = within(dialog).getByText("高级选项：接口协议（默认自动匹配）").closest("details")!;
+    protocol.open = true;
+    expect(within(dialog).getByRole("combobox", { name: /^接口协议/ })).toBeVisible();
+    expect(within(dialog).getByDisplayValue("自动匹配（当前：OpenAI 兼容 Chat Completions）")).toBeVisible();
+    expect(within(dialog).getByText(/系统不会自动添加 \/v1/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
     openAdvancedSettings();
 
-    expect(screen.getByRole("combobox", { name: /^接口协议/ })).toBeVisible();
     expect(screen.getByRole("heading", { name: "模型额度" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "模型能力检测" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "连接状态与调用质量" })).toBeInTheDocument();
@@ -420,8 +427,6 @@ describe("ModelSettingsPage", () => {
     expect(screen.getByText("1,280")).toBeInTheDocument();
     expect(screen.getByText("是否支持多模态")).toBeInTheDocument();
     expect(screen.getAllByText("支持").length).toBeGreaterThanOrEqual(3);
-    expect(screen.getByDisplayValue("自动匹配（当前：OpenAI 兼容 Chat Completions）")).toBeVisible();
-    expect(screen.getByText(/系统不会自动添加 \/v1/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "检测" }));
     expect(onProbeCapabilities).toHaveBeenCalledOnce();
   });

@@ -46,14 +46,13 @@ describe("responsive application shell styles", () => {
     expect(desktopTopbar).toContain("height: var(--app-topbar-height)");
   });
 
-  it("hides only titleless application top bars at the mobile breakpoint", () => {
+  it("keeps titleless application top bars visible on mobile when they expose actions", () => {
     const mobileStyles = mediaBlocks(tuantuanStyles, "(max-width: 820px)").join("\n");
     const mobileTopbarRules = [...mobileStyles.matchAll(/\.app-topbar[^{]*\{([^}]*)\}/g)]
       .map((match) => match[1].trim().replace(/\s+/g, " "));
 
     expect(mobileTopbarRules.some((rule) => rule.includes("display: none"))).toBe(true);
-    expect(mobileStyles).toMatch(/\.app-topbar\.is-titleless/);
-    expect(mobileStyles).toMatch(/\.app-topbar:not\(:has\(\.app-topbar-context\)\)/);
+    expect(mobileStyles).toMatch(/\.app-topbar\.is-titleless:not\(:has\(\.app-topbar-actions\)\)\s*\{\s*display:\s*none/);
     expect(mobileStyles).not.toMatch(/^\s*\.app-topbar\s*\{[^}]*display:\s*none/m);
   });
 

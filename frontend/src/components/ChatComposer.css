@@ -38,7 +38,7 @@
 .chat-workspace .composer-input.composer-input--enhanced .send-button:disabled { opacity: .45; box-shadow: none; cursor: not-allowed; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; padding: 0 8px; border-radius: 8px; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool:hover,
-.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool.active { color: var(--color-brand-strong); background: var(--color-brand-soft); }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-tool.active { color: var(--color-brand-strong); background: var(--composer-tool-highlight, var(--color-brand-soft)); }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool { white-space: nowrap; }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-web-search-tool:disabled { opacity: .5; cursor: not-allowed; color: var(--color-text-secondary); background: transparent; }
 .chat-workspace .composer-voice-icon { position: relative; display: inline-flex; width: 16px; height: 16px; flex: none; color: inherit; }
@@ -46,9 +46,54 @@
 .chat-workspace .composer-voice-wave { position: absolute; inset: 0; pointer-events: none; }
 .chat-workspace .composer-voice-wave line { transform-box: fill-box; transform-origin: center; transform: scaleY(calc(.06 + var(--voice-level, 0) * .94)); transition: transform 80ms linear; }
 @media (prefers-reduced-motion: reduce) { .chat-workspace .composer-voice-wave line { transition: none; } }
-.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool { width: auto; padding: 0 8px; }
+.composer-resources { flex: none; }
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool {
+  width: auto;
+  padding-inline: 9px;
+  border-radius: 10px;
+  color: var(--color-text);
+  background: var(--composer-tool-background, var(--color-surface-subtle));
+  white-space: nowrap;
+}
+.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:is(:hover, [data-popup-open]):not(:disabled) { color: var(--color-brand-strong); background: var(--composer-tool-highlight, var(--color-brand-soft)); }
 .chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:disabled { opacity: .5; cursor: not-allowed; }
-.chat-workspace .chat-composer .composer-input.composer-input--enhanced .composer-attachment-tool:disabled:hover { color: var(--color-text-secondary); background: transparent; }
+.chat-workspace .composer-attachment-tool > .composer-resources-chevron { width: 12px; height: 12px; }
+.composer-attachment-tool[data-popup-open] .composer-resources-chevron { transform: rotate(180deg); }
+.composer-resources-panel {
+  display: grid;
+  box-sizing: border-box;
+  width: min(248px, var(--available-width));
+  max-height: min(220px, 40dvh, var(--available-height));
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.composer-resources-panel .composer-resource-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.composer-resource-option[data-highlighted] { background: var(--color-surface-subtle); }
+.composer-resource-option:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.composer-resource-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--color-brand-soft); color: var(--color-brand-strong); }
+.composer-resource-copy { display: grid; gap: 2px; min-width: 0; line-height: 1.35; overflow-wrap: anywhere; }
+.composer-resource-copy strong { font-size: 13px; font-weight: 600; }
+.composer-resource-copy small, .composer-resource-trailing { color: var(--color-text-secondary); }
+.composer-resource-copy small { font-size: 11px; font-weight: 400; }
 .chat-workspace .composer-tool:focus-visible,
 .chat-workspace .composer-input.composer-input--enhanced .send-button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .chat-workspace .composer-input.composer-input--enhanced .model-picker { max-width: 100%; flex: 0 1 auto; }
@@ -171,7 +216,6 @@
   padding-top: 6px;
 }
 @media (max-width: 600px) {
-  .assistant-page .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row { align-items: flex-end; }
   .assistant-page .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts { flex: 1 1 0; }
 }
 
@@ -204,23 +248,37 @@
 .assistant-page .chat-workspace.is-page.is-empty .send-button > svg { width: 18px; height: 18px; }
 .assistant-page .chat-workspace .composer-footer .composer-input-hint { position: static; inset: auto; padding: 0; }
 @media (max-width: 600px) {
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 148px !important; padding: 10px !important; }
+  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 116px !important; padding: 10px !important; }
   .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced textarea { min-height: 44px !important; font-size: 16px !important; }
-  .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .chat-workspace .composer-primary-actions { justify-content: space-between; }
-  .chat-workspace .composer-input.composer-input--enhanced .model-pill { max-width: min(220px, calc(100vw - 128px)); }
-  .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts { gap: 4px; }
-}
-@media (min-width: 360px) and (max-width: 600px) {
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input.composer-input--enhanced { min-height: 116px !important; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-bottom-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-shortcuts { gap: 2px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-attachment-tool { width: 40px; padding: 0; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-attachment-tool > span { display: none; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions { gap: 6px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-picker { max-width: 128px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-pill { min-width: 0; max-width: 128px; padding-inline: 6px; font-size: 12px; gap: 6px; }
-  .assistant-page .chat-workspace.is-page.is-empty .composer-input .composer-bottom-row:has(.composer-web-search.is-active) { grid-template-columns: minmax(0, 1fr); }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-bottom-row {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-shortcuts {
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+  .chat-workspace .chat-composer .composer-input.composer-input--enhanced :is(.composer-attachment-tool, .composer-voice-tool, .composer-web-search-tool) {
+    --composer-tool-background: transparent;
+    --composer-tool-highlight: transparent;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    box-shadow: none;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .composer-tool > :is(.composer-tool-label, .composer-resources-chevron) { display: none; }
+  .chat-workspace .composer-web-search-tool.active > svg { stroke-width: 2.75; }
+  .chat-workspace .composer-primary-actions,
+  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions {
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .chat-workspace .composer-input.composer-input--enhanced .model-pill,
+  .assistant-page .chat-workspace.is-page.is-empty .composer-primary-actions .model-pill {
+    max-width: 100%;
+    padding-inline: 4px;
+    font-size: 12px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .assistant-page .chat-workspace.is-page.is-empty .send-button { transition: none; }
@@ -241,6 +299,9 @@
   border-color: var(--color-border);
   background: var(--color-surface);
 }
+.chat-workspace .composer-draft-file { display: flex; flex-wrap: wrap; gap: 4px; }
+.chat-workspace .composer-draft-file-name { font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.chat-workspace .composer-draft-file-hint { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--color-text-muted); }
 .chat-workspace .composer-file-preview-button { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 6px; }
 .chat-workspace .composer-file-preview-button > span:last-child { display: grid; gap: 3px; min-width: 0; }
 .chat-workspace .composer-file-preview-button > .composer-attachment-icon { flex: none; }
@@ -272,4 +333,11 @@
 @media (max-width: 600px) {
   .chat-workspace .chat-retry-prompt > span { flex-basis: calc(100% - 28px); }
   .chat-workspace .chat-retry-prompt button { min-height: 36px; }
+  .chat-workspace .chat-replacement-undo {
+    flex-wrap: nowrap;
+    padding-block: 4px;
+  }
+  .chat-workspace .chat-replacement-undo > span { flex-basis: 0; }
+  .chat-workspace .chat-replacement-undo > :is(button, svg) { flex: none; }
+  .chat-workspace .chat-replacement-undo > button { min-height: 44px; }
 }

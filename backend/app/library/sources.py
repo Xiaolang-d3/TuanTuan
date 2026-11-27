@@ -498,7 +498,10 @@ def delete_source(source_id: int, db_path: str | Path | None = None) -> bool:
     return True
 
 
-def enabled_source_details(db_path: str | Path | None = None) -> list[dict[str, Any]]:
+def enabled_source_details(db_path: str | Path | None = None, *, source_ids: set[int] | None = None) -> list[dict[str, Any]]:
+    if source_ids is not None and not source_ids:
+        return []
+    scope = "" if source_ids is None else f" AND s.id IN ({','.join('?' for _ in source_ids)})"
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -509,7 +512,7 @@ def enabled_source_details(db_path: str | Path | None = None) -> list[dict[str, 
             ON v.source_kind='library' AND v.source_key=CAST(s.id AS TEXT)
             LEFT JOIN background_jobs j ON j.id=v.job_id
             WHERE s.enabled = 1 AND s.parse_status = 'ready'
-            ORDER BY s.updated_at DESC, s.id DESC
-            """
+            """ + scope + " ORDER BY s.updated_at DESC, s.id DESC",
+            tuple(sorted(source_ids or ())),
         ).fetchall()
     return [source for row in rows if not (source := _source_from_row(row)).get("trashed_at")]

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConversationHistoryPanel,
@@ -53,18 +53,22 @@ describe("ConversationHistoryPanel", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it("supports menu keyboard navigation and restores its trigger on Escape", () => {
+  it("supports menu keyboard navigation and restores its trigger on Escape", async () => {
     const props = renderPanel();
     const trigger = screen.getByRole("button", { name: "项目表达练习 的更多操作" });
-    fireEvent.click(trigger);
-    expect(screen.getByRole("menuitem", { name: "重命名" })).toHaveFocus();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
-    expect(screen.getByRole("menuitem", { name: "归档" })).toHaveFocus();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "End" });
-    expect(screen.getByRole("menuitem", { name: "删除" })).toHaveFocus();
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const rename = screen.getByRole("menuitem", { name: "重命名" });
+    const archive = screen.getByRole("menuitem", { name: "归档" });
+    const remove = screen.getByRole("menuitem", { name: "删除" });
+    await waitFor(() => expect(rename).toHaveFocus());
+    fireEvent.keyDown(rename, { key: "ArrowDown" });
+    await waitFor(() => expect(archive).toHaveFocus());
+    fireEvent.keyDown(archive, { key: "End" });
+    await waitFor(() => expect(remove).toHaveFocus());
+    fireEvent.keyDown(remove, { key: "Escape" });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
@@ -82,34 +86,15 @@ describe("ConversationHistoryPanel", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("uses available space rather than record count and repositions on resize", () => {
-    const props = renderPanel();
-    const panel = screen.getByRole("complementary", { name: "对话记录" });
+  it("closes an open row menu when the drawer closes", () => {
+    const { view, ...props } = renderPanel();
     const trigger = screen.getByRole("button", { name: "项目表达练习 的更多操作" });
-    const rect = (top: number, left: number, width: number, height: number) => ({ top, left, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) });
-    vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(rect(0, 0, 276, 480));
-    Object.defineProperties(panel, { clientWidth: { value: 276 }, clientHeight: { value: 480 } });
-    const triggerRect = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(rect(60, 240, 28, 28));
-    for (const [key, value] of Object.entries({ offsetHeight: 130, clientHeight: 128, scrollHeight: 128, offsetWidth: 128 })) {
-      vi.spyOn(HTMLElement.prototype, key as "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
-        return this.classList.contains("conversation-history-menu") ? value : 0;
-      });
-    }
     fireEvent.click(trigger);
-    const menu = screen.getByRole("menu");
-    expect(menu).toHaveStyle({ top: "92px", left: "140px" });
-    triggerRect.mockReturnValue(rect(416, 240, 28, 28));
-    fireEvent(window, new Event("resize"));
-    expect(menu).toHaveStyle({ top: "282px", maxHeight: "404px" });
-    expect(screen.getByRole("menuitem", { name: "重命名" })).toHaveFocus();
-    const list = props.view.container.querySelector(".conversation-history-list")!;
-    vi.spyOn(list, "getBoundingClientRect").mockReturnValue(rect(32, 0, 276, 440));
-    fireEvent.scroll(list);
-    expect(menu).toBeInTheDocument();
-    triggerRect.mockReturnValue(rect(-60, 240, 28, 28));
-    fireEvent.scroll(list);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    view.rerender(<ConversationHistoryPanel {...props} open={false} />);
+    view.rerender(<ConversationHistoryPanel {...props} open />);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
   });
 
   it("dismisses the menu when clicking outside it", () => {
@@ -184,6 +169,89 @@ describe("ConversationHistoryPanel", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话标题、摘要或正文" }), { target: { value: "方案细节" } });
     expect(await screen.findByTitle("正文里的方案")).toBeInTheDocument();
     expect(onSearch).toHaveBeenCalledWith("方案细节");
+  });
+
+  it("says full-text search is unavailable instead of reporting no match, and retries", async () => {
+    const onSearch = vi.fn().mockRejectedValueOnce(new Error("503")).mockResolvedValueOnce([{ ...conversation, id: 9, title: "正文里的方案" }]);
+    const props = renderPanel();
+    props.view.rerender(<ConversationHistoryPanel {...props} onSearch={onSearch} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话标题、摘要或正文" }), { target: { value: "方案细节" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("全文搜索暂时不可用");
+    expect(screen.getByRole("status")).toHaveTextContent("标题和摘要中没有匹配项");
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByTitle("正文里的方案")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("removes a search hit once its conversation is deleted and shows a renamed title", async () => {
+    const other = { ...conversation, id: 2, title: "第二个对话" };
+    const onSearch = vi.fn().mockResolvedValue([conversation, other]);
+    const props = renderPanel();
+    props.view.rerender(<ConversationHistoryPanel {...props} conversations={[conversation, other]} onSearch={onSearch} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话标题、摘要或正文" }), { target: { value: "对话" } });
+    expect(await screen.findByTitle("第二个对话")).toBeInTheDocument();
+    props.view.rerender(<ConversationHistoryPanel {...props} conversations={[conversation, { ...other, title: "改名后" }]} onSearch={onSearch} />);
+    expect(await screen.findByTitle("改名后")).toBeInTheDocument();
+    expect(screen.queryByTitle("第二个对话")).not.toBeInTheDocument();
+    props.view.rerender(<ConversationHistoryPanel {...props} conversations={[conversation]} onSearch={onSearch} />);
+    await waitFor(() => expect(screen.queryByTitle("改名后")).not.toBeInTheDocument());
+  });
+
+  describe("when the drawer covers the page", () => {
+    function renderOverlay(open: boolean) {
+      const props = {
+        conversations: [conversation], currentConversationId: 1, busy: false,
+        onClose: vi.fn(), onSelect: vi.fn(), onCreate: vi.fn(), onRename: vi.fn(), onArchive: vi.fn(), onRemove: vi.fn()
+      };
+      const view = render(
+        <section>
+          <button type="button">背景按钮</button>
+          <button type="button" aria-controls="conversation-history-drawer">记录</button>
+          <ConversationHistoryPanel {...props} open={open} overlay />
+        </section>
+      );
+      return { ...props, view };
+    }
+
+    it("makes the content behind it inert, moves focus in and closes with Escape", () => {
+      const props = renderOverlay(true);
+      expect(screen.getByRole("dialog", { name: "对话记录" })).not.toHaveAttribute("aria-modal");
+      expect(screen.getByRole("button", { name: "背景按钮" })).toHaveAttribute("inert");
+      expect(screen.getByRole("button", { name: "关闭对话记录" })).toHaveFocus();
+      fireEvent.keyDown(screen.getByRole("searchbox", { name: "搜索对话标题、摘要或正文" }), { key: "Escape" });
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("restores the background and returns focus to the opener after closing", () => {
+      const props = renderOverlay(false);
+      const opener = screen.getByRole("button", { name: "记录" });
+      opener.focus();
+      props.view.rerender(
+        <section>
+          <button type="button">背景按钮</button>
+          <button type="button" aria-controls="conversation-history-drawer">记录</button>
+          <ConversationHistoryPanel {...props} open overlay />
+        </section>
+      );
+      expect(screen.getByRole("button", { name: "背景按钮" })).toHaveAttribute("inert");
+      props.view.rerender(
+        <section>
+          <button type="button">背景按钮</button>
+          <button type="button" aria-controls="conversation-history-drawer">记录</button>
+          <ConversationHistoryPanel {...props} open={false} overlay />
+        </section>
+      );
+      expect(screen.getByRole("button", { name: "背景按钮" })).not.toHaveAttribute("inert");
+      expect(opener).toHaveFocus();
+    });
+
+    it("stays a plain, non-modal region in the wide inline layout", () => {
+      const props = renderPanel(true);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.getByRole("complementary", { name: "对话记录" })).not.toHaveAttribute("aria-modal");
+      fireEvent.keyDown(screen.getByRole("searchbox", { name: "搜索对话标题、摘要或正文" }), { key: "Escape" });
+      expect(props.onClose).not.toHaveBeenCalled();
+    });
   });
 
   it("groups conversations by recency instead of a generic recent label", () => {

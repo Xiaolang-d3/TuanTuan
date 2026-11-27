@@ -189,12 +189,23 @@ def test_reject_unknown_size_and_ineligible_model_before_attempt(workspace,monke
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('code,status',[(400,'failed'),(500,'uncertain'),(200,'uncertain')])
-def test_rejected_or_unknown_outcomes_never_replay(workspace,monkeypatch,code,status):
+@pytest.mark.parametrize('code,provider_code,status,message',[
+    (400, None, 'failed', '服务拒绝了图片请求'),
+    (401, None, 'failed', 'API Key 无效'),
+    (429, 'insufficient_quota', 'failed', '额度不足'),
+    (429, None, 'failed', '暂时不可用'),
+    (404, 'model_not_found', 'failed', '不支持此图片功能'),
+    (500, None, 'uncertain', '暂时不可用'),
+    (200, None, 'uncertain', None),
+    (None, None, 'failed', '无法连接图片模型服务'),
+])
+def test_rejected_or_unknown_outcomes_never_replay(workspace,monkeypatch,code,provider_code,status,message):
     calls=[]
     async def handler(req):
         calls.append(req)
-        return httpx.Response(code,json={'error':{'message':'fake-studio-key'}} if code!=200 else {'data':[]})
+        if code is None:
+            raise httpx.ConnectError('fake-studio-key', request=req)
+        return httpx.Response(code,json={'error':{'code':provider_code,'message':'fake-studio-key'}} if code!=200 else {'data':[]})
     wire(monkeypatch,handler)
     async def run():
         async with httpx.AsyncClient(transport=app_transport(),base_url='http://test') as api:
@@ -202,6 +213,8 @@ def test_rejected_or_unknown_outcomes_never_replay(workspace,monkeypatch,code,st
             await api.post('/image-studio/generate',json=req)
             row = await wait_task(tid)
             assert row['status']==status and row['error'] and 'fake-studio-key' not in row['error']
+            if message:
+                assert message in row['error']
             assert (await api.post('/image-studio/generate',json=req)).json()=={'id':tid}
             assert len(calls)==1
     asyncio.run(run())

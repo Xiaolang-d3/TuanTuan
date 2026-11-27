@@ -1,4 +1,4 @@
-.home-page, .developer-home-shell {
+.home-page, .developer-home-shell, .home-dialog, .home-menu {
   --home-bg: var(--color-bg); --home-panel: var(--color-surface); --home-panel-2: var(--color-surface-subtle);
   --home-line: var(--color-border); --home-line-2: var(--color-border); --home-line-strong: var(--color-border-strong);
   --home-text: var(--color-text); --home-text-2: var(--color-text-secondary); --home-text-3: var(--color-text-muted);
@@ -13,7 +13,7 @@
   --home-shadow-popup: 0 12px 32px -8px rgba(18, 18, 18, .2), 0 2px 8px rgba(18, 18, 18, .06);
   --home-on-accent: var(--color-on-brand);
 }
-:root[data-theme="dark"] .home-page, :root[data-theme="dark"] .developer-home-shell {
+:root[data-theme="dark"] :is(.home-page, .developer-home-shell, .home-dialog, .home-menu) {
   color-scheme: dark;
   --home-bg: var(--color-bg); --home-panel: var(--color-surface); --home-panel-2: var(--color-surface-subtle);
   --home-line: var(--color-border); --home-line-2: var(--color-border); --home-line-strong: var(--color-border-strong);
@@ -29,10 +29,10 @@
   --home-shadow-popup: 0 12px 32px -8px rgba(0, 0, 0, .65), 0 2px 8px rgba(0, 0, 0, .35);
   --home-on-accent: var(--color-on-brand);
 }
-.home-page { color: var(--home-text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
-.home-page button, .home-page a { box-shadow: none; }
-.home-page button:focus-visible, .home-page a:focus-visible, .home-page input:focus-visible, .home-page textarea:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; box-shadow: none; }
-.home-page button { color: inherit; background: none; }
+.home-page, .home-dialog, .home-menu { color: var(--home-text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
+:is(.home-page, .home-dialog, .home-menu) :is(button, a) { box-shadow: none; }
+:is(.home-page, .home-dialog, .home-menu) :is(button, a, input, textarea):focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; box-shadow: none; }
+:is(.home-page, .home-dialog, .home-menu) button { color: inherit; background: none; }
 .home-eyebrow, .home-sync { color: var(--home-text-3); }
 .home-time, .home-sync b, .home-digest { color: var(--home-text-2); }
 .home-welcome, .home-digest b { color: var(--home-text); }
@@ -57,6 +57,9 @@
 .home-chip.on { background: var(--home-text) !important; color: var(--home-panel) !important; border-color: var(--home-text); }
 .home-module { background: var(--home-panel); border-color: var(--home-line); }
 .home-module-icon { background: var(--home-accent-soft); color: var(--home-accent); }
+.home-news-summary-description, .home-news-summary-message, .home-news-summary-notice { color: var(--home-text-2); }
+.home-news-summary-notice { background: var(--home-panel-2); }
+.home-news-summary-notice button:hover { color: var(--home-accent-text); }
 .home-count { color: var(--home-text-3); background: var(--home-hover); }
 .home-module-foot, .home-more-link { color: var(--home-text-3) !important; }
 .home-more-link:hover { color: var(--home-accent-text) !important; }
@@ -104,7 +107,7 @@
 .home-menu, .home-dialog { background: var(--home-panel); border-color: var(--home-line); box-shadow: var(--home-shadow-popup); }
 .home-menu button { color: var(--home-text); }
 .home-menu button svg { color: var(--home-text-3); }
-.home-menu button:hover, .home-menu button:focus-visible { background: var(--home-hover-2); }
+.home-menu button:hover, .home-menu button[data-highlighted] { background: var(--home-hover-2); }
 .home-menu button:focus-visible { outline-offset: -2px; }
 .home-dialog-description, .home-field span { color: var(--home-text-3); }
 .home-field input, .home-field textarea { background: var(--home-panel-2); border-color: var(--home-line); color: var(--home-text); }
@@ -126,27 +129,8 @@
 .home-page[data-mode="compact"] .home-card:hover { background: var(--home-hover); }
 .home-page[data-mode="compact"] .home-card:hover + .home-card { border-top-color: transparent; }
 .home-page[data-mode="compact"] .home-card::before { display: none; }
-/* Scoped shell colors preserve the existing brand and flat navigation. */
 .app-shell.has-chat-dock.developer-home-shell { background: var(--home-bg); }
 .app-shell.has-chat-dock.developer-home-shell .home-content { margin-right: 0; width: auto; min-height: 100dvh; padding: 24px 32px 48px; background: var(--home-bg); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light { background: var(--home-panel-2); border-color: var(--home-line); color: var(--home-text); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .brand strong { color: var(--home-text); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .brand small { color: var(--home-text-3); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item { color: var(--home-text-2); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item:hover { color: var(--home-text); background: var(--home-hover); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar.shell-light .nav-item.active { color: var(--home-accent-text); background: var(--home-accent-soft); box-shadow: inset 3px 0 var(--home-accent); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle-footer { border-top-color: var(--home-line); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle { color: var(--home-text-2); background: var(--home-panel); border-color: var(--home-line); }
-.app-shell.has-chat-dock.developer-home-shell .sidebar .sidebar-toggle:hover { color: var(--home-accent-text); background: var(--home-accent-soft); }
-.developer-home-shell .sidebar-identity { color: var(--home-accent-text); }
-.developer-home-shell .sidebar-identity:hover, .developer-home-shell .sidebar-identity.active { background: var(--home-accent-soft); }
-.developer-home-shell .sidebar-identity-avatar { color: var(--home-accent-text); background: var(--home-accent-soft); }
-.developer-home-shell .app-identity-chevron { color: var(--home-text-3); }
-.developer-home-shell .sidebar-identity-slot .app-identity-menu { background: var(--home-panel); border-color: var(--home-line); }
-.developer-home-shell .app-identity-summary { border-color: var(--home-line); }
-.developer-home-shell .app-identity-summary strong { color: var(--home-text); }
-.developer-home-shell .app-identity-summary small, .developer-home-shell .app-identity-menu button { color: var(--home-text-2); }
-.developer-home-shell .app-identity-menu button:hover { color: var(--home-text); background: var(--home-hover); }
 @media (max-width: 1360px) { .app-shell.has-chat-dock.developer-home-shell .home-content { padding-inline: 24px; } }
 @media (max-width: 820px) { .app-shell.has-chat-dock.developer-home-shell .home-content { min-height: calc(100dvh - 62px); padding: 24px 16px 32px; } }
 
@@ -171,4 +155,4 @@
 .home-tablist { border-bottom-color: var(--home-line); }
 .home-tab { color: var(--home-text-2); background: transparent; }
 .home-tab:hover { background: var(--home-hover); color: var(--home-text); }
-.home-tab.on { color: var(--home-accent-text); border-bottom-color: var(--home-accent); }
+.home-tab[data-active] { color: var(--home-accent-text); border-bottom-color: var(--home-accent); }

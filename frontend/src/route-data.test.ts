@@ -26,7 +26,7 @@ describe("requiredDataForRoute", () => {
       "attachmentConfig"
     ]);
     expect(requiredDataForRoute({ section: "settings", page: "agent" })).toEqual([
-      "agentOperations",
+      "agentSettings",
       "conversations",
       "capabilities",
       "attachmentConfig"
@@ -35,6 +35,7 @@ describe("requiredDataForRoute", () => {
     expect(requiredDataForRoute({ section: "images" })).toEqual([]);
     expect(requiredDataForRoute({ section: "video" })).toEqual([]);
     expect(requiredDataForRoute({ section: "works" })).toEqual([]);
+    expect(requiredDataForRoute({ section: "skills" })).toEqual(["capabilities"]);
     expect(requiredDataForRoute({ section: "settings", page: "appearance" })).toEqual([]);
   });
 });

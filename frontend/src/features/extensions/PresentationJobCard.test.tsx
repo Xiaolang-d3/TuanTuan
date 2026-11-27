@@ -84,6 +84,19 @@ it("describes historical connection failure and makes refresh a state-only actio
   expect(onRecreate).toHaveBeenCalledWith(failed);
 });
 
+it("archives only the delivered PPTX version after successful generation", async () => {
+  const service = fixture();
+  service.archiveFinal = vi.fn().mockResolvedValue({ id: "work" });
+  vi.mocked(service.activity.artifacts).mockResolvedValue({ artifacts: [{ id: "file", version: 2, filename: "Final.pptx", media_type: "application/octet-stream", size: 16 }] });
+  const result = render(view(running, service));
+  expect(screen.queryByRole("button", { name: "保存到我的作品" })).not.toBeInTheDocument();
+  result.rerender(view({ ...running, status: "succeeded" }, service));
+  fireEvent.click(await screen.findByRole("button", { name: "保存到我的作品" }));
+  expect(await screen.findByRole("button", { name: "已保存到我的作品" })).toBeDisabled();
+  expect(service.archiveFinal).toHaveBeenCalledExactlyOnceWith("file", 2);
+  expect(service.create).not.toHaveBeenCalled();
+});
+
 it("shows uncertain outcome guidance only when explicitly reported on a stopped job", () => {
   const result = render(view({ ...running, status: "failed", progress: { ...requestProgress, outcome_uncertain: true } }));
   expect(screen.getByText(/结果待核对.*不会自动重复请求/)).toBeVisible();

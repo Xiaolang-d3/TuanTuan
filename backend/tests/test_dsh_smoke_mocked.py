@@ -50,19 +50,16 @@ class DshSmokeMockedTest(unittest.IsolatedAsyncioTestCase):
 
 
 class DshRuntimeManagerStub:
-    last_session: object | None = None
+    last_session: dsh_manager.DshSession | None = None
 
-    def acquire(self, conversation_id: int, connection: dict) -> object:
-        from types import SimpleNamespace
-
+    def acquire(self, conversation_id: int, connection: dict) -> dsh_manager.DshSession:
         root = Path(db.DATA_DIR) / "dsh" / "0" / str(conversation_id)
         root.mkdir(parents=True, exist_ok=True)
         client = DshJsonRpcClient(
             DshLaunchFake(), tmp_dir=root / "tmp", request_timeout=10.0, shutdown_timeout=2.0
         )
-        session = SimpleNamespace(conversation_id=conversation_id, client=client, home=root, last_active=0.0, initialized=False)
-        DshRuntimeManagerStub.last_session = session
-        return session
+        self.last_session = dsh_manager.DshSession(conversation_id, client, root)
+        return self.last_session
 
 
 class DshLaunchFake:
