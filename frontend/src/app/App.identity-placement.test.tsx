@@ -214,6 +214,28 @@ describe("App identity placement", () => {
     await act(async () => finish());
     await waitFor(() => expect(window.location.hash).toBe('#/chat/6'));
   });
+  it('does not pull the user back to the Weixin chat after they navigated elsewhere', async () => {
+    const old = { id: 8, title: '旧会话', status: 'active', summary: '', updated_at: '' } as Conversation;
+    const bot = { ...old, id: 6, title: '微信会话' };
+    conversations.conversations = [old];
+    conversations.currentConversationId = 8;
+    const originalApi = api.fetchJson.getMockImplementation()!;
+    api.fetchJson.mockImplementation(async path => path === '/channels/weixin' ? {
+      connected: true, enabled: true, error: '', conversation_id: 6, unread_count: 1,
+      readable_sequence: 1, read_sequence: 0, latest_sequence: 1, binding_id: 'binding'
+    } : originalApi(path));
+    let finish: () => void = () => {};
+    conversations.refreshConversations.mockImplementationOnce(() => new Promise<Conversation[]>(resolve => {
+      finish = () => { conversations.conversations = [bot, old]; resolve([bot, old]); };
+    }));
+    renderApp();
+    fireEvent.click(await screen.findByRole('button', { name: /^微信 Bot/ }));
+    fireEvent.click(screen.getAllByRole('link', { name: '我的作品' })[0]);
+    await waitFor(() => expect(window.location.hash).toContain('works'));
+    await act(async () => finish());
+    expect(window.location.hash).toContain('works');
+    expect(window.location.hash).not.toBe('#/chat/6');
+  });
   it("resets extension drafts when switching accounts that have no numeric ID", async () => {
     let second = false;
     const originalApi = api.fetchJson.getMockImplementation()!;
@@ -290,23 +312,23 @@ describe("App identity placement", () => {
     fireEvent.change(draft, { target: { value: "尚未发送的计划" } });
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     expect(screen.queryByRole("navigation", { name: "AI 工作区模块" })).not.toBeInTheDocument();
-    expect(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" })).toBeInTheDocument();
-    fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
+    expect(within(document.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" })).toBeInTheDocument();
+    fireEvent.click(navigation.getByRole("link", { name: "我的作品" }));
     await screen.findByRole("heading", { name: "我的作品" });
-    expect(navigation.getByRole("button", { name: "我的作品" })).toHaveAttribute("aria-current", "page");
+    expect(navigation.getByRole("link", { name: "我的作品" })).toHaveAttribute("aria-current", "page");
     fireEvent.click(screen.getByRole("button", { name: "去图片创作" }));
     await screen.findByRole("region", { name: "图片创作工作台" });
     expect(window.location.hash).toBe("#/images");
     expect(draft).toBeInTheDocument();
     expect(draft).not.toBeVisible();
-    expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
-    expect(navigation.getByRole("button", { name: "创作记录" })).not.toHaveAttribute("aria-current");
-    fireEvent.click(navigation.getByRole("button", { name: "创作记录" }));
+    expect(navigation.getByRole("link", { name: "我的作品" })).not.toHaveAttribute("aria-current");
+    expect(navigation.getByRole("link", { name: "创作记录" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(navigation.getByRole("link", { name: "创作记录" }));
     fireEvent.click(await screen.findByRole("button", { name: /原有对话/ }));
     expect(await screen.findByRole("textbox", { name: "测试对话草稿" })).toBe(draft);
     expect(draft).toHaveValue("尚未发送的计划");
     expect(window.location.hash).toBe("#/chat/7");
-    fireEvent.click(navigation.getByRole("button", { name: "我的作品" }));
+    fireEvent.click(navigation.getByRole("link", { name: "我的作品" }));
     await screen.findByRole("heading", { name: "我的作品" });
     fireEvent.click(screen.getByRole("button", { name: "去图片创作" }));
     await screen.findByRole("region", { name: "图片创作工作台" });
@@ -314,7 +336,9 @@ describe("App identity placement", () => {
     expect(accountTrigger).not.toHaveClass("active");
     fireEvent.click(accountTrigger);
     expect(screen.queryByRole("menuitem", { name: "文件库管理" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
+    expect(screen.queryByRole("menuitem", { name: "设置" })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu", { name: "账号菜单" }), { key: "Escape" });
+    fireEvent.click(screen.getAllByRole("link", { name: "设置" })[0]);
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(window.location.hash).toBe("#/settings");
   });
@@ -327,8 +351,8 @@ describe("App identity placement", () => {
     renderApp();
     expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeInTheDocument();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    if (label) expect(navigation.getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
-    else expect(navigation.queryByRole("button", { current: "page" })).not.toBeInTheDocument();
+    if (label) expect(navigation.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
+    else expect(navigation.queryByRole("link", { current: "page" })).not.toBeInTheDocument();
     expect(window.location.hash).toBe(hash);
   });
 
@@ -362,7 +386,9 @@ describe("App identity placement", () => {
 
     fireEvent.click(trigger);
     expect(screen.getByRole("menuitem", { name: "账号与安全" })).toHaveAttribute("aria-current", "page");
-    fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
+    expect(screen.queryByRole("menuitem", { name: "设置" })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu", { name: "账号菜单" }), { key: "Escape" });
+    fireEvent.click(screen.getAllByRole("link", { name: "设置" })[0]);
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(window.location.hash).toBe("#/settings");
     expect(expectSidebarIdentity(container)).toBe(trigger);
@@ -383,7 +409,9 @@ describe("App identity placement", () => {
     fireEvent.click(trigger);
     expect(screen.getByRole("menu", { name: "账号菜单" })).toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(screen.getByRole("menuitem", { name: "设置" }));
+    expect(screen.queryByRole("menuitem", { name: "设置" })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("menu", { name: "账号菜单" }), { key: "Escape" });
+    fireEvent.click(screen.getAllByRole("link", { name: "设置" })[0]);
     await screen.findByRole("heading", { name: "测试设置概览" });
     expect(expectSidebarIdentity(container).closest("aside")).toHaveClass("collapsed");
     await waitFor(() => expect(localStorage.getItem("tuantuan-sidebar:developer@example.test")).toBe("collapsed"));

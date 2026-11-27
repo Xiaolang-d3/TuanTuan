@@ -134,7 +134,7 @@ test("skills center preselects a real skill in a new chat without starting a tas
   const writes = await mockSkillCenter(page);
   await page.goto("/#/history");
   const nav = page.getByRole("navigation", { name: "主导航", exact: true });
-  const entry = nav.getByRole("button", { name: "技能中心" });
+  const entry = nav.getByRole("link", { name: "技能中心" });
   await entry.click();
   await expect(page).toHaveURL(/#\/skills$/);
   await expect(entry).toHaveAttribute("aria-current", "page");
@@ -185,9 +185,9 @@ test("skills center opens image creation from mobile without changing the existi
   await page.goto("/#/images");
   await page.getByRole("textbox", { name: "画面描述" }).fill("尚未提交的图片草稿");
   const mobileNav = page.getByRole("navigation", { name: "移动端主导航" });
-  await mobileNav.getByRole("button", { name: "技能中心" }).click();
+  await mobileNav.getByRole("link", { name: "技能中心" }).click();
   await expect(page).toHaveURL(/#\/skills$/);
-  await expect(mobileNav.getByRole("button", { name: "技能中心" })).toHaveAttribute("aria-current", "page");
+  await expect(mobileNav.getByRole("link", { name: "技能中心" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "技能中心" })).toBeVisible();
   await page.getByRole("button", { name: "打开图片工作区" }).click();
   await expect(page).toHaveURL(/#\/images$/);
@@ -271,7 +271,7 @@ for (const theme of ["light", "dark", "blue"] as const) {
         await account.click();
         const menu = page.getByRole("menu", { name: "账号菜单" });
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "设置", "任务中心", "通知", "退出登录"]);
+        await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "任务中心", "通知", "退出登录"]);
         const menuBox = (await menu.boundingBox())!;
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
@@ -334,7 +334,7 @@ test("desktop sidebar keeps its layout and shortcut groups across module navigat
   const shortcuts = sidebar.getByRole("navigation", { name: "工作区快捷入口" });
   const projects = shortcuts.getByRole("button", { name: "我的项目", exact: true });
   const recent = shortcuts.getByRole("button", { name: "最近记录" });
-  const settings = sidebar.getByRole("button", { name: "设置", exact: true });
+  const settings = sidebar.getByRole("link", { name: "设置", exact: true });
   await recent.click();
 
   for (const collapsed of [false, true]) {
@@ -343,19 +343,19 @@ test("desktop sidebar keeps its layout and shortcut groups across module navigat
     if (collapsed) buttons.push("我的项目", "设置");
 
     for (const [button, route] of [
-      [navigation.getByRole("button", { name: "我的作品" }), /#\/works$/],
-      [navigation.getByRole("button", { name: "技能中心" }), /#\/skills$/],
-      [navigation.getByRole("button", { name: "知识库" }), /#\/chat\/library$/],
-      [collapsed ? navigation.getByRole("button", { name: "我的项目" }) : shortcuts.getByRole("button", { name: "查看全部项目" }), /#\/projects$/],
+      [navigation.getByRole("link", { name: "我的作品" }), /#\/works$/],
+      [navigation.getByRole("link", { name: "技能中心" }), /#\/skills$/],
+      [navigation.getByRole("link", { name: "知识库" }), /#\/chat\/library$/],
+      [collapsed ? navigation.getByRole("link", { name: "我的项目" }) : shortcuts.getByRole("button", { name: "查看全部项目" }), /#\/projects$/],
       [settings, /#\/settings$/],
-      [navigation.getByRole("button", { name: "新建创作" }), /#\/home$/],
+      [navigation.getByRole("link", { name: "新建创作" }), /#\/home$/],
     ] as const) {
       await button.click();
       await expect(page).toHaveURL(route);
       await expect(button).toHaveAttribute("aria-current", "page");
       await expect(toggle).toHaveAttribute("aria-expanded", String(!collapsed));
       await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(collapsed ? 72 : 176);
-      await expect(navigation.getByRole("button")).toHaveText(buttons);
+      await expect(navigation.getByRole("link")).toHaveText(buttons);
       if (collapsed) await expect(shortcuts).toBeHidden();
       else {
         await expect(projects).toHaveAttribute("aria-expanded", "true");
@@ -491,7 +491,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await page.setViewportSize({ width, height: 770 });
     await page.goto("/#/chat/1");
     const navigation = page.getByRole("navigation", { name: "移动端主导航" });
-    await expect(navigation.getByRole("button")).toHaveText([
+    await expect(navigation.getByRole("link")).toHaveText([
       "创作", "记录", "作品", "知识库", "项目", "技能", "设置"
     ]);
     const labels = await navigation.locator(".mobile-nav-item span").evaluateAll(elements => elements.map(element => {
@@ -502,20 +502,20 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     for (let index = 1; index < labels.length; index += 1) {
       expect(labels[index].left).toBeGreaterThanOrEqual(labels[index - 1].right - 1);
     }
-    await navigation.getByRole("button", { name: "新建创作", exact: true }).click();
+    await navigation.getByRole("link", { name: "新建创作", exact: true }).click();
     const entry = page.getByRole("region", { name: "新建创作" });
     await entry.getByRole("button", { name: "图片", exact: true }).click();
     await entry.getByRole("button", { name: "进入图片工作区", exact: true }).click();
     await expect(page).toHaveURL(/#\/images$/);
     await expect(page.getByRole("region", { name: "图片创作工作台" })).toBeVisible();
-    await navigation.getByRole("button", { name: "新建创作", exact: true }).click();
+    await navigation.getByRole("link", { name: "新建创作", exact: true }).click();
     await entry.getByRole("button", { name: "查看视频工作区" }).click();
     await expect(page.getByText("视频生成尚未接入。")).toBeVisible();
-    await navigation.getByRole("button", { name: "我的作品", exact: true }).click();
+    await navigation.getByRole("link", { name: "我的作品", exact: true }).click();
     await expect(page.getByRole("heading", { name: "我的作品", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "去图片创作", exact: true }).click();
     await expect(page).toHaveURL(/#\/images$/);
-    await navigation.getByRole("button", { name: "创作记录", exact: true }).click();
+    await navigation.getByRole("link", { name: "创作记录", exact: true }).click();
     await expect(page).toHaveURL(/#\/history$/);
     await page.getByRole("region", { name: "创作记录" }).getByRole("button", { name: /资料研究/ }).click();
     await expect(page).toHaveURL(/#\/chat\/1$/);
@@ -526,12 +526,13 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await expect(account).toBeInViewport();
     await account.click();
     const menu = page.getByRole("menu", { name: "账号菜单" });
-    await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "设置", "任务中心", "通知", "退出登录"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "任务中心", "通知", "退出登录"]);
     const menuBox = (await menu.boundingBox())!;
     expect(menuBox.x).toBeGreaterThanOrEqual(0);
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width);
     expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(770);
-    await menu.getByRole("menuitem", { name: "设置", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await navigation.getByRole("link", { name: "设置", exact: true }).click();
     await expect(page).toHaveURL(/#\/settings$/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.getByRole("button", { name: "返回首页", exact: true }).click();
@@ -912,7 +913,7 @@ test("the creation homepage filters inspiration and carries its image settings i
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(projects).toBeHidden();
   await expect(page.getByRole("navigation", { name: "移动端主导航" })
-    .getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
+    .getByRole("link", { name: "我的项目", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "添加到对话", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "进入图片工作区" })).toBeInViewport();
   await expect(inspiration.getByRole("button", { name: "游戏道具创作" })).toBeInViewport({ ratio: 1 });
@@ -929,14 +930,14 @@ test("the creation homepage filters inspiration and carries its image settings i
   await expect(expand).toHaveAttribute("aria-expanded", "false");
   await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(72);
   await expect(projects).toBeHidden();
-  await expect(sidebar.getByRole("button", { name: "我的项目", exact: true })).toBeInViewport();
-  await expect(sidebar.getByRole("button", { name: "设置", exact: true })).toBeInViewport();
+  await expect(sidebar.getByRole("link", { name: "我的项目", exact: true })).toBeInViewport();
+  await expect(sidebar.getByRole("link", { name: "设置", exact: true })).toBeInViewport();
   await expect(entry.getByRole("button", { name: "语音输入", exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("creation-home-sidebar-collapsed.png"), animations: "disabled" });
   await expand.press("Enter");
   await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(176);
   await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
-  await sidebar.getByRole("button", { name: "我的作品", exact: true }).click();
+  await sidebar.getByRole("link", { name: "我的作品", exact: true }).click();
   await expect(page).toHaveURL(/#\/works$/);
   await page.goBack();
   await expect(recentRecords).toHaveAttribute("aria-expanded", "false");
@@ -1090,7 +1091,7 @@ test("home restores both drafts after refresh and requires a new choice for a re
   const model = entry.getByRole("combobox", { name: "选择模型" });
   const open = entry.getByRole("button", { name: "进入图片工作区" });
   await model.selectOption("old-model");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("link", { name: "设置", exact: true }).click();
   await expect(page).toHaveURL(/#\/settings$/);
   models = [defaultModel];
   await page.goBack();

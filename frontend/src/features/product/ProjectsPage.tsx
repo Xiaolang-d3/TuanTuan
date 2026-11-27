@@ -20,6 +20,8 @@ type Props = {
   onSelect: (id?: string) => void;
   onOpen: (item: ProjectItem) => void;
   onOpenConversation: (create: (signal: AbortSignal) => Promise<Conversation>, signal: AbortSignal) => Promise<void>;
+  /** Called once a project write (create, edit, archive, delete) is confirmed by the server. */
+  onProjectsChanged?: () => void;
 };
 const itemKey = (item: ProjectItem) => `${item.kind}:${item.source_id}`;
 const kinds = Object.keys(projectKinds) as ProjectKind[];
@@ -82,7 +84,7 @@ function LinkSource({ fetchJson, linked, busy, onAdd }: { fetchJson: FetchCreati
   </form>;
 }
 
-function ProjectView({ fetchJson, id, onSelect, onOpen, modelOptions, modelLoading, modelError, onRetryModels, conversationBusy, onOpenConversation }: Props) {
+function ProjectView({ fetchJson, id, onSelect, onOpen, modelOptions, modelLoading, modelError, onRetryModels, conversationBusy, onOpenConversation, onProjectsChanged }: Props) {
   const api = useMemo(() => createProjectsApi(fetchJson), [fetchJson]);
   const [list, setList] = useState<Project[]>();
   const [detail, setDetail] = useState<ProjectDetail>();
@@ -163,11 +165,13 @@ function ProjectView({ fetchJson, id, onSelect, onOpen, modelOptions, modelLoadi
       if (detail) {
         const modelChange = form.modelId === selectedModelId ? {} : { default_model_profile_id: form.modelId || null };
         const saved = await api.update(detail.id, { ...input, ...modelChange }, signal);
+        onProjectsChanged?.();
         if (signal.aborted) return;
         setDetail(old => old && { ...old, ...saved });
         setForm(undefined);
       } else {
         const created = await api.create(input, signal);
+        onProjectsChanged?.();
         if (!signal.aborted) onSelect(created.id);
       }
     }, "暂时无法保存项目，请重试。");
@@ -210,6 +214,7 @@ function ProjectView({ fetchJson, id, onSelect, onOpen, modelOptions, modelLoadi
         <ActionButton size="sm" disabled={busy} onClick={() => setForm({ name: detail.name, description: detail.description, modelId: selectedModelId })}>编辑项目</ActionButton>
         <ActionButton size="sm" disabled={busy} onClick={() => void mutate(async signal => {
           const saved = await api.update(detail.id, { status: detail.status === "active" ? "archived" : "active" }, signal);
+          onProjectsChanged?.();
           if (signal.aborted) return;
           setDetail(old => old && { ...old, ...saved });
           if (saved.status === "archived") { setStartingChat(false); setSourceIds([]); setSourceError(""); }
@@ -256,7 +261,7 @@ function ProjectView({ fetchJson, id, onSelect, onOpen, modelOptions, modelLoadi
     </form>}
     {confirmDelete && detail && <section className="projects-form" aria-label="确认删除项目">
       <p>删除后将解除全部关联，不会删除原对话、文件或作品。</p>
-      <div className="projects-actions"><ActionButton disabled={busy} onClick={() => void mutate(async signal => { await api.remove(detail.id, signal); if (!signal.aborted) onSelect(); }, "暂时无法删除项目，请重试。")}>确认删除项目</ActionButton>
+      <div className="projects-actions"><ActionButton disabled={busy} onClick={() => void mutate(async signal => { await api.remove(detail.id, signal); onProjectsChanged?.(); if (!signal.aborted) onSelect(); }, "暂时无法删除项目，请重试。")}>确认删除项目</ActionButton>
         <ActionButton disabled={busy} onClick={() => setConfirmDelete(false)}>取消删除</ActionButton></div>
     </section>}
     {list?.length === 0 && <p>还没有项目。创建一个项目，把相关工作整理在一起。</p>}

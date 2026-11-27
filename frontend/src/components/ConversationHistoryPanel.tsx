@@ -116,7 +116,13 @@ type Props = {
   onRename: (conversation: Conversation) => void;
   onArchive: (conversation: Conversation) => void;
   onRemove: (conversation: Conversation) => void;
-  onSearch?: (query: string) => Promise<Conversation[]>;
+  onSearch?: (query: string) => Promise<Conversation[] | null>;
+  /**
+   * Whether the open drawer covers the surrounding content. When omitted it is
+   * read from the drawer's own computed position (fixed/absolute = overlay), so
+   * the inline wide layout stays non-modal and every overlay host is isolated.
+   */
+  overlay?: boolean;
   pinnedIds?: number[];
   onTogglePin?: (conversation: Conversation) => void;
   folders?: Array<{ id: string; name: string }>;
@@ -139,6 +145,7 @@ export function ConversationHistoryPanel({
   onArchive,
   onRemove,
   onSearch,
+  overlay,
   pinnedIds = [],
   onTogglePin,
   folders = [],
@@ -155,28 +162,80 @@ export function ConversationHistoryPanel({
   const [query, setQuery] = useState("");
   const [remoteResults, setRemoteResults] = useState<Conversation[] | null>(null);
   const [searchPending, setSearchPending] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const panelRef = useRef<HTMLElement>(null);
+  const lastQuery = useRef("");
+  const seenIds = useRef(new Set<number>());
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const [measuredOverlay, setMeasuredOverlay] = useState(false);
+  const modal = open && (overlay ?? measuredOverlay);
 
   useEffect(() => {
-    if (!onSearch) {
-      setRemoteResults(null);
-      setSearchPending(false);
-      return;
-    }
+    if (!open || overlay !== undefined) return;
+    const measure = () => {
+      const position = panelRef.current ? window.getComputedStyle(panelRef.current).position : "";
+      setMeasuredOverlay(position === "fixed" || position === "absolute");
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open, overlay]);
+
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  // While an overlay drawer covers the page, the content behind it must not be
+  // reachable by Tab. Closing hands focus back to the opener so it is never
+  // stranded on a hidden control. Both live in one effect so the opener is
+  // captured before focus moves in and un-inerted before focus goes back.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !panel?.contains(active)) returnFocus.current = active;
+    const siblings = modal
+      ? Array.from(panel?.parentElement?.children ?? []).filter(
+        (element): element is HTMLElement => element !== panel && element instanceof HTMLElement
+          && !element.classList.contains("conversation-history-backdrop") && !element.hasAttribute("inert")
+      )
+      : [];
+    for (const element of siblings) element.setAttribute("inert", "");
+    if (modal) panel?.querySelector<HTMLElement>(".conversation-history-close")?.focus({ preventScroll: true });
+    return () => {
+      for (const element of siblings) element.removeAttribute("inert");
+      if (openRef.current) return;
+      const current = document.activeElement;
+      const lost = !current || current === document.body || Boolean(panel?.contains(current));
+      if (!lost) return;
+      const opener = returnFocus.current?.isConnected ? returnFocus.current : document.querySelector<HTMLElement>('[aria-controls="conversation-history-drawer"]');
+      opener?.focus({ preventScroll: true });
+    };
+  }, [open, modal]);
+
+  // Re-run the server search whenever the list changes (rename, archive, delete)
+  // so an old hit cannot outlive the write that made it stale.
+  useEffect(() => {
     const needle = query.trim();
-    if (!needle) {
+    const queryChanged = lastQuery.current !== needle;
+    lastQuery.current = needle;
+    if (!onSearch || !needle) {
       setRemoteResults(null);
       setSearchPending(false);
+      setSearchFailed(false);
       return;
     }
     setSearchPending(true);
-    setRemoteResults(null);
+    setSearchFailed(false);
+    if (queryChanged) setRemoteResults(null);
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void onSearch(needle).then((items) => {
-        if (!cancelled) setRemoteResults(items);
+        // null: a newer write or refresh superseded this response; the list
+        // change that caused it re-triggers this effect.
+        if (!cancelled && items) setRemoteResults(items);
       }).catch(() => {
-        if (!cancelled) setRemoteResults(null);
+        if (!cancelled) { setRemoteResults(null); setSearchFailed(true); }
       }).finally(() => {
         if (!cancelled) setSearchPending(false);
       });
@@ -185,9 +244,19 @@ export function ConversationHistoryPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onSearch, query]);
+  }, [onSearch, query, conversations, searchAttempt]);
   const filtered = useMemo(() => {
-    if (remoteResults) return remoteResults;
+    if (remoteResults) {
+      // Drop hits that no longer exist and show the current title/status of the rest.
+      const current = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+      for (const id of current.keys()) seenIds.current.add(id);
+      return remoteResults.flatMap((hit) => {
+        const live = current.get(hit.id);
+        if (live) return [{ ...hit, title: live.title, status: live.status }];
+        // Seen in the list before but gone now: deleted since the search ran.
+        return seenIds.current.has(hit.id) ? [] : [hit];
+      });
+    }
     const needle = query.trim().toLocaleLowerCase();
     return conversations.filter((conversation) => !needle || `${conversation.title} ${conversation.summary}`.toLocaleLowerCase().includes(needle));
   }, [conversations, query, remoteResults]);
@@ -213,7 +282,15 @@ export function ConversationHistoryPanel({
       id="conversation-history-drawer"
       className={`conversation-history-panel ${open ? "drawer-open" : ""}`}
       hidden={!open}
+      role={modal ? "dialog" : undefined}
       aria-label="对话记录"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !modal || event.defaultPrevented || openMenuId !== null) return;
+        // Escape inside a row menu closes that menu first; only a bare Escape closes the drawer.
+        if (event.target instanceof Element && event.target.closest('[role="menu"]')) return;
+        event.stopPropagation();
+        closeDrawer();
+      }}
     >
       <header>
         <div><History size={15} /><strong>对话记录</strong></div>
@@ -256,7 +333,13 @@ export function ConversationHistoryPanel({
           setOpenMenuId(null);
         }
       }}>
-        {!groups.length && !searchPending ? <p className="conversation-history-empty" role="status">{query.trim() ? "没有匹配的对话，试试其他关键词" : "还没有对话，点击上方开始"}</p> : null}
+        {searchFailed && query.trim() ? (
+          <p className="conversation-history-empty" role="alert">
+            全文搜索暂时不可用，下面只匹配标题和摘要。
+            <button type="button" onClick={() => setSearchAttempt((attempt) => attempt + 1)}>重试</button>
+          </p>
+        ) : null}
+        {!groups.length && !searchPending ? <p className="conversation-history-empty" role="status">{query.trim() ? (searchFailed ? "标题和摘要中没有匹配项" : "没有匹配的对话，试试其他关键词") : "还没有对话，点击上方开始"}</p> : null}
         {groups.map((group) => (
           <section className="conversation-history-group" key={group.folderId ? `folder:${group.folderId}` : group.label} aria-label={group.label}>
             <FolderHeading

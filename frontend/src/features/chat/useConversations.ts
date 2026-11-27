@@ -19,8 +19,13 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
 
   const [conversationDialog, setConversationDialog] = useState<ConversationDialogState | null>(null);
 
-  const searchConversations = useCallback(async (query: string) => {
-    return clientRef.current<Conversation[]>(`/conversations?q=${encodeURIComponent(query)}`);
+  const searchConversations = useCallback(async (query: string): Promise<Conversation[] | null> => {
+    const generation = readGeneration.current;
+    const client = clientRef.current;
+    const results = await client<Conversation[]>(`/conversations?q=${encodeURIComponent(query)}`);
+    // A write, account switch, or newer list refresh makes this response unsafe to display.
+    if (clientRef.current !== client || readGeneration.current !== generation) return null;
+    return results;
   }, []);
 
   async function refreshConversations(signal?: AbortSignal) {
@@ -63,6 +68,7 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: conversation.status === "active" ? "archived" : "active" })
       });
+      invalidateConversationReads();
       const next = await refreshConversations();
       if (conversation.id === currentConversationId && conversation.status === "active") {
         setCurrentConversationId(next.find((item) => item.status === "active")?.id ?? next[0]?.id ?? null);
@@ -83,6 +89,7 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title })
       });
+      invalidateConversationReads();
       await refreshConversations();
       setConversationDialog(null);
       setNoticeMessage("已重命名");
@@ -97,6 +104,7 @@ export function useConversations({ fetchJson, setActiveView, setErrorMessage, se
     setConversationBusy(true);
     try {
       const result = await fetchJson<{ next_conversation: Conversation }>(`/conversations/${conversation.id}`, { method: "DELETE" });
+      invalidateConversationReads();
       const next = await refreshConversations();
       if (conversation.id === currentConversationId) {
         setCurrentConversationId(result.next_conversation?.id ?? next[0]?.id ?? null);
