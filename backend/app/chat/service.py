@@ -286,7 +286,8 @@ def _evidence_context(cards):
 
 
 
-def save_stream_result(conversation_id: int, task_id: int, user_message: dict[str, Any], result: AgentRunResult) -> dict[str, Any]:
+def save_stream_result(conversation_id: int, task_id: int | None, user_message: dict[str, Any], result: AgentRunResult) -> dict[str, Any]:
+    """保存助手消息及其资源、快照，返回对话中已持久化的消息对。"""
     if result.status == "waiting_user" and result.snapshot is not None:
         save_run_snapshot(conversation_id, result.snapshot)
     else:

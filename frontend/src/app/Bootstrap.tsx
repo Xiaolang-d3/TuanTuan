@@ -2,7 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { App } from "./App";
 import { resolveApiBase, type DesktopRuntimeConfig } from "./runtime";
-import { isProductIntroHash, productPrivacyHash } from "./public-routing";
+import { isProductIntroHash, productPrivacyHash } from "../routing";
 import { AuthGate } from "../components/AuthGate";
 import { PageLoading } from "../components/PageLoading";
 import { ProductIntroPage } from "../features/about/ProductIntroPage";

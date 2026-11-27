@@ -1,7 +1,7 @@
 import { createContext, lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { ArrowUpRight, FileText, Library, Paperclip, X } from "lucide-react";
-import { createApiClient, fetchWithTimeout, localCitationPath } from "../../api/client";
+import { createApiClient, fetchWithTimeout } from "../../api/client";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "../../components/ui/Dialog";
 import { locatorLabel, type LocalEvidence, type LocalSourceOriginal, type LocalSourcePreview } from "./local-evidence";
 import "./results.css";
@@ -121,6 +121,12 @@ function LocalCitationDialog({ evidence, loadPreview, loadOriginal }: { evidence
         </>}
       </div>
   </DialogContent>;
+}
+
+function localCitationPath(evidence: LocalEvidence): string {
+  const suffix = `/versions/${encodeURIComponent(evidence.source_revision)}/blocks/${encodeURIComponent(evidence.block_id)}`;
+  return evidence.source_kind === "library" ? `/library/sources/${evidence.source_id}${suffix}`
+    : `/attachments/${encodeURIComponent(evidence.attachment_id)}${suffix}?conversation_id=${evidence.conversation_id}`;
 }
 
 export function LocalCitationProvider({ apiBase, accessToken, children }: { apiBase: string; accessToken: string; children: ReactNode }) {
