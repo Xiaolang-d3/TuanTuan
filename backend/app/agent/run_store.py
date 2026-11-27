@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -188,8 +190,11 @@ class AgentRunStore:
         *,
         user_message_id: int | None = None,
         assistant_message_id: int | None = None,
+        connection: sqlite3.Connection | None = None,
     ) -> None:
-        with connect(self._db_path) as conn:
+        """Bind message IDs, using the caller's transaction when supplied."""
+        transaction = nullcontext(connection) if connection is not None else connect(self._db_path)
+        with transaction as conn:
             conn.execute(
                 """
                 UPDATE agent_execution_runs

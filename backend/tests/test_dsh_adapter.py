@@ -40,12 +40,13 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
 
     def runtime(self, session: DshSession, **kwargs) -> DshKernelRuntime:
         manager = DshRuntimeManager()
-        manager._sessions[(0, 1)] = session
         connection = {
             "model_name": "deepseek-v4-flash",
             "model_base_url": "https://api.deepseek.com",
             "api_key": "fake-key",
         }
+        session.execution_configuration = manager_module._execution_configuration(connection)
+        manager._sessions[(0, 1)] = session
         return DshKernelRuntime(manager, connection, **kwargs)
 
     async def collect(self, runtime, *, user_content: str = "你好", **run_kwargs) -> list[dict]:
@@ -65,6 +66,56 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("中文回复", completed["result"]["content"])
         finally:
             await session.client.close()
+
+    async def test_new_turn_initializes_the_selected_model_and_rebuilds_history(self) -> None:
+        clients = []
+        record = self.root / "model-switch.jsonl"
+
+        class RecordingClient(DshJsonRpcClient):
+            async def start(self) -> None:
+                if len(clients) > 1 and self is clients[-1]:
+                    assert clients[-2]._process.returncode is not None
+                await super().start()
+
+            async def initialize(self, params, **kwargs):
+                self.model = params["model"]
+                return await super().initialize(params, **kwargs)
+
+        def make_client(launch, **kwargs):
+            client = RecordingClient(launch, **kwargs, request_timeout=10.0, shutdown_timeout=2.0)
+            clients.append(client)
+            return client
+
+        manager = DshRuntimeManager(client_factory=make_client)
+        self.addAsyncCleanup(manager.close_all)
+        flash = {"profile_id": "flash", "model_name": "deepseek-v4-flash", "model_base_url": "https://api.deepseek.com"}
+        pro = {**flash, "profile_id": "pro", "model_name": "deepseek-v4-pro"}
+        launch = DshLaunch(bin=PYTHON, args=(FIXTURE,), env={"FAKE_DSH_RECORD": str(record)})
+        history = [AgentMessage(role="assistant", content="上一轮的输出")]
+        with (
+            patch.object(manager_module, "dsh_home", return_value=self.root),
+            patch.object(manager_module, "build_dsh_launch", return_value=launch),
+        ):
+            first = await self.collect(DshKernelRuntime(manager, flash, tool_ready_grace=0), model_selection=flash)
+            second = await self.collect(
+                DshKernelRuntime(manager, pro, tool_ready_grace=0),
+                user_content="继续分析", history=history, model_selection=pro,
+            )
+            third = await self.collect(
+                DshKernelRuntime(manager, dict(pro), tool_ready_grace=0),
+                user_content="写下结论", history=history, model_selection=pro,
+            )
+
+        self.assertEqual([events[-1]["type"] for events in (first, second, third)], ["completed"] * 3)
+        self.assertEqual([client.model for client in clients], ["deepseek-v4-flash", "deepseek-v4-pro"])
+        self.assertEqual(second[-1]["result"]["model_selection"]["profile_id"], "pro")
+        self.assertFalse(clients[0].running)
+        _, second_query, third_query = (
+            json.loads(line)["params"] for line in record.read_text(encoding="utf-8").splitlines()
+        )
+        self.assertIn("上一轮的输出", second_query["contentBlocks"][0]["text"])
+        self.assertIn("继续分析", second_query["contentBlocks"][0]["text"])
+        self.assertEqual(third_query["contentBlocks"][0]["text"], "写下结论")
 
     async def test_approval_pauses_with_waiting_user_and_resumes(self) -> None:
         record = self.root / "record.jsonl"
@@ -86,8 +137,9 @@ class DshAdapterTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(wrong[-1]["result"]["error"]["code"], "dsh_wait_expired")
             self.assertEqual(len(record.read_text(encoding="utf-8").splitlines()), 1)
 
+            switched = DshKernelRuntime(runtime._manager, {"model_name": "deepseek-v4-pro"}, tool_ready_grace=0)
             second = await self.collect(
-                runtime, user_content=f"{APPROVE_LABEL}\n附件上下文",
+                switched, user_content=f"{APPROVE_LABEL}\n附件上下文",
                 routing_content=APPROVE_LABEL, resume=snapshot,
             )
             self.assertEqual(second[-1]["type"], "completed")

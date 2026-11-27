@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 from ag_ui.core import RunAgentInput
@@ -33,6 +34,7 @@ from .run_messages import RunMessages, persist_run_result, prepare_run_messages
 from .run_recovery import RunRecovery, load_run_recovery, resolve_run_resume
 from .service import attachment_context, default_conversation_id as _default_conversation_id
 
+log = logging.getLogger(__name__)
 _active_chat_runs: dict[tuple[int, int], asyncio.Task[None]] = {}
 
 
@@ -324,6 +326,26 @@ def _prepare_run(payload: ChatMessageIn, run_id: str, allow_chatgpt_subscription
     )
 
 
+def _publish_run_result(
+    context: _RunContext,
+    queue: asyncio.Queue[tuple[str, dict[str, Any]] | None],
+    result: AgentRunResult,
+    event_name: str = "completed",
+) -> None:
+    try:
+        # 保留内核的原始结果，消息写入失败时同一 run 可以补写。
+        if not context.recovery.recovering_terminal_result:
+            context.run_store.finish(context.run_id, result)
+        completed = persist_run_result(
+            context.run_store, context.run_id, context.conversation_id, context.messages, result,
+        )
+    except Exception:
+        log.exception("Failed to persist chat result for run %s", context.run_id)
+        queue.put_nowait(("result_persist_failed", {}))
+        return
+    queue.put_nowait((event_name, completed))
+
+
 async def _execute_run(
     context: _RunContext,
     queue: asyncio.Queue[tuple[str, dict[str, Any]] | None],
@@ -353,10 +375,9 @@ async def _execute_run(
                 await queue.put(("text_delta", {"delta": result.content}))
             if cached is not None:
                 completed = {"user_message": cached["user_message"], "assistant_message": cached["assistant_message"]}
+                await queue.put(("completed", completed))
             else:
-                # 持久化结果先于消息写入。恢复时补写消息，无需再次访问模型。
-                completed = persist_run_result(run_store, run_id, conversation_id, messages, result)
-            await queue.put(("completed", completed))
+                _publish_run_result(context, queue, result)
             return
 
         kernel_runtime = context.kernel_runtime
@@ -407,9 +428,7 @@ async def _execute_run(
         if result is None:
             raise RuntimeError("Agent 流已结束，但没有返回结果")
 
-        run_store.finish(run_id, result)
-        completed = persist_run_result(run_store, run_id, conversation_id, messages, result)
-        await queue.put(("completed", completed))
+        _publish_run_result(context, queue, result)
     except asyncio.CancelledError:
         cancel_event = ToolEvent(
             round=0,
@@ -429,9 +448,7 @@ async def _execute_run(
             error=ToolError(code="user_cancelled", message="用户已停止生成"),
             events=list(streamed_events.values()),
         )
-        run_store.finish(run_id, cancelled_result)
-        completed = persist_run_result(run_store, run_id, conversation_id, messages, cancelled_result)
-        await queue.put(("cancelled", completed))
+        _publish_run_result(context, queue, cancelled_result, "cancelled")
     except Exception as exc:
         failed_result = AgentRunResult(
             content="流式执行发生异常，本次任务已终止。",
@@ -443,9 +460,7 @@ async def _execute_run(
             error=ToolError(code="stream_failed", message=str(exc), retryable=True),
             events=list(streamed_events.values()),
         )
-        run_store.finish(run_id, failed_result)
-        completed = persist_run_result(run_store, run_id, conversation_id, messages, failed_result)
-        await queue.put(("error", {**completed, "message": str(exc)}))
+        _publish_run_result(context, queue, failed_result, "error")
     finally:
         if _active_chat_runs.get(run_key) is current_task:
             _active_chat_runs.pop(run_key, None)

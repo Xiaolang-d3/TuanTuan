@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   notify:
@@ -13,64 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Send merge notice to QQ group
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Send merge notice and screenshots to QQ group
         env:
           QQ_APP_ID: ${{ secrets.QQ_BOT_APP_ID }}
           QQ_APP_SECRET: ${{ secrets.QQ_BOT_APP_SECRET }}
           QQ_GROUP_OPENID: ${{ secrets.QQ_GROUP_OPENID }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$QQ_APP_ID" ] || [ -z "$QQ_APP_SECRET" ] || [ -z "$QQ_GROUP_OPENID" ]; then
             echo "::warning::QQ secrets not configured; skipping notice."
             exit 0
           fi
-          python3 - <<'PY'
-          import json
-          import os
-          import urllib.error
-          import urllib.request
-
-          event = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
-          commits = event.get("commits") or []
-          head = event.get("head_commit") or {}
-          pusher = (event.get("pusher") or {}).get("name") or os.environ.get("GITHUB_ACTOR", "")
-
-          lines = ["【团团】main 分支已更新"]
-          shown = commits[-5:] if commits else ([head] if head else [])
-          for commit in shown:
-              title = (commit.get("message") or "").splitlines()[0][:80]
-              author = (commit.get("author") or {}).get("name") or pusher
-              lines.append(f"· {title}（{author}）")
-          if len(commits) > 5:
-              lines.append(f"……共 {len(commits)} 个提交")
-          url = event.get("compare") if len(commits) > 1 else head.get("url")
-          if url:
-              lines.append(url)
-          content = "\n".join(lines)
-
-          def post(url, body, headers=None):
-              request = urllib.request.Request(
-                  url,
-                  data=json.dumps(body).encode(),
-                  headers={"Content-Type": "application/json", **(headers or {})},
-                  method="POST",
-              )
-              with urllib.request.urlopen(request, timeout=15) as response:
-                  return json.loads(response.read() or b"{}")
-
-          try:
-              token = post(
-                  "https://bots.qq.com/app/getAppAccessToken",
-                  {"appId": os.environ["QQ_APP_ID"], "clientSecret": os.environ["QQ_APP_SECRET"]},
-              )["access_token"]
-              result = post(
-                  f"https://api.sgroup.qq.com/v2/groups/{os.environ['QQ_GROUP_OPENID']}/messages",
-                  {"msg_type": 0, "content": content},
-                  {"Authorization": f"QQBot {token}"},
-              )
-              print("sent", result.get("id", ""))
-          except urllib.error.HTTPError as error:
-              # A failed notice must not mark the push as broken; surface it as a warning.
-              print(f"::warning::QQ notice failed: HTTP {error.code} {error.read().decode()[:300]}")
-          except Exception as error:
-              print(f"::warning::QQ notice failed: {error}")
-          PY
+          python3 .github/scripts/qq_notify.py

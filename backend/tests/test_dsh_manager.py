@@ -20,6 +20,9 @@ class FakeClient:
         self.running = True
         self.closed = False
 
+    async def start(self) -> None:
+        self.running = True
+
     async def close(self) -> None:
         self.closed = True
         self.running = False
@@ -130,6 +133,118 @@ class DshManagerTest(unittest.IsolatedAsyncioTestCase):
             third = runtime.acquire(1, self.deepseek_connection())
             self.assertIsNot(first, third)
         await runtime.close_all()
+
+    async def test_acquire_replaces_session_for_each_execution_configuration_change(self) -> None:
+        self.vendored_bin()
+        runtime = DshRuntimeManager(client_factory=FakeClient)
+        self.addAsyncCleanup(runtime.close_all)
+        base = {
+            **self.deepseek_connection(),
+            "profile_id": "profile-a",
+            "profile_revision": 1,
+            "connection_id": "connection-a",
+            "connection_revision": 1,
+            "credential_fingerprint": "fingerprint-a",
+        }
+        changes = {
+            "model_name": "deepseek-v4-pro",
+            "model_base_url": "https://api.deepseek.com/v1",
+            "profile_id": "profile-b",
+            "profile_revision": 2,
+            "connection_id": "connection-b",
+            "connection_revision": 2,
+            "credential_fingerprint": "fingerprint-b",
+        }
+        with patch.object(manager, "current_user_id", return_value=0), patch.object(manager.shutil, "which", return_value="node"):
+            for conversation_id, (field, value) in enumerate(changes.items(), start=1):
+                with self.subTest(field=field):
+                    first = runtime.acquire(conversation_id, base)
+                    same = runtime.acquire(conversation_id, {**base, "config_revision": 2})
+                    self.assertIs(first, same)
+                    second = runtime.acquire(conversation_id, {**base, field: value})
+                    self.assertIsNot(first, second)
+                    await second.start()
+                    self.assertTrue(first.client.closed)
+
+    async def test_acquire_keeps_an_active_session_when_configuration_changes(self) -> None:
+        self.vendored_bin()
+        runtime = DshRuntimeManager(client_factory=FakeClient)
+        self.addAsyncCleanup(runtime.close_all)
+        with patch.object(manager, "current_user_id", return_value=0), patch.object(manager.shutil, "which", return_value="node"):
+            connection = self.deepseek_connection()
+            session = runtime.acquire(1, connection)
+            session.in_use = True
+            with self.assertRaises(KernelUnavailable):
+                runtime.acquire(1, {**connection, "model_name": "deepseek-v4-pro"})
+            session.in_use = False
+            self.assertIs(session, runtime.acquire(1, connection))
+            self.assertFalse(session.client.closed)
+
+    async def test_replacement_waits_for_retired_client_before_writing_patch(self) -> None:
+        self.vendored_bin()
+        close_started = asyncio.Event()
+        allow_close = asyncio.Event()
+        owner_loop = asyncio.get_running_loop()
+
+        class SlowCloseClient(FakeClient):
+            async def close(self) -> None:
+                assert asyncio.get_running_loop() is owner_loop
+                close_started.set()
+                await allow_close.wait()
+                await super().close()
+
+        runtime = DshRuntimeManager(client_factory=SlowCloseClient)
+        self.addAsyncCleanup(runtime.close_all)
+        with patch.object(manager, "current_user_id", return_value=0), patch.object(manager.shutil, "which", return_value="node"):
+            first = runtime.acquire(1, self.deepseek_connection())
+            await first.start()
+            await asyncio.to_thread(runtime.terminate, 1)
+            second = runtime.acquire(1, self.deepseek_connection("https://api.deepseek.com/v1"))
+            patch_path = first.home / "tuantuan.patch.yml"
+            preparation = asyncio.create_task(second.start())
+            try:
+                await asyncio.wait_for(close_started.wait(), timeout=2)
+                self.assertFalse(preparation.done())
+                self.assertIn("baseURL: 'https://api.deepseek.com'", patch_path.read_text(encoding="utf-8"))
+            finally:
+                allow_close.set()
+                await asyncio.wait_for(preparation, timeout=2)
+            self.assertTrue(first.client.closed)
+            self.assertIn("baseURL: 'https://api.deepseek.com/v1'", patch_path.read_text(encoding="utf-8"))
+
+    async def test_threaded_reset_closes_a_session_that_is_still_starting(self) -> None:
+        self.vendored_bin()
+        start_entered = asyncio.Event()
+        allow_start = asyncio.Event()
+        calls = []
+
+        class SlowStartingClient(DormantClient):
+            async def start(self) -> None:
+                start_entered.set()
+                await allow_start.wait()
+                await super().start()
+                calls.append("started")
+
+            async def close(self) -> None:
+                calls.append("closed")
+                await super().close()
+
+        runtime = DshRuntimeManager(client_factory=SlowStartingClient)
+        self.addAsyncCleanup(runtime.close_all)
+        with patch.object(manager, "current_user_id", return_value=0), patch.object(manager.shutil, "which", return_value="node"):
+            first = runtime.acquire(1, self.deepseek_connection())
+            starting = asyncio.create_task(first.start())
+            try:
+                await asyncio.wait_for(start_entered.wait(), timeout=2)
+                await asyncio.to_thread(runtime.terminate, 1)
+                second = runtime.acquire(1, self.deepseek_connection("https://api.deepseek.com/v1"))
+            finally:
+                allow_start.set()
+            with self.assertRaises(KernelUnavailable):
+                await asyncio.wait_for(starting, timeout=2)
+            await asyncio.wait_for(second.start(), timeout=2)
+            self.assertEqual(calls, ["started", "closed", "started"])
+            self.assertFalse(first.client.running)
 
     async def test_acquire_closes_a_non_running_replaced_session(self) -> None:
         self.vendored_bin()

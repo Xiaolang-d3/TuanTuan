@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -23,16 +25,25 @@ def save_chat_message(
     task_id: int | None = None,
 ) -> dict[str, Any]:
     with connect() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO chat_messages (role, content, payload_json, conversation_id, task_id)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (role, content, json_dump(payload or {}), conversation_id, task_id),
-        )
-        row = conn.execute(
-            "SELECT * FROM chat_messages WHERE id = ?", (cursor.lastrowid,)
-        ).fetchone()
+        return _insert_chat_message(conn, role, content, payload, conversation_id, task_id)
+
+
+def _insert_chat_message(
+    conn: sqlite3.Connection,
+    role: str,
+    content: str,
+    payload: dict[str, Any] | None,
+    conversation_id: int | None,
+    task_id: int | None,
+) -> dict[str, Any]:
+    cursor = conn.execute(
+        """
+        INSERT INTO chat_messages (role, content, payload_json, conversation_id, task_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (role, content, json_dump(payload or {}), conversation_id, task_id),
+    )
+    row = conn.execute("SELECT * FROM chat_messages WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return row_to_dict(row)
 
 
@@ -286,36 +297,54 @@ def _evidence_context(cards):
 
 
 
-def save_stream_result(conversation_id: int, task_id: int | None, user_message: dict[str, Any], result: AgentRunResult) -> dict[str, Any]:
-    """保存助手消息及其资源、快照，返回对话中已持久化的消息对。"""
-    if result.status == "waiting_user" and result.snapshot is not None:
-        save_run_snapshot(conversation_id, result.snapshot)
-    else:
-        clear_run_snapshot(conversation_id)
+def save_stream_result(
+    conversation_id: int,
+    task_id: int | None,
+    user_message: dict[str, Any],
+    result: AgentRunResult,
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """保存助手消息、资源和快照，供调用方在同一事务内绑定 run。"""
     public_result = result.model_dump(mode="json", exclude={"snapshot"})
     public_result["model_selection"] = public_model_selection(result.model_selection)
-    if result.assets:
-        with connect() as conn:
+    transaction = nullcontext(connection) if connection is not None else connect()
+    with transaction as conn:
+        if connection is None:
             conn.execute("BEGIN IMMEDIATE")
-            asset_ids = [asset["id"] for asset in result.assets]
-            rows = [conn.execute("SELECT message_id FROM chat_image_assets WHERE id=? AND conversation_id=?", (aid, conversation_id)).fetchone() for aid in asset_ids]
-            if not rows or any(row is None for row in rows):
-                raise ValueError("生成图片资源不可用")
-            bound_ids = {row["message_id"] for row in rows if row["message_id"] is not None}
-            if bound_ids:
-                if len(bound_ids) != 1 or any(row["message_id"] is None for row in rows):
-                    raise ValueError("图片的消息绑定不一致")
-                assistant_message = row_to_dict(conn.execute("SELECT * FROM chat_messages WHERE id=? AND conversation_id=?", (next(iter(bound_ids)), conversation_id)).fetchone())
-                if assistant_message is None:
-                    raise ValueError("图片所属消息不可用")
+        # 重连补写旧结果时，保留后来一轮的等待快照。
+        newer_turn = conn.execute(
+            "SELECT 1 FROM chat_messages WHERE conversation_id = ? AND role = 'user' AND id > ? LIMIT 1",
+            (conversation_id, user_message["id"]),
+        ).fetchone()
+        if newer_turn is None:
+            if result.status == "waiting_user" and result.snapshot is not None:
+                save_run_snapshot(conversation_id, result.snapshot, connection=conn)
             else:
-                cursor = conn.execute("INSERT INTO chat_messages(role,content,payload_json,conversation_id,task_id) VALUES ('assistant',?,?,?,?)",
-                                      (result.content, json_dump({"agent": public_result}), conversation_id, task_id))
-                assistant_message = row_to_dict(conn.execute("SELECT * FROM chat_messages WHERE id=?", (cursor.lastrowid,)).fetchone())
-            for asset in result.assets:
-                conn.execute("UPDATE chat_image_assets SET message_id=? WHERE id=? AND conversation_id=?",
-                             (assistant_message["id"], asset["id"], conversation_id))
-    else:
-        assistant_message = save_chat_message("assistant", result.content, {"agent": public_result}, conversation_id, task_id)
-    refresh_conversation_summary(conversation_id)
+                clear_run_snapshot(conversation_id, connection=conn)
+        asset_ids = [asset["id"] for asset in result.assets]
+        asset_rows = [conn.execute(
+            "SELECT message_id FROM chat_image_assets WHERE id = ? AND conversation_id = ?", (asset_id, conversation_id),
+        ).fetchone() for asset_id in asset_ids]
+        if any(row is None for row in asset_rows):
+            raise ValueError("生成图片资源不可用")
+        bound_ids = {row["message_id"] for row in asset_rows if row["message_id"] is not None}
+        if bound_ids:
+            if len(bound_ids) != 1 or any(row["message_id"] is None for row in asset_rows):
+                raise ValueError("图片的消息绑定不一致")
+            assistant_message = row_to_dict(conn.execute(
+                "SELECT * FROM chat_messages WHERE id = ? AND conversation_id = ?", (next(iter(bound_ids)), conversation_id),
+            ).fetchone())
+            if assistant_message is None:
+                raise ValueError("图片所属消息不可用")
+        else:
+            assistant_message = _insert_chat_message(
+                conn, "assistant", result.content, {"agent": public_result}, conversation_id, task_id,
+            )
+            conn.executemany(
+                "UPDATE chat_image_assets SET message_id = ? WHERE id = ? AND conversation_id = ?",
+                [(assistant_message["id"], asset_id, conversation_id) for asset_id in asset_ids],
+            )
+    if connection is None:
+        refresh_conversation_summary(conversation_id)
     return {"user_message": user_message, "assistant_message": assistant_message}
