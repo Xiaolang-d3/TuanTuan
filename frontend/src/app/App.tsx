@@ -455,9 +455,6 @@ export function App({
       activeView={activeView}
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
       onOpenAccount={() => navigateRoute({ section: "settings", page: "account" })}
-      onOpenTasks={openTasks}
-      onOpenNotifications={openNotifications}
-      onOpenSearch={openSearch}
       onLogout={onLogout}
       onPrefetchPage={(page) => void pagePrefetcher.prefetch(page)}
     />

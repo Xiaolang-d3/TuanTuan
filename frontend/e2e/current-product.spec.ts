@@ -196,7 +196,7 @@ test("skills center opens image creation from mobile without changing the existi
 });
 
 for (const theme of ["light", "dark", "blue"] as const) {
-  test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }) => {
+  test(`sidebar account and logo control remain reachable in ${theme}`, async ({ page }, testInfo) => {
     await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
     await page.setViewportSize({ width: 874, height: 770 });
     await page.goto("/#/chat/1");
@@ -271,7 +271,10 @@ for (const theme of ["light", "dark", "blue"] as const) {
         await account.click();
         const menu = page.getByRole("menu", { name: "账号菜单" });
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "任务中心", "通知", "退出登录"]);
+        await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "退出登录"]);
+        if (width === 1280 && !collapsed) {
+          await menu.screenshot({ path: testInfo.outputPath(`sidebar-account-menu-${theme}.png`), animations: "disabled" });
+        }
         const menuBox = (await menu.boundingBox())!;
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
@@ -526,7 +529,7 @@ test("mobile navigation keeps settings reachable through the account menu", asyn
     await expect(account).toBeInViewport();
     await account.click();
     const menu = page.getByRole("menu", { name: "账号菜单" });
-    await expect(menu.getByRole("menuitem")).toHaveText(["全局搜索", "账号与安全", "任务中心", "通知", "退出登录"]);
+    await expect(menu.getByRole("menuitem")).toHaveText(["账号与安全", "退出登录"]);
     const menuBox = (await menu.boundingBox())!;
     expect(menuBox.x).toBeGreaterThanOrEqual(0);
     expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width);
@@ -782,13 +785,13 @@ test("keyboard leaves the account menu and returns focus after closing history d
   const accountMenu = page.getByRole("menu", { name: "账号菜单" });
   await expect(page.getByRole("textbox", { name: "输入消息" })).toBeFocused();
   await account.press("ArrowDown");
-  await expect(accountMenu.getByRole("menuitem", { name: "全局搜索" })).toBeFocused();
+  await expect(accountMenu.getByRole("menuitem", { name: "账号与安全" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(accountMenu).toBeHidden();
   await expect(account).toHaveAttribute("aria-expanded", "false");
 
   await page.getByRole("button", { name: "对话记录", exact: true }).click();
-  const panel = page.getByRole("complementary", { name: "对话记录" });
+  const panel = page.getByRole("dialog", { name: "对话记录" });
   const trigger = panel.getByRole("button", { name: "资料研究 的更多操作" });
   const menu = panel.getByRole("menu", { name: "资料研究 的操作" });
   await trigger.press("ArrowDown");
@@ -855,6 +858,27 @@ test("retired career routes are not recognized and open home", async ({ page }) 
   await expect(page.getByText("职位机会", { exact: true })).toHaveCount(0);
 });
 
+
+for (const theme of ["light", "dark"] as const) {
+  test(`creation mode buttons share the group background in ${theme}`, async ({ page }, testInfo) => {
+    await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
+    await page.setViewportSize(theme === "dark" ? { width: 390, height: 844 } : { width: 1440, height: 900 });
+    await page.goto("/#/home");
+    const modes = page.getByRole("group", { name: "创作方式" });
+    const imageMode = modes.getByRole("button", { name: "图片", exact: true });
+    const chatMode = modes.getByRole("button", { name: "对话", exact: true });
+    await expect(imageMode).toHaveAttribute("aria-pressed", "true");
+    await expect(imageMode).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await imageMode.press("ArrowLeft");
+    await expect(chatMode).toBeFocused();
+    await chatMode.press("Enter");
+    await expect(chatMode).toHaveAttribute("aria-pressed", "true");
+    await expect(imageMode).toHaveAttribute("aria-pressed", "false");
+    await expect(chatMode).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await chatMode.press("Tab");
+    await modes.screenshot({ path: testInfo.outputPath(`creation-modes-${theme}.png`), animations: "disabled" });
+  });
+}
 
 test("the creation homepage filters inspiration and carries its image settings into the studio", async ({ page }, testInfo) => {
   const sizes = ["auto", "1536x1024", "768x512", "1024x1536"];
