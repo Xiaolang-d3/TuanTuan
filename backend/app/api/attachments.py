@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Literal
+from urllib.parse import quote
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response, JSONResponse
 from ..attachments.service import (
     create_attachment,
     delete_attachment,
-    get_attachment_file,
+    get_attachment_download,
     get_attachment_metadata,
     list_attachments,
     parse_attachment,
@@ -41,20 +42,23 @@ def attachments_thumbnail(attachment_id: str) -> Response:
                         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/attachments/{attachment_id}/file")
-def attachments_file(attachment_id: str) -> FileResponse:
+def attachments_file(attachment_id: str) -> Response:
     try:
-        path, filename, content_type = get_attachment_file(attachment_id)
-        return FileResponse(
-            path,
-            filename=filename,
-            media_type=content_type,
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-        )
+        content, filename, content_type = get_attachment_download(attachment_id)
+        headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+        if isinstance(content, bytes):
+            headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+            return Response(content, media_type=content_type, headers=headers)
+        return FileResponse(content, filename=filename, media_type=content_type, headers=headers)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/conversations/{conversation_id}/attachments")
@@ -103,7 +107,11 @@ def attachments_parse(
 
 @router.delete("/attachments/{attachment_id}")
 def attachments_delete(attachment_id: str) -> dict[str, bool]:
-    if not delete_attachment(attachment_id):
+    try:
+        deleted = delete_attachment(attachment_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="附件不存在")
     return {"deleted": True}
 
@@ -117,10 +125,12 @@ def attachments_config() -> dict[str, Any]:
         and settings.minio_secret_key
         and settings.minio_bucket
     )
-    vision_ready = (
-        settings.attachment_vision_enabled
-        and (settings.attachment_storage == "local" or minio_configured)
-    )
+    storage_configured = {
+        "local": True,
+        "minio": minio_configured,
+        "cos": getattr(settings, "cos_configured", False),
+    }[settings.attachment_storage]
+    vision_ready = settings.attachment_vision_enabled and storage_configured
     checks = [
         {
             "key": "local_storage",
@@ -129,6 +139,11 @@ def attachments_config() -> dict[str, Any]:
             "message": "可用于默认本地解析与临时附件保存",
         },
         {
+            "key": "cos_private_storage",
+            "label": "腾讯云 COS 私有存储",
+            "status": "ok" if settings.cos_configured else "warning",
+            "message": "COS 必要配置已填写" if settings.cos_configured else "缺少 COS 连接配置",
+        } if settings.attachment_storage == "cos" else {
             "key": "minio_private_storage",
             "label": "MinIO 私有存储",
             "status": (

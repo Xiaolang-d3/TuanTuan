@@ -129,11 +129,11 @@ def preview_block(target, block_id, db_path=None, *, conversation_id=None):
                 get_source_version(original_id, metadata["library_source_revision"], db_path)
             _, filename, mime = get_source_file(original_id, db_path)
         else:
-            from ..attachments.service import get_attachment_file
-            _, filename, mime = get_attachment_file(original_id, db_path=db_path)
+            from ..attachments.service import get_attachment_download
+            _, filename, mime = get_attachment_download(original_id, db_path=db_path)
         original = {"available": True, "source_kind": original_kind, "filename": filename, "mime_type": mime,
                     "source_id" if original_kind == "library" else "attachment_id": original_id}
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, RuntimeError) as exc:
         original["reason"] = str(exc)
     return {**target.model_dump(exclude_none=True), "block_id": block_id, "title": source.get("title") or source.get("original_filename"),
             "locator": block["locator"], "text": block["text"], "model_text": block["model_text"],

@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 
-from ..attachments.service import get_attachment_file, get_attachment_metadata
+from ..attachments.service import get_attachment_download, get_attachment_metadata
 from ..db import connect, json_dump, row_to_dict
 from ..library.sources import _clean_title, _index_source, _safe_filename, _source_dir, get_source
 from ..library.organization import list_folders
@@ -237,8 +237,8 @@ def save_artifact(message_id: int, request: SaveArtifactIn, db_path: str | Path 
                 copies = []
                 if artifact["kind"] == "attachment":
                     attachment = get_attachment_metadata(artifact["attachment_id"], db_path=db_path)
-                    path, _, _ = get_attachment_file(artifact["attachment_id"], db_path=db_path)
-                    data = path.read_bytes()
+                    content, _, _ = get_attachment_download(artifact["attachment_id"], db_path=db_path)
+                    data = content if isinstance(content, bytes) else content.read_bytes()
                     if sha256(data).hexdigest() != attachment["sha256"]:
                         raise ArtifactConflict("附件原文件已变化，请重新上传后再保存")
                     text = str(attachment.get("parsed_text") or "")

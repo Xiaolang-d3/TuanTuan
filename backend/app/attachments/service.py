@@ -18,6 +18,8 @@ from ..db import connect, json_dump, row_to_dict, rows_to_dicts
 from ..workspace import attachments_dir
 
 AttachmentKind = Literal["image", "document"]
+AttachmentStorage = Literal["local", "minio", "cos"]
+COS_KEY_PREFIX = "cos/"
 ATTACHMENT_SOURCE_TYPE = "conversation_attachment"
 
 MAX_BYTES: dict[AttachmentKind, int] = {"image": 10 * 1024 * 1024, "document": 8 * 1024 * 1024}
@@ -71,7 +73,7 @@ class AttachmentStore:
         self,
         local_root: Path | None = None,
         *,
-        storage: Literal["local", "minio"] | None = None,
+        storage: AttachmentStorage | None = None,
     ) -> None:
         self.settings = get_settings()
         self.local_root = local_root or attachments_dir()
@@ -97,7 +99,10 @@ class AttachmentStore:
         suffix = Path(filename).suffix.lower()
         object_key = f"{attachment_id[:2]}/{attachment_id}{suffix}"
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        if self.storage == "minio":
+        if self.storage == "cos":
+            object_key = COS_KEY_PREFIX + object_key
+            self._cos_storage().put(object_key, content, content_type)
+        elif self.storage == "minio":
             client = self._minio_client()
             if not client.bucket_exists(self._bucket()):
                 client.make_bucket(self._bucket())
@@ -130,6 +135,9 @@ class AttachmentStore:
 
     def get(self, object_key: str) -> bytes:
         path = self._local_path(object_key)
+        # 按对象键识别 COS 附件，切回本地写入时仍然可以读取已上传的对象。
+        if object_key.startswith(COS_KEY_PREFIX):
+            return self._cos_storage().get(object_key)
         # Existing local attachments and immutable preview caches stay readable
         # when the installation switches to MinIO.
         if path.is_file():
@@ -152,6 +160,9 @@ class AttachmentStore:
 
     def delete(self, object_key: str) -> None:
         path = self._local_path(object_key)
+        if object_key.startswith(COS_KEY_PREFIX):
+            self._cos_storage().delete(object_key)
+            return
         if self.storage == "minio":
             self._minio_client().remove_object(self._bucket(), object_key)
         path.unlink(missing_ok=True)
@@ -169,6 +180,11 @@ class AttachmentStore:
             object_key,
             expires=expires,
         )
+
+    def _cos_storage(self):
+        from .cos import CosAttachmentStorage
+
+        return CosAttachmentStorage(self.settings)
 
     def _minio_client(self, endpoint: str | None = None):
         target_endpoint = endpoint or self.settings.minio_endpoint
@@ -198,9 +214,9 @@ def attachment_thumbnail(attachment_id: str, *, db_path: str | Path | None = Non
     metadata = get_attachment_metadata(attachment_id, db_path=db_path)
     if metadata["kind"] != "image":
         raise ValueError("该附件不是图片")
-    path, _, _ = get_attachment_file(attachment_id, db_path=db_path)
+    content, _, _ = get_attachment_download(attachment_id, db_path=db_path)
     try:
-        with Image.open(path) as original:
+        with Image.open(BytesIO(content) if isinstance(content, bytes) else content) as original:
             if original.width * original.height > 40_000_000:
                 raise ValueError("图片尺寸过大，请下载原图查看")
             image = ImageOps.exif_transpose(original)
@@ -288,16 +304,30 @@ def get_attachment_file(
     attachment = get_attachment(attachment_id, db_path=db_path)
     if attachment is None:
         raise ValueError("附件不存在")
-    attachment_store = store or get_attachment_store()
-    root = attachment_store.local_root.resolve()
-    path = (root / attachment["object_key"]).resolve()
-    if root not in path.parents:
-        raise ValueError("附件文件路径无效")
-    if not path.is_file():
-        if attachment_store.storage != "minio":
-            raise ValueError("附件原文件不存在，可能已被移除")
-        attachment_store._write_local(attachment["object_key"], attachment_store.get(attachment["object_key"]))
+    path = _attachment_file_path(store or get_attachment_store(), attachment["object_key"])
     return path, attachment["original_filename"], attachment["content_type"]
+
+
+def _attachment_file_path(store: AttachmentStore, key: str) -> Path:
+    path = store._local_path(key)
+    if not path.is_file():
+        if store.storage != "minio":
+            raise ValueError("附件原文件不存在，可能已被移除")
+        store._write_local(key, store.get(key))
+    return path
+
+
+def get_attachment_download(
+    attachment_id: str, *, db_path: str | Path | None = None, store: AttachmentStore | None = None
+) -> tuple[Path | bytes, str, str]:
+    """Return the original file and its metadata without caching COS data on disk."""
+    attachment = get_attachment(attachment_id, db_path=db_path)
+    if attachment is None:
+        raise ValueError("附件不存在")
+    attachment_store = store or get_attachment_store()
+    key = attachment["object_key"]
+    content = attachment_store.get(key) if key.startswith(COS_KEY_PREFIX) else _attachment_file_path(attachment_store, key)
+    return content, attachment["original_filename"], attachment["content_type"]
 
 
 def get_attachment_metadata(
