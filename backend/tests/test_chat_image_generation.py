@@ -508,3 +508,42 @@ def test_storage_failure_rolls_back_and_keeps_attempt_blocked(images, monkeypatc
         assert conn.execute('SELECT status FROM chat_image_operations WHERE id=?', ('disk-failure',)).fetchone()[0] == 'started'
     with pytest.raises(ModelProviderError, match='阻止'):
         begin_generation('disk-failure', cid, {}, path)
+
+
+def test_runtime_chat_model_falls_back_to_image_purpose_model(images, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    path, _ = images
+    chat = NS(name='chat', generate=AsyncMock(return_value=response()))
+    image_provider = NS(name='images', generate=AsyncMock(return_value=response()))
+
+    @asynccontextmanager
+    async def open_provider(connection):
+        yield image_provider
+
+    adapter = NS(size_for_wire=lambda operation, size: None, open=open_provider)
+    connection = {'profile_id': 'img', 'connection_id': 'ic', 'profile_revision': 1, 'connection_revision': 1,
+                  'model_name': 'gpt-image-2', 'model_protocol': 'images', 'model_base_url': ''}
+    monkeypatch.setattr('app.agent.model_purposes.resolve_purpose_connection', lambda purpose: connection)
+    monkeypatch.setattr('app.models.image_adapters.connection_image_adapter', lambda value: adapter)
+    with use_workspace(1, path.parent):
+        init_db(); cid = create_conversation('工作台生图')['id']
+        result = asyncio.run(runtime(chat, 'gpt-5').run('画一只猫', conversation_id=cid, run_id='purpose-image'))
+    assert result.status == 'done' and len(result.assets) == 1
+    assert chat.generate.await_count == 0 and image_provider.generate.await_count == 1
+    assert image_provider.generate.call_args.args[0].image_generation
+
+
+def test_runtime_chat_image_without_image_model_reports_setup(images, monkeypatch):
+    path, _ = images
+    chat = NS(name='chat', generate=AsyncMock(return_value=response()))
+
+    def missing(purpose):
+        raise ValueError('没有可用的图片模型')
+
+    monkeypatch.setattr('app.agent.model_purposes.resolve_purpose_connection', missing)
+    with use_workspace(1, path.parent):
+        init_db(); cid = create_conversation('工作台生图')['id']
+        result = asyncio.run(runtime(chat, 'gpt-5').run('画一只猫', conversation_id=cid))
+    assert result.status == 'failed' and result.error.code == 'image_model_required'
+    assert '图片生成模型' in result.error.message and chat.generate.await_count == 0
