@@ -8,18 +8,20 @@ bootstrap/runtime 都会导入 app.tools，而 tools 的各模块又读取 agent
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .bootstrap import get_agent_capabilities, get_agent_runtime
+    from .bootstrap import get_agent_capabilities, get_agent_runtime, get_profile_connection, reload_agent_components
     from .runtime import AgentRuntime
 
 __all__ = [
     "AgentRuntime",
     "get_agent_capabilities",
     "get_agent_runtime",
+    "get_profile_connection",
+    "reload_agent_components",
 ]
 
 
 def __getattr__(name: str) -> Any:
-    if name in {"get_agent_capabilities", "get_agent_runtime"}:
+    if name in __all__ and name != "AgentRuntime":
         from . import bootstrap
 
         return getattr(bootstrap, name)

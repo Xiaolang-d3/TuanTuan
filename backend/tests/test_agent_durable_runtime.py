@@ -420,6 +420,44 @@ class AgentDurableRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].result.status, "cancelled")
         self.assertEqual(self.store.get_run("inflight-cancel")["status"], "cancelled")
 
+    async def test_durable_cancel_interrupts_inflight_tool_before_next_model_round(self) -> None:
+        class PendingTool(CountingTool):
+            started = asyncio.Event()
+            stopped = asyncio.Event()
+
+            async def execute(self, arguments, context):
+                self.calls += 1
+                self.started.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    self.stopped.set()
+
+        tool = PendingTool("search_library")
+        tools = ToolRegistry()
+        tools.register_handler(tool)
+        model = ToolThenTextModel("search_library", {"query": "账目"})
+        runtime = self._runtime(model, tools)
+        run_id = "inflight-tool-cancel"
+        collector = asyncio.create_task(self._collect(runtime, "根据我的知识库回答", run_id=run_id))
+        try:
+            await asyncio.wait_for(tool.started.wait(), timeout=3)
+            self.assertTrue(self.store.request_cancel(run_id))
+            events = await asyncio.wait_for(collector, timeout=3)
+        finally:
+            if not collector.done():
+                collector.cancel()
+                await asyncio.gather(collector, return_exceptions=True)
+
+        self.assertTrue(tool.stopped.is_set())
+        self.assertEqual(tool.calls, 1)
+        self.assertEqual(events[-1].result.error.code, "user_cancelled")
+        self.assertEqual(self.store.get_run(run_id)["status"], "cancelled")
+        self.assertEqual(
+            [event.event.status for event in events if event.event and event.event.tool_name == "search_library"],
+            ["running"],
+        )
+
     def _runtime(self, model, tools: ToolRegistry) -> AgentRuntime:
         models = ModelProviderRegistry()
         models.register(model.name, model)

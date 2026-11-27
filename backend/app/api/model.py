@@ -10,8 +10,7 @@ from pydantic import BaseModel, Field
 from .. import chatgpt_subscription as subscription
 from ..chatgpt_store import SubscriptionStoreError
 from ..workspace import resolve_db_path
-from ..agent import get_agent_capabilities
-from ..agent.bootstrap import reload_agent_components
+from ..agent import get_agent_capabilities, reload_agent_components
 from ..agent.model_capabilities import apply_actual_protocol, build_model_list, infer_model_capabilities
 from ..agent.settings import AgentSettingsConflict, get_agent_settings, get_model_connection, save_agent_settings
 from ..model_connection import resolve_model_connection
