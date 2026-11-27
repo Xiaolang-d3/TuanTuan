@@ -249,7 +249,7 @@ export type ChatWorkspaceProps = ResultServices & {
   onRegenerate: (userMessageId: number) => Promise<void>;
   onDeleteTurn?: (userMessageId: number) => Promise<void>;
   onExportConversation?: () => void;
-  onSearchConversations?: (query: string) => Promise<Conversation[]>;
+  onSearchConversations?: (query: string) => Promise<Conversation[] | null>;
   pinnedConversationIds?: number[];
   onTogglePinConversation?: (conversation: Conversation) => void;
   conversationFolders?: Array<{ id: string; name: string }>;

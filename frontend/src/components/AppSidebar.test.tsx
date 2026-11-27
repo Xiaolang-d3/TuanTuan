@@ -116,10 +116,10 @@ describe("AppSidebar", () => {
   it("exposes the seven product destinations", () => {
     renderSidebar();
     const desktopNav = screen.getByRole("navigation", { name: "主导航" });
-    expect(within(desktopNav).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
+    expect(within(desktopNav).getAllByRole("link").map((item) => item.getAttribute("aria-label"))).toEqual([
       "新建创作", "创作记录", "我的作品", "技能中心", "知识库", "我的项目"
     ]);
-    expect(within(desktopNav.closest("aside")!.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" })).toBeInTheDocument();
+    expect(within(desktopNav.closest("aside")!.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" })).toBeInTheDocument();
     expect(screen.queryByText("快速搜索…")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "机会中心" })).not.toBeInTheDocument();
   });
@@ -128,9 +128,9 @@ describe("AppSidebar", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
     for (const name of ["新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心"]) {
-      fireEvent.click(navigation.getByRole("button", { name }));
+      fireEvent.click(navigation.getByRole("link", { name }));
     }
-    fireEvent.click(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" }));
+    fireEvent.click(within(document.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" }));
     for (const key of ["dashboard", "history", "works", "library", "projects", "skills", "settings"]) {
       expect(props.onSelectNav).toHaveBeenCalledWith(key);
     }
@@ -140,9 +140,9 @@ describe("AppSidebar", () => {
   it("prefetches library and settings without loading chat for creation records", () => {
     const props = renderSidebar();
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    fireEvent.mouseEnter(navigation.getByRole("button", { name: "创作记录" }));
-    fireEvent.mouseEnter(navigation.getByRole("button", { name: "知识库" }));
-    fireEvent.mouseEnter(within(document.querySelector(".sidebar-identity-slot")!).getByRole("button", { name: "设置" }));
+    fireEvent.mouseEnter(navigation.getByRole("link", { name: "创作记录" }));
+    fireEvent.mouseEnter(navigation.getByRole("link", { name: "知识库" }));
+    fireEvent.mouseEnter(within(document.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" }));
     expect(props.onPrefetchPage).not.toHaveBeenCalledWith("chat");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("library");
     expect(props.onPrefetchPage).toHaveBeenCalledWith("settings");
@@ -151,11 +151,11 @@ describe("AppSidebar", () => {
   it("shows the same destinations in mobile navigation", () => {
     const props = renderSidebar();
     const mobile = screen.getByRole("navigation", { name: "移动端主导航" });
-    expect(within(mobile).getAllByRole("button").map((item) => item.getAttribute("aria-label"))).toEqual([
+    expect(within(mobile).getAllByRole("link").map((item) => item.getAttribute("aria-label"))).toEqual([
       "新建创作", "创作记录", "我的作品", "知识库", "我的项目", "技能中心", "设置"
     ]);
-    expect(within(mobile).getByRole("button", { name: "创作记录" })).toHaveAttribute("aria-current", "page");
-    fireEvent.click(within(mobile).getByRole("button", { name: "技能中心" }));
+    expect(within(mobile).getByRole("link", { name: "创作记录" })).toHaveAttribute("aria-current", "true");
+    fireEvent.click(within(mobile).getByRole("link", { name: "技能中心" }));
     expect(props.onSelectNav).toHaveBeenCalledWith("skills");
   });
 
@@ -164,15 +164,40 @@ describe("AppSidebar", () => {
   ] as const)("highlights the %s destination", (view, label) => {
     renderSidebar(undefined, false, view);
     const selector = view === "settings" ? ".sidebar-identity-slot" : ".nav-desktop";
-    expect(within(document.querySelector(selector)!).getByRole("button", { name: label })).toHaveAttribute("aria-current", "page");
+    const link = within(document.querySelector(selector)!).getByRole("link", { name: label });
+    // A chat opened from the records is inside that section; the link itself leads to the list.
+    expect(link).toHaveAttribute("aria-current", view === "chat" ? "true" : "page");
   });
 
   it("does not mislabel the existing file library as works", () => {
     renderSidebar(undefined, false, "chat", { libraryOpen: true });
     const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
-    expect(navigation.getByRole("button", { name: "我的作品" })).not.toHaveAttribute("aria-current");
-    expect(navigation.getByRole("button", { name: "创作记录" })).not.toHaveAttribute("aria-current");
-    expect(navigation.getByRole("button", { name: "知识库" })).toHaveAttribute("aria-current", "page");
+    expect(navigation.getByRole("link", { name: "我的作品" })).not.toHaveAttribute("aria-current");
+    expect(navigation.getByRole("link", { name: "创作记录" })).not.toHaveAttribute("aria-current");
+    expect(navigation.getByRole("link", { name: "知识库" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("renders each destination as a real link to its own address", () => {
+    renderSidebar();
+    const navigation = within(screen.getByRole("navigation", { name: "主导航" }));
+    expect(navigation.getByRole("link", { name: "新建创作" })).toHaveAttribute("href", "#/home");
+    expect(navigation.getByRole("link", { name: "创作记录" })).toHaveAttribute("href", "#/history");
+    expect(navigation.getByRole("link", { name: "我的作品" })).toHaveAttribute("href", "#/works");
+    expect(navigation.getByRole("link", { name: "知识库" })).toHaveAttribute("href", "#/chat/library");
+    expect(navigation.getByRole("link", { name: "我的项目" })).toHaveAttribute("href", "#/projects");
+    expect(navigation.getByRole("link", { name: "技能中心" })).toHaveAttribute("href", "#/skills");
+    expect(within(document.querySelector(".sidebar-identity-slot")!).getByRole("link", { name: "设置" })).toHaveAttribute("href", "#/settings");
+  });
+
+  it("routes a plain click inside the app but leaves modified clicks to the browser", () => {
+    const props = renderSidebar();
+    const works = within(screen.getByRole("navigation", { name: "主导航" })).getByRole("link", { name: "我的作品" });
+    fireEvent.click(works);
+    expect(props.onSelectNav).toHaveBeenCalledTimes(1);
+    for (const modifier of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      expect(fireEvent.click(works, modifier)).toBe(true);
+    }
+    expect(props.onSelectNav).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose retired opportunity or analysis product entries", () => {

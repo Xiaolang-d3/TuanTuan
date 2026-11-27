@@ -863,7 +863,7 @@ function ChatWorkspaceContent(props: ChatWorkspaceContentProps) {
         onRemoveFolder={props.onRemoveConversationFolder}
         onAssignFolder={props.onAssignConversationFolder}
       />
-      {conversationListOpen ? <button className="conversation-history-backdrop" type="button" aria-label="关闭对话记录" onClick={() => setConversationListOpen(false)} /> : null}
+      {conversationListOpen ? <button className="conversation-history-backdrop" type="button" tabIndex={-1} aria-label="关闭对话记录" onClick={() => setConversationListOpen(false)} /> : null}
       {researchPanelOpen ? <button className="research-panel-backdrop" type="button" aria-label="关闭来源详情" onClick={() => closeResearchDetails()} /> : null}
     </section>
   );

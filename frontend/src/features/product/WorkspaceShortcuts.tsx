@@ -15,13 +15,15 @@ type Props = {
   projectsOpen: boolean;
   recordsOpen: boolean;
   projectsActive: boolean;
+  /** Monotonically increasing revision for project writes in the current scope. */
+  projectsRevision?: number;
   onOpenChange: (group: WorkspaceShortcutGroup, open: boolean) => void;
   onViewProjects: () => void;
   onViewRecords: () => void;
 };
 
-export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpen, recordsOpen, projectsActive, onOpenChange, onViewProjects, onViewRecords }: Props) {
-  const projects = useShortcutItems(projectsOpen, fetchJson, loadProjects);
+export function WorkspaceShortcuts({ fetchJson, onProject, onRecord, projectsOpen, recordsOpen, projectsActive, projectsRevision = 0, onOpenChange, onViewProjects, onViewRecords }: Props) {
+  const projects = useShortcutItems(projectsOpen, fetchJson, loadProjects, projectsRevision);
   const records = useShortcutItems(recordsOpen, fetchJson, loadRecords);
   return <nav className="workspace-shortcuts" aria-label="工作区快捷入口">
     <Collapsible.Root className="workspace-shortcut-group" open={projectsOpen} onOpenChange={open => onOpenChange("projects", open)}>
@@ -65,21 +67,23 @@ async function loadRecords(fetchJson: FetchCreationJson, signal: AbortSignal) {
 }
 
 function useShortcutItems<T extends Project | CreationRecord>(open: boolean, fetchJson: FetchCreationJson,
-  load: (fetchJson: FetchCreationJson, signal: AbortSignal) => Promise<T[]>) {
+  load: (fetchJson: FetchCreationJson, signal: AbortSignal) => Promise<T[]>, revision = 0) {
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{ client: FetchCreationJson; items: T[] | null }>();
+  const [result, setResult] = useState<{ client: FetchCreationJson; revision: number; items: T[] | null }>();
   useEffect(() => {
     if (!open) { setResult(undefined); return; }
     const controller = new AbortController();
     load(fetchJson, controller.signal).then(items => {
-      if (!controller.signal.aborted) setResult({ client: fetchJson, items });
+      if (!controller.signal.aborted) setResult({ client: fetchJson, revision, items });
     }, () => {
-      if (!controller.signal.aborted) setResult({ client: fetchJson, items: null });
+      if (!controller.signal.aborted) setResult({ client: fetchJson, revision, items: null });
     });
     return () => controller.abort();
-  }, [open, fetchJson, load, attempt]);
+  }, [open, fetchJson, load, attempt, revision]);
+  // A confirmed write bumps the revision: hide the old rows immediately so a
+  // renamed, archived or deleted project cannot be opened while reloading.
   return {
-    items: open && result?.client === fetchJson ? result.items : undefined,
+    items: open && result?.client === fetchJson && result.revision === revision ? result.items : undefined,
     retry: () => { setResult(undefined); setAttempt(previous => previous + 1); },
   };
 }

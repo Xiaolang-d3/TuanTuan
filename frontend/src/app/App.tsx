@@ -216,6 +216,10 @@ export function App({
   const [avatarEpoch, setAvatarEpoch] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readPreference("tuantuan-sidebar", userEmail) === "collapsed");
   const [appRoute, setAppRoute] = useState<AppRoute>(() => initialAppRoute(window.location.hash));
+  // Bumped by every user or browser navigation so a slow async action (e.g. the
+  // Weixin entry waiting on a list refresh) can tell it was superseded.
+  const navigationIntent = useRef(0);
+  const [projectsRevision, setProjectsRevision] = useState(0);
   const [visitedImageWorkspace, setVisitedImageWorkspace] = useState(appRoute.section === "images");
   useEffect(() => { if (appRoute.section === "images") setVisitedImageWorkspace(true); }, [appRoute.section]);
   const activeView: ViewKey = appRoute.section;
@@ -475,6 +479,7 @@ export function App({
   }
 
   function navigateRoute(route: AppRoute, replace = false) {
+    navigationIntent.current += 1;
     const nextHash = appRouteHash(route);
     const nextRoute = parseAppHash(nextHash) ?? route;
     setAppRoute(nextRoute);
@@ -496,6 +501,7 @@ export function App({
     }
     function syncRoute() {
       if (isProductIntroHash(window.location.hash)) return;
+      navigationIntent.current += 1;
       const next = initialAppRoute(window.location.hash);
       const canonicalHash = appRouteHash(next);
       if (window.location.hash !== canonicalHash) {
@@ -1129,7 +1135,6 @@ export function App({
       activeView={activeView}
       settingsPage={appRoute.section === "settings" ? appRoute.page : undefined}
       onOpenAccount={() => navigateRoute({ section: "settings", page: "account" })}
-      onOpenSettings={() => navigateRoute({ section: "settings", page: "overview" })}
       onOpenTasks={openTasks}
       onOpenNotifications={openNotifications}
       onOpenSearch={openSearch}
@@ -1401,6 +1406,7 @@ export function App({
             ...previous, [creationScope]: { ...previous[creationScope], [group]: open },
           }))}
           projectsActive={activeView === "projects"}
+          projectsRevision={projectsRevision}
           onViewProjects={() => selectProductNav("projects")}
           onViewRecords={() => selectProductNav("history")}
           onProject={projectId => navigateRoute({ section: "projects", projectId })} onRecord={openCreationRecord} />}
@@ -1408,10 +1414,15 @@ export function App({
         weixinActive={weixinActive}
         onOpenWeixin={async () => {
           if (weixinBot?.conversation_id) {
+            const intent = navigationIntent.current;
             try {
               await refreshConversations();
+              // The user went somewhere else while the list loaded; do not pull them back.
+              if (navigationIntent.current !== intent) return;
               navigateRoute({ section: 'chat', conversationId: weixinBot.conversation_id });
-            } catch { setErrorMessage('微信会话读取失败，请稍后重试'); }
+            } catch {
+              if (navigationIntent.current === intent) setErrorMessage('微信会话读取失败，请稍后重试');
+            }
           } else navigateRoute({ section: 'settings', page: 'channels' });
         }}
       />
@@ -1465,6 +1476,7 @@ export function App({
             }))}
             modelLoading={modelCatalog.loading || (!modelCatalog.loaded && !modelCatalog.error)} modelError={modelCatalog.error}
             onRetryModels={() => { void modelCatalog.reload(); }} conversationBusy={conversationBusy || chatBusy}
+            onProjectsChanged={() => setProjectsRevision(revision => revision + 1)}
             onSelect={projectId => navigateRoute({ section: "projects", projectId })} onOpen={openProjectItem}
             onOpenConversation={(create, signal) => openHomeConversation(create, "", "已新建项目对话", { ownerSignal: signal })} />
           : <PageLoading label="正在连接项目…" />) : null}
