@@ -1,5 +1,6 @@
 .developer-home-shell {
-  --creation-content-width: 720px;
+  /* 窄屏保持 720px 的紧凑对话框宽度，宽屏按视口比例放宽，避免超宽屏两侧留白过大；1200px 封顶防止输入框过宽影响可读性 */
+  --creation-content-width: clamp(720px, 56vw, 1200px);
   --creation-background: var(--color-bg);
   --creation-line: var(--color-border);
   --creation-accent: #356eb9;
