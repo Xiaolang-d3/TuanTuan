@@ -48,7 +48,7 @@ def _require_presentation_model(connection: dict) -> None:
 
 
 def build_bound_provider(selection: dict, *, timeout_seconds: float | None = None):
-    from ..agent.bootstrap import get_profile_connection
+    from ..agent import get_profile_connection
     from ..models.configured import configure_model_provider
     from ..models.factory import build_model_provider
 
