@@ -9,6 +9,7 @@ import { productIntroHash, productPrivacyHash } from "../routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthHero } from "./AuthHero";
 import { PublicSiteFooter } from "./PublicSiteFooter";
+import { QqGroupEntry } from "./QqGroupEntry";
 import { ThemeToggleButton } from "./ThemeToggleButton";
 import { PasswordGuidance } from "./PasswordGuidance";
 import { legacyPasswordMaxLength, newPasswordError } from "../features/auth/passwordPolicy";
@@ -552,6 +553,7 @@ function AuthGateShell({ status = false, children }: { status?: boolean; childre
         <div className="auth-brand"><img className="auth-brand-mark" src="/tuantuan-mark.svg" width="32" height="32" alt="" draggable={false} /><h1 className="auth-wordmark">团团</h1><span className="auth-brand-caption" aria-hidden="true">AI STUDIO</span></div>
         <nav className="auth-public-nav" aria-label="公共导航">
           <a href={productIntroHash}>关于 团团</a>
+          <QqGroupEntry />
           <ThemeToggleButton className="auth-theme-toggle" />
         </nav>
       </header>
