@@ -1,11 +1,4 @@
 import { consumeEvents } from './events';
-import type { LocalEvidence } from '../features/chat/local-evidence';
-
-export function localCitationPath(evidence: LocalEvidence): string {
-  const suffix = `/versions/${encodeURIComponent(evidence.source_revision)}/blocks/${encodeURIComponent(evidence.block_id)}`;
-  return evidence.source_kind === "library" ? `/library/sources/${evidence.source_id}${suffix}`
-    : `/attachments/${encodeURIComponent(evidence.attachment_id)}${suffix}?conversation_id=${evidence.conversation_id}`;
-}
 
 const DEFAULT_API_TIMEOUT_MS = 30_000;
 

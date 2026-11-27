@@ -129,7 +129,9 @@ beforeAll(async () => {
   await Promise.all([
     import("../features/settings/SettingsWorkspace"),
     import("../features/settings/ModelSettingsPage"),
-    import("../features/settings/ModelConnectionManager")
+    import("../features/settings/ModelConnectionManager"),
+    import("../features/settings/UnifiedModelManager"),
+    import("../features/settings/ChatGPTSubscriptionSettings")
   ]);
 });
 

@@ -1,5 +1,13 @@
 import type { ViewKey } from "./types";
 
+export const productIntroHash = "#/about";
+export const productPrivacyHash = `${productIntroHash}?section=privacy`;
+
+/** 判断地址是否指向公开产品页，包括隐私说明等带查询参数的入口。 */
+export function isProductIntroHash(hash: string): boolean {
+  return hash.split("?")[0].replace(/\/+$/, "") === productIntroHash;
+}
+
 export type SettingsPage = "overview" | "account" | "library" | "model" | "agent" | "appearance" | "channels" | "extensions" | "memory";
 
 export type AppRoute =

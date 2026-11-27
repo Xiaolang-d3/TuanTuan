@@ -5,7 +5,7 @@ import { ApiError, createApiClient } from "../api/client";
 import { AuthSession, AuthUser, validateSession } from "../features/auth/session";
 import { useAuthSession } from "../features/auth/useAuthSession";
 import { beginQq, canUseQq, clearQqReturn, finishQq, readQqReturn } from "../features/auth/qq";
-import { productIntroHash, productPrivacyHash } from "../app/public-routing";
+import { productIntroHash, productPrivacyHash } from "../routing";
 import { AuthEmailInput } from "./AuthEmailInput";
 import { AuthHero } from "./AuthHero";
 import { PublicSiteFooter } from "./PublicSiteFooter";
