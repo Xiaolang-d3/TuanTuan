@@ -14,7 +14,7 @@ function setup() {
     userEmail: "a@example.test", creationScope: "a", databaseReady: true, chatBusy: false,
     webSearchAvailable: true, selectNewConversationWebSearch: vi.fn(),
     clearChatMessages: vi.fn(), selectNewConversationSkill: vi.fn(), setErrorMessage: vi.fn(), setNoticeMessage: vi.fn(),
-    navigateRoute: vi.fn(), currentConversationId: null, conversationBusy: false, setConversationBusy: vi.fn(),
+    navigateRoute: vi.fn(), currentConversationId: null as number | null, conversationBusy: false, setConversationBusy: vi.fn(),
     invalidateConversationReads: vi.fn(), setConversations: vi.fn(), selectConversation: vi.fn(),
   };
   const hook = renderHook(() => useHomeCreation(options));
@@ -107,4 +107,37 @@ it("联网选择随账号草稿恢复且互相隔离", () => {
   options.creationScope = "a";
   rerender();
   expect(result.current.form.webSearch).toBe(true);
+});
+
+it("首页发起的对话沿用创作输入框，切换其他对话和账号时独立，刷新后恢复", async () => {
+  const { result, options, rerender, unmount } = setup();
+  act(() => result.current.openCreationWorkspace("写一份计划"));
+  await waitFor(() => expect(options.selectConversation).toHaveBeenCalledWith(11));
+  options.currentConversationId = 11;
+  rerender();
+  expect(result.current.creationComposer).toBe(true);
+  options.currentConversationId = 12;
+  rerender();
+  expect(result.current.creationComposer).toBe(false);
+  options.currentConversationId = 11;
+  options.creationScope = "b";
+  rerender();
+  expect(result.current.creationComposer).toBe(false);
+  options.creationScope = "a";
+  rerender();
+  expect(result.current.creationComposer).toBe(true);
+  unmount();
+  const restored = setup();
+  restored.options.currentConversationId = 11;
+  restored.rerender();
+  expect(restored.result.current.creationComposer).toBe(true);
+});
+
+it("项目或技能创建的会话不继承首页输入框", async () => {
+  const { result, options, rerender } = setup();
+  act(() => { void result.current.openNewChatDraft("技能任务", "已准备", "weekly"); });
+  await waitFor(() => expect(options.selectConversation).toHaveBeenCalledWith(11));
+  options.currentConversationId = 11;
+  rerender();
+  expect(result.current.creationComposer).toBe(false);
 });

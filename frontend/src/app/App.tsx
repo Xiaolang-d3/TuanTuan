@@ -665,7 +665,7 @@ export function App({
   return (
     <ExtensionPreviewProvider key={JSON.stringify([apiBase, user.id ?? user.email])} apiBase={apiBase} accessToken={accessToken}>
     <LocalCitationProvider apiBase={apiBase} accessToken={accessToken}>
-    <main className={`app-shell has-chat-dock shell-light${activeView === "chat" ? " chat-focused" : ""}${activeView === "dashboard" ? " developer-home-shell" : ""}`}>
+    <main className={`app-shell has-chat-dock shell-light${activeView === "chat" ? " chat-focused" : ""}${activeView === "dashboard" ? " developer-home-shell" : ""}${activeView === "chat" && homeCreation.creationComposer ? " home-chat-shell" : ""}`}>
       <AppSidebar
         collapsed={sidebarCollapsed}
         activeView={activeView}
@@ -885,6 +885,7 @@ export function App({
             density={activeView === "chat" ? "page" : "dock"}
             workspaceActions={activeView === "chat" ? workspaceActions : null}
             focused={activeView === "chat" && !workspaceLibraryOpen}
+            creationComposer={homeCreation.creationComposer}
             conversationTitle={currentConversation?.title}
             currentModelName={conversationModels.currentModelName}
             defaultModelName={conversationModels.defaultModelName}

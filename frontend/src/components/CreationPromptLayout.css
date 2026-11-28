@@ -1,0 +1,103 @@
+.creation-prompt-surface {
+  --creation-background: var(--color-bg);
+  --creation-accent: #356eb9;
+  --creation-accent-edge: #5684c9;
+}
+:root[data-theme="dark"] .creation-prompt-surface {
+  --creation-background: #181818;
+  --creation-accent: #aac5ff;
+  --creation-accent-edge: #769ef0;
+}
+
+.creation-entry-form {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 23px;
+  background: color-mix(in srgb, var(--creation-background) 97%, var(--color-text));
+}
+.creation-entry-form:focus-within {
+  border-color: var(--creation-accent-edge);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--creation-accent-edge) 18%, transparent);
+}
+.creation-entry-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  max-height: 176px;
+  field-sizing: content;
+  padding: 9px 8px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  resize: none;
+}
+.creation-entry-form textarea:focus-visible { outline: 0; }
+.creation-entry-form textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
+.creation-entry-form p { margin: 0; padding-inline: 8px; font-size: 13px; color: var(--color-text-muted); }
+.creation-entry-form [role="alert"] { color: var(--color-danger); }
+.creation-entry-files { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; padding: 0 8px; margin: 0; list-style: none; }
+.creation-entry-files li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.creation-entry-files li span { min-width: 0; overflow-wrap: anywhere; }
+.creation-entry-files li button { padding: 2px 6px; border: 0; border-radius: 5px; }
+.creation-prompt-surface :is(.creation-file-button, .creation-web-search-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.creation-prompt-surface .creation-file-button:hover:not(:disabled) { color: var(--color-text); }
+.creation-prompt-surface .creation-web-search-button[aria-pressed="false"]:hover:not(:disabled) { color: var(--color-text); }
+.creation-prompt-surface .creation-web-search-button[aria-pressed="true"] {
+  color: var(--creation-accent);
+  background: color-mix(in srgb, var(--creation-accent) 12%, transparent);
+}
+.creation-prompt-surface .creation-web-search-button:disabled { opacity: .5; cursor: not-allowed; }
+.creation-prompt-surface .creation-entry-files li button:hover:not(:disabled) { background: var(--color-surface-subtle); }
+
+.creation-entry-footer { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.creation-entry-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; }
+.creation-entry-actions { display: flex; flex: 0 0 auto; gap: 4px; margin-left: auto; }
+.creation-prompt-surface :is(.creation-voice-button, .creation-submit) {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+}
+.creation-prompt-surface .creation-voice-button { color: var(--color-text-secondary); background: transparent; }
+.creation-prompt-surface .creation-voice-button:hover:not(:disabled) { color: var(--color-text); }
+.creation-prompt-surface .creation-voice-button[aria-pressed="true"] {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.creation-prompt-surface .creation-submit {
+  background: var(--creation-accent);
+  color: var(--creation-background);
+}
+.creation-prompt-surface .creation-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--creation-accent) 85%, var(--color-text));
+}
+
+.creation-prompt-surface button { cursor: pointer; font: inherit; }
+.creation-prompt-surface button:disabled { cursor: not-allowed; opacity: .6; }
+
+@media (max-width: 540px) {
+  .creation-entry-form { padding: 8px; border-radius: 19px; }
+  .creation-entry-tools { gap: 3px 4px; }
+  .creation-prompt-surface .creation-web-search-button { width: 36px; justify-content: center; padding: 0; }
+  .creation-web-search-button > span { display: none; }
+}

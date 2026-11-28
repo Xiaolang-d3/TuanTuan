@@ -6,6 +6,7 @@ import { CHAT_ATTACHMENT_ACCEPT, chatAttachmentKind, MAX_CHAT_ATTACHMENTS } from
 import { VoiceDraftEditor } from "../chat/voiceDraft";
 import type { VoiceInputService } from "../chat/voiceInput";
 import { CreationInspiration } from "./CreationInspiration";
+import { CreationPromptLayout } from "../../components/CreationPromptLayout";
 
 export type CreationMode = "chat" | "images";
 export type CreationDrafts = Record<CreationMode, string>;
@@ -103,14 +104,34 @@ export function CreationEntry({
         <h1>让想法成为现实</h1>
         <p>理解你的想法，帮你把事情做好。</p>
       </header>
-      <form className="creation-entry-form" onSubmit={event => {
+      <form className="creation-entry-form creation-prompt-surface" onSubmit={event => {
         event.preventDefault();
         void openWorkspace();
       }}>
         <input ref={fileInput} type="file" hidden multiple accept={CHAT_ATTACHMENT_ACCEPT} aria-label="选择对话附件"
           onChange={event => { addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ""; }} />
-        <textarea ref={draftInput} aria-label="工作台草稿" rows={2} maxLength={MAX_CREATION_DRAFT_LENGTH} value={draft}
-          placeholder={PLACEHOLDER} onChange={event => onDraft(event.target.value)} />
+        <CreationPromptLayout input={<textarea ref={draftInput} aria-label="工作台草稿" rows={2} maxLength={MAX_CREATION_DRAFT_LENGTH} value={draft}
+          placeholder={PLACEHOLDER} onChange={event => onDraft(event.target.value)} />}
+          tools={<>
+            <button className="creation-file-button" type="button" disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>
+              <Plus size={16} aria-hidden="true" /> 添加资料
+            </button>
+            <button className="creation-web-search-button" type="button" aria-label="联网搜索"
+              aria-pressed={webSearchActive} disabled={controlsDisabled || !webSearchAvailable}
+              title={webSearchAvailable ? "允许新对话按需联网搜索" : "联网搜索服务未启用"}
+              onClick={() => onWebSearchChange(!webSearchActive)}>
+              <Globe size={16} aria-hidden="true" /><span>联网搜索</span>
+            </button>
+          </>}
+          actions={<>
+            <button className="creation-voice-button" type="button" disabled={controlsDisabled}
+              aria-pressed={voice.listening} aria-label={voiceLabel} title={voiceLabel} onClick={toggleVoice}>
+              {voice.listening ? <Square size={15} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}
+            </button>
+            <button className="creation-submit" type="submit" disabled={controlsDisabled} aria-label={action} title={action}>
+              <ArrowUp size={17} aria-hidden="true" />
+            </button>
+          </>}>
         {fileIssue && <p role="alert">{fileIssue}</p>}
         {files.length > 0 && <ul className="creation-entry-files" aria-label="对话草稿附件">
           {files.map((file, index) => <li key={index}>
@@ -121,28 +142,7 @@ export function CreationEntry({
         </ul>}
         {voice.error && <p role="alert">{voice.error}</p>}
         {finishingVoice && <p role="status">正在完成转写…</p>}
-        <div className="creation-entry-footer">
-          <div className="creation-entry-tools">
-            <button className="creation-file-button" type="button" disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>
-              <Plus size={16} aria-hidden="true" /> 添加资料
-            </button>
-            <button className="creation-web-search-button" type="button" aria-label="联网搜索"
-              aria-pressed={webSearchActive} disabled={controlsDisabled || !webSearchAvailable}
-              title={webSearchAvailable ? "允许新对话按需联网搜索" : "联网搜索服务未启用"}
-              onClick={() => onWebSearchChange(!webSearchActive)}>
-              <Globe size={16} aria-hidden="true" /><span>联网搜索</span>
-            </button>
-          </div>
-          <div className="creation-entry-actions">
-            <button className="creation-voice-button" type="button" disabled={controlsDisabled}
-              aria-pressed={voice.listening} aria-label={voiceLabel} title={voiceLabel} onClick={toggleVoice}>
-              {voice.listening ? <Square size={15} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}
-            </button>
-            <button className="creation-submit" type="submit" disabled={controlsDisabled} aria-label={action} title={action}>
-              <ArrowUp size={17} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        </CreationPromptLayout>
       </form>
       <div className="creation-entry-modes">
         <div className="creation-mode-shortcuts" role="group" aria-label="创作快捷入口">

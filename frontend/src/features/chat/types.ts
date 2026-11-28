@@ -265,4 +265,6 @@ export type ChatWorkspaceProps = ResultServices & {
   onOpenLibrary?: () => void;
   density?: "page" | "dock";
   focused?: boolean;
+  /** 从工作台发起时，输入框沿用首页布局并始终停靠底部。 */
+  creationComposer?: boolean;
 };

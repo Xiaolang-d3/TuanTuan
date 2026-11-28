@@ -15,6 +15,23 @@ type CreationForm = {
   webSearch: boolean;
 };
 
+function restoreHomeConversations(scope: string): number[] {
+  try {
+    const ids: unknown = JSON.parse(readStorageItem(`tuantuan-home-conversations:${scope}`, "sessionStorage") ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is number => Number.isSafeInteger(id) && id > 0).slice(-100) : [];
+  } catch { return []; }
+}
+
+type ConversationHandoff = {
+  skillId?: string;
+  ownerSignal?: AbortSignal;
+  files?: File[];
+  autoSend?: boolean;
+  webSearch?: boolean;
+  fromHome?: boolean;
+  onOpened?: () => void;
+};
+
 function restoreCreationForm(scope: string): CreationForm {
   const form: CreationForm = { scope, draft: "", webSearch: false };
   try {
@@ -57,6 +74,11 @@ export function useHomeCreation({
   invalidateConversationReads, setConversations, selectConversation
 }: Options) {
   const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
+  const [homeConversations, setHomeConversations] = useState(() => ({ scope: creationScope, ids: restoreHomeConversations(creationScope) }));
+  const homeConversationIds = useMemo(() => homeConversations.scope === creationScope ? homeConversations.ids : restoreHomeConversations(creationScope), [homeConversations, creationScope]);
+  useEffect(() => {
+    writeStorageItem(`tuantuan-home-conversations:${creationScope}`, JSON.stringify(homeConversationIds), "sessionStorage");
+  }, [creationScope, homeConversationIds]);
   const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
   const savedCreationDraft = activeCreationForm.draft;
   const savedWebSearch = activeCreationForm.webSearch;
@@ -98,7 +120,7 @@ export function useHomeCreation({
     setConversationBusy(false);
   }, [fetchJson, userEmail, setConversationBusy]);
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files, autoSend, webSearch, onOpened }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[]; autoSend?: boolean; webSearch?: boolean; onOpened?: () => void } = {}) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files, autoSend, webSearch, fromHome, onOpened }: ConversationHandoff = {}) {
     if (ownerSignal?.aborted) return;
     if (openingConversationRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
@@ -138,6 +160,9 @@ export function useHomeCreation({
       }
       if (skillId) selectNewConversationSkill(created.id, skillId);
       if (webSearch !== undefined) selectNewConversationWebSearch(created.id, webSearch);
+      if (fromHome) setHomeConversations(previous => ({ scope: creationScope,
+        ids: [...(previous.scope === creationScope ? previous.ids : homeConversationIds).filter(id => id !== created.id), created.id].slice(-100),
+      }));
       selectConversation(created.id);
       setNoticeMessage(notice);
       onOpened?.();
@@ -151,7 +176,7 @@ export function useHomeCreation({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
-  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: { autoSend?: boolean; webSearch?: boolean; onOpened?: () => void }) {
+  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: Pick<ConversationHandoff, "autoSend" | "webSearch" | "fromHome" | "onOpened">) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
     }), content, notice, { skillId, files, ...handoff });
@@ -168,6 +193,7 @@ export function useHomeCreation({
     const notice = sendNow ? "" : activeHomeFiles.length ? "对话草稿已准备，编辑后发送" : "已新建对话";
     void openNewChatDraft(content, notice, undefined, activeHomeFiles, {
       autoSend: sendNow,
+      fromHome: true,
       webSearch: webSearchAvailable && activeCreationForm.webSearch,
       onOpened: () => { if (sendNow) clearCreationDraft(content); },
     }).catch((error: unknown) => {
@@ -177,6 +203,7 @@ export function useHomeCreation({
 
   return {
     form: activeCreationForm,
+    creationComposer: currentConversationId !== null && homeConversationIds.includes(currentConversationId),
     homeFiles: activeHomeFiles,
     setHomeFiles: (files: File[]) => setHomeFiles({ scope: creationScope, files }),
     updateForm: updateCreationForm,
