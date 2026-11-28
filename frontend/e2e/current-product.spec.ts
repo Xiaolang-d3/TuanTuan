@@ -689,6 +689,14 @@ test("home web search choice reaches the first message and the new conversation"
   const toggle = home.getByRole("button", { name: "联网搜索" });
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.hover();
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.click();
+  await expect(toggle).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-web-search-desktop.png") });

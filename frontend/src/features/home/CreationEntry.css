@@ -99,12 +99,13 @@
   padding: 0 7px;
   border: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--color-text-secondary);
   font-size: 13px;
   white-space: nowrap;
 }
 .home-page .creation-file-button:hover:not(:disabled) { color: var(--color-text); }
-.home-page .creation-web-search-button:hover:not(:disabled),
+.home-page .creation-web-search-button[aria-pressed="false"]:hover:not(:disabled) { color: var(--color-text); }
 .home-page .creation-web-search-button[aria-pressed="true"] {
   color: var(--creation-accent);
   background: color-mix(in srgb, var(--creation-accent) 12%, transparent);
