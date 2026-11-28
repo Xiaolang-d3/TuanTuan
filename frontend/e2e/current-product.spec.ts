@@ -772,6 +772,21 @@ test("home sending keeps the input at the bottom with conversation messages abov
   expect(requests).toHaveLength(2);
 });
 
+for (const theme of ["light", "dark"]) {
+  test(`home typing uses only the outer focus frame in ${theme} theme`, async ({ page }, testInfo) => {
+    await page.addInitScript(value => localStorage.setItem("tuantuan-theme", value), theme);
+    await page.goto("/#/home");
+    const input = page.getByRole("textbox", { name: "工作台草稿" });
+    await input.fill("输入时只保留外层输入框");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveCSS("outline-width", "0px");
+    await expect(input).toHaveCSS("box-shadow", "none");
+    await expect(input).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(page.locator(".creation-entry-form")).not.toHaveCSS("box-shadow", "none");
+    await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath(`home-focus-${theme}.png`) });
+  });
+}
+
 test("home has an icon-only attachment action and an inline model picker that carries into the first message", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
   const connection = { id: "fixture", name: "测试服务", model_base_url: "https://fixture.test/v1", model_protocol: "openai", api_key_configured: true, enabled: true, revision: 1 };
@@ -819,6 +834,12 @@ test("home has an icon-only attachment action and an inline model picker that ca
   const frame = page.locator(".creation-entry-form");
   await expect(frame.getByRole("button", { name: /切换模型，当前 model-b/ })).toBeVisible();
   await expect(frame.getByRole("button", { name: "添加资料" })).toHaveText("");
+  const chatInput = frame.getByRole("textbox", { name: "输入消息" });
+  await chatInput.fill("继续输入也不显示内框");
+  await expect(chatInput).toBeFocused();
+  await expect(chatInput).toHaveCSS("outline-width", "0px");
+  await expect(chatInput).toHaveCSS("box-shadow", "none");
+  await expect(frame).not.toHaveCSS("box-shadow", "none");
   expect(created.model_profile_id).toBe("model-b");
 });
 

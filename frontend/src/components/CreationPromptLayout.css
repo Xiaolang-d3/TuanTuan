@@ -36,7 +36,8 @@
   line-height: 1.5;
   resize: none;
 }
-.creation-entry-form textarea:focus-visible { outline: 0; }
+/* The surrounding form already marks focus; theme input rules must not add an inner frame. */
+.creation-entry-form.creation-prompt-surface textarea:focus { outline: 0; box-shadow: none; }
 .creation-entry-form textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
 .creation-entry-form p { margin: 0; padding-inline: 8px; font-size: 13px; color: var(--color-text-muted); }
 .creation-entry-form [role="alert"] { color: var(--color-danger); }
