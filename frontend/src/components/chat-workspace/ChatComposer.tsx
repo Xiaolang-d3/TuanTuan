@@ -8,6 +8,7 @@ import type { ChatAttachment, ChatWorkspaceProps } from "../../features/chat/typ
 import { SkillPicker } from "../../features/extensions/SkillPicker";
 import { ComposerResources } from "../ComposerResources";
 import { ActionButton } from "../ui/ActionButton";
+import { CreationPromptLayout } from "../CreationPromptLayout";
 import type { useComposerAttachments } from "./useComposerAttachments";
 import type { useConversationComposer } from "./useConversationComposer";
 import type { useQuickPresentationComposer } from "./useQuickPresentationComposer";
@@ -18,7 +19,7 @@ type ChatComposerProps = Pick<ChatWorkspaceProps,
   | "modelSelectionBusy" | "modelSettings" | "modelUnavailable" | "onComposerDraftConsumed" | "onDiscoverServiceModels"
   | "onDraftFilesChange" | "onModelProfileChange" | "onOpenLibrary" | "onOpenModelSettings" | "onSelectSkill"
   | "onServiceModelChange" | "onWebSearchChange" | "selectedModelProfileId" | "selectedSkillId" | "serviceModels"
-  | "sessionContext" | "taskCancelBusy" | "webSearchAvailable"
+  | "sessionContext" | "taskCancelBusy" | "webSearchAvailable" | "creationComposer"
 > & {
   composer: Pick<ReturnType<typeof useConversationComposer>,
     "composerText" | "showComposerHint" | "setComposerFocused" | "voiceListening" | "voiceError"
@@ -48,12 +49,32 @@ export function ChatComposer(props: ChatComposerProps) {
   const { composerText, showComposerHint, setComposerFocused, voiceListening, voiceError, voiceIconRef, toggleVoice } = composer;
   const { attachmentInputRef, isDraggingAttachment, draftFiles, hasDraftFiles, uploadDraftFile } = attachmentInput;
   const { presentationService, quickMode, quickStatus, quickBusy, quickDisabled, quickError, pptProblem, submitQuickPpt, retryQuickCheck } = quickPresentation;
+  const creationMode = props.creationComposer && !quickMode;
   const sendTitle = hasDraftFiles ? "请先上传或移除草稿附件"
     : props.attachmentBusy ? "资料处理完成后即可发送"
     : props.modelSelectionBusy ? "模型选择保存后即可发送"
     : props.modelProfileUnavailable ? "当前模型已停用，请切换模型"
     : quickMode ? (quickBusy ? "正在提交 PPT" : pptProblem || quickStatus?.reason || "生成 PPT")
     : composerText.trim() ? "发送消息" : "找不到发送的内容";
+
+  const modelPicker = <ComposerModelPicker
+    configured={props.modelConfigured !== false}
+    modelSettings={props.modelSettings}
+    currentModelName={props.currentModelName}
+    defaultModelName={props.defaultModelName}
+    profiles={props.modelProfiles ?? []}
+    serviceModels={props.serviceModels}
+    additionalServiceModels={props.additionalServiceModels}
+    onDiscover={props.onDiscoverServiceModels}
+    onServiceChange={props.onServiceModelChange}
+    selectedProfileId={props.selectedModelProfileId ?? null}
+    profileDisabled={Boolean(props.modelProfileUnavailable)}
+    serviceUnavailable={Boolean(props.modelUnavailable)}
+    busy={Boolean(props.modelSelectionBusy)}
+    canSelect={!props.chatBusy && Boolean(conversationId)}
+    onChange={(profileId) => props.onModelProfileChange?.(profileId)}
+    onOpenSettings={props.onOpenModelSettings}
+  />;
 
   return (
     <div className="chat-composer">
@@ -134,7 +155,7 @@ export function ChatComposer(props: ChatComposerProps) {
           {pptProblem || quickError?.conversationId === conversationId ? <p role="alert">{pptProblem || quickError?.message}</p> : null}
         </div> : null}
         <ComposerPrimitive.Root
-          className="composer-input composer-input--enhanced"
+          className={creationMode ? "creation-entry-form creation-prompt-surface" : "composer-input composer-input--enhanced"}
           onFocusCapture={() => setComposerFocused(true)}
           onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setComposerFocused(false); }}
           onSubmit={(event) => {
@@ -142,7 +163,38 @@ export function ChatComposer(props: ChatComposerProps) {
             else if (hasDraftFiles || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable) event.preventDefault();
           }}
         >
-          <ComposerPrimitive.Input
+          {creationMode ? <CreationPromptLayout
+            modelPicker={modelPicker}
+            input={<ComposerPrimitive.Input ref={props.chatInputRef} rows={2} maxLength={200_000}
+              aria-label="输入消息" aria-describedby="composer-input-hint"
+              placeholder={props.hasClarification ? "回答上面的问题，或直接说下一件…" : "说说你想做什么，或描述想要的画面…"}
+              submitMode="enter" unstable_insertNewlineOnTouchEnter onPaste={attachmentInput.handleComposerPaste} />}
+            tools={<>
+              <ComposerResources key={conversationId} creation busy={props.attachmentBusy} documentsOnly={false}
+                onUpload={() => attachmentInputRef.current?.click()} onOpenLibrary={props.onOpenLibrary} />
+              {props.onWebSearchChange && <button className="creation-web-search-button" type="button"
+                aria-label="联网搜索" aria-pressed={webSearchActive}
+                disabled={!conversationId || props.webSearchAvailable === false}
+                title={props.webSearchAvailable === false ? "联网搜索服务未启用" : "允许当前对话接下来的回复按需联网搜索"}
+                onClick={() => props.onWebSearchChange?.(!webSearchActive)}>
+                <Globe size={16} aria-hidden="true" /><span>联网搜索</span>
+              </button>}
+            </>}
+            actions={<>
+              <button className="creation-voice-button" type="button" disabled={props.chatBusy}
+                aria-pressed={voiceListening} aria-label={voiceListening ? "停止语音输入" : "语音输入"}
+                aria-description={voiceError || undefined} onClick={toggleVoice}>
+                <span className="composer-voice-icon" ref={voiceIconRef} aria-hidden="true"><Mic size={17} /></span>
+              </button>
+              {props.chatBusy ? <ComposerPrimitive.Cancel className="creation-submit" disabled={props.taskCancelBusy}
+                aria-label={props.taskCancelBusy ? "正在停止生成" : "停止生成"} title="停止生成">
+                <Square size={14} fill="currentColor" aria-hidden="true" />
+              </ComposerPrimitive.Cancel> : <ComposerPrimitive.Send className="creation-submit" aria-label="发送"
+                disabled={hasDraftFiles || props.attachmentBusy || props.modelSelectionBusy || props.modelProfileUnavailable} title={sendTitle}>
+                <ArrowUp size={17} aria-hidden="true" />
+              </ComposerPrimitive.Send>}
+            </>}
+          /> : <><ComposerPrimitive.Input
             ref={props.chatInputRef}
             rows={1}
             maxLength={200_000}
@@ -188,24 +240,7 @@ export function ChatComposer(props: ChatComposerProps) {
               <ChatContextChips context={props.sessionContext} />
             </div>
             <div className="composer-primary-actions">
-              <ComposerModelPicker
-                configured={props.modelConfigured !== false}
-                modelSettings={props.modelSettings}
-                currentModelName={props.currentModelName}
-                defaultModelName={props.defaultModelName}
-                profiles={props.modelProfiles ?? []}
-                serviceModels={props.serviceModels}
-                additionalServiceModels={props.additionalServiceModels}
-                onDiscover={props.onDiscoverServiceModels}
-                onServiceChange={props.onServiceModelChange}
-                selectedProfileId={props.selectedModelProfileId ?? null}
-                profileDisabled={Boolean(props.modelProfileUnavailable)}
-                serviceUnavailable={Boolean(props.modelUnavailable)}
-                busy={Boolean(props.modelSelectionBusy)}
-                canSelect={!props.chatBusy && Boolean(conversationId)}
-                onChange={(profileId) => props.onModelProfileChange?.(profileId)}
-                onOpenSettings={props.onOpenModelSettings}
-              />
+              {modelPicker}
               {props.chatBusy ? (
                 <ComposerPrimitive.Cancel className="send-button stop-button" disabled={props.taskCancelBusy} aria-label={props.taskCancelBusy ? "正在停止生成" : "停止生成"} title={props.taskCancelBusy ? "正在停止生成" : "停止生成"}>
                   <Square size={12} fill="currentColor" aria-hidden="true" /><span>停止</span>
@@ -221,9 +256,10 @@ export function ChatComposer(props: ChatComposerProps) {
               )}
             </div>
           </div>
+          </>}
         </ComposerPrimitive.Root>
         <span id="composer-input-hint" className="sr-only"><span className="composer-keyboard-hint">Enter 发送 · Shift + Enter 换行</span><span className="composer-touch-hint">回车换行，点击发送按钮发送</span></span>
-        <div className="composer-footer">
+        <div className={`composer-footer${creationMode ? " creation-chat-footer" : ""}`}>
           <div className="composer-tools-bar" role="group" aria-label="技能与外部工具">
             <SkillPicker selectedSkillId={props.selectedSkillId} onSelectSkill={props.onSelectSkill} />
             <a className="composer-tool composer-connections-tool" href="#/settings/extensions" title="管理插件与 MCP 外部连接">

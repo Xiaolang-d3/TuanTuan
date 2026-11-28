@@ -38,6 +38,7 @@ import { ConversationDialog } from "../components/ConversationDialog";
 import type { AttachmentConfig, ChatAttachment } from "../features/chat/types";
 import type { ArtifactManifest } from "../features/chat/result-types";
 import { CreationEntry } from "../features/home/CreationEntry";
+import { ComposerModelPicker } from "../features/chat/ComposerModelPicker";
 import { CreationRecords } from "../features/product/CreationRecords";
 import { TaskCenter, type TaskCenterView, type TaskSource } from "../features/product/TaskCenter";
 import { GlobalSearch, type SearchHit } from "../features/product/GlobalSearch";
@@ -199,7 +200,7 @@ export function App({
   const routeDataCache = useMemo(() => createRouteDataCache<RouteDataKey>(30_000), [fetchJson, userEmail]);
   const agentPreferences = useAgentPreferences({
     fetchJson, userEmail, invalidateRouteData: routeDataCache.invalidate, setCapabilities, setModelUnavailable, setErrorMessage, setNoticeMessage,
-    modelCatalogEnabled: databaseReady && ((appRoute.section === "chat" && !workspaceLibraryOpen)
+    modelCatalogEnabled: databaseReady && (appRoute.section === "dashboard" || (appRoute.section === "chat" && !workspaceLibraryOpen)
       || (appRoute.section === "settings" && appRoute.page === "model") || (appRoute.section === "projects" && Boolean(appRoute.projectId)))
   });
   const {
@@ -209,6 +210,7 @@ export function App({
   } = agentPreferences;
   const homeCreation = useHomeCreation({
     fetchJson, userEmail, creationScope, databaseReady, chatBusy, clearChatMessages: () => setChatMessages([]),
+    webSearchAvailable, selectNewConversationWebSearch: (id, enabled) => conversationWebSearch.setEnabled(enabled, id),
     selectNewConversationSkill: (id, skillId) => setChatSkillSelection({ id: skillId, scope: skillSelectionScopeFor(id) }),
     setErrorMessage, setNoticeMessage, navigateRoute, currentConversationId, conversationBusy, setConversationBusy,
     invalidateConversationReads, setConversations, selectConversation
@@ -218,7 +220,11 @@ export function App({
   const conversationModels = useConversationModels({
     fetchJson, scope: modelSettingsScope, conversation: currentConversation, currentConversationId, currentConversationIdRef,
     modelCatalog, capabilities, savedModelName: modelSettingsReady ? savedAgentSettings.model_name : "尚未配置",
-    chatBusy, invalidateConversationReads, setConversations, setModelUnavailable, setNoticeMessage
+    chatBusy, invalidateConversationReads, setConversations, setModelUnavailable, setNoticeMessage,
+    draftSelection: appRoute.section === "dashboard" ? {
+      profileId: homeCreation.form.modelProfileId,
+      onChange: modelProfileId => homeCreation.updateForm(form => ({ ...form, modelProfileId })),
+    } : undefined
   });
   const { activeModelProfiles } = conversationModels;
 
@@ -399,7 +405,7 @@ export function App({
     ]).then(() => {
       // 工作台直接发送的消息要等历史加载完成后再发，否则会被这次刷新覆盖。
       const draft = claimAutoSend(true);
-      if (draft) void sendChatMessage(draft.content, [], [], undefined, undefined, undefined, conversationId);
+      if (draft) void sendChatMessage(draft.content, [], [], draft.webSearch, undefined, undefined, conversationId);
     }).catch((error: unknown) => {
       claimAutoSend(false);
       setErrorMessage(error instanceof Error ? error.message : "切换对话失败");
@@ -664,7 +670,7 @@ export function App({
   return (
     <ExtensionPreviewProvider key={JSON.stringify([apiBase, user.id ?? user.email])} apiBase={apiBase} accessToken={accessToken}>
     <LocalCitationProvider apiBase={apiBase} accessToken={accessToken}>
-    <main className={`app-shell has-chat-dock shell-light${activeView === "chat" ? " chat-focused" : ""}${activeView === "dashboard" ? " developer-home-shell" : ""}`}>
+    <main className={`app-shell has-chat-dock shell-light${activeView === "chat" ? " chat-focused" : ""}${activeView === "dashboard" ? " developer-home-shell" : ""}${activeView === "chat" && homeCreation.creationComposer ? " home-chat-shell" : ""}`}>
       <AppSidebar
         collapsed={sidebarCollapsed}
         activeView={activeView}
@@ -709,12 +715,35 @@ export function App({
                 onFiles={homeCreation.setHomeFiles}
                 onDraft={text => homeCreation.updateForm(form => ({ ...form, draft: text }))}
                 onOpen={homeCreation.openCreationWorkspace}
+                webSearchEnabled={homeCreation.form.webSearch}
+                webSearchAvailable={webSearchAvailable}
+                onWebSearchChange={enabled => homeCreation.updateForm(form => ({ ...form, webSearch: enabled }))}
+                modelPicker={<ComposerModelPicker
+                  configured={capabilities?.configured !== false}
+                  currentModelName={conversationModels.currentModelName}
+                  defaultModelName={conversationModels.defaultModelName}
+                  profiles={activeModelProfiles.map(profile => ({ ...profile, connection_name: modelCatalog.catalog.connections.find(connection => connection.id === profile.connection_id)?.name || "模型连接" }))}
+                  serviceModels={conversationModels.serviceModels}
+                  additionalServiceModels={conversationModels.additionalServiceModels}
+                  onDiscover={conversationModels.discoverServiceModels}
+                  onServiceChange={conversationModels.selectServiceModel}
+                  selectedProfileId={conversationModels.selectedModelProfileId}
+                  profileDisabled={conversationModels.modelProfileUnavailable}
+                  serviceUnavailable={false}
+                  busy={conversationModels.modelSelectionBusy}
+                  canSelect={databaseReady && !conversationBusy && !chatBusy}
+                  onChange={conversationModels.selectConversationModel}
+                  onOpenSettings={() => navigateRoute({ section: "settings", page: "model" })}
+                  modelSettings={conversationModels.composerModelSettings}
+                />}
+                modelIssue={conversationModels.modelProfileUnavailable ? "所选模型不可用，请切换模型后发送。"
+                  : conversationModels.modelSelectionFeedback?.kind === "error" ? conversationModels.modelSelectionFeedback.text : undefined}
                 onOpenVideo={() => navigateRoute({ section: "video" })}
                 onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
                 onOpenSkills={() => navigateRoute({ section: "skills" })}
                 voiceInput={voiceInput}
-                ready={databaseReady}
-                busy={conversationBusy || chatBusy}
+                ready={databaseReady && !conversationModels.modelProfileUnavailable}
+                busy={conversationBusy || chatBusy || conversationModels.modelSelectionBusy}
               />}
               onAnalyze={homeCreation.analyzeHomeItem}
               onLibraryChanged={refreshLibrary}
@@ -881,6 +910,7 @@ export function App({
             density={activeView === "chat" ? "page" : "dock"}
             workspaceActions={activeView === "chat" ? workspaceActions : null}
             focused={activeView === "chat" && !workspaceLibraryOpen}
+            creationComposer={homeCreation.creationComposer}
             conversationTitle={currentConversation?.title}
             currentModelName={conversationModels.currentModelName}
             defaultModelName={conversationModels.defaultModelName}

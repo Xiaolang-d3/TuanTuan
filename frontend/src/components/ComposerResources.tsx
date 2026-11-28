@@ -2,11 +2,12 @@ import { useEffect, useId, useState } from "react";
 import { ArrowUpRight, ChevronDown, FolderOpen, LoaderCircle, Paperclip, Plus } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent } from "./ui/DropdownMenu";
 
-export function ComposerResources({ busy, documentsOnly, onUpload, onOpenLibrary }: {
+export function ComposerResources({ busy, documentsOnly, onUpload, onOpenLibrary, creation }: {
   busy: boolean;
   documentsOnly: boolean;
   onUpload: () => void;
   onOpenLibrary?: () => void;
+  creation?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -19,13 +20,14 @@ export function ComposerResources({ busy, documentsOnly, onUpload, onOpenLibrary
     <div className="composer-resources">
       <DropdownMenu.Root modal={false} open={open && !busy} onOpenChange={setOpen}>
         <DropdownMenu.Trigger
-          className="composer-tool composer-attachment-tool"
+          className={creation ? "creation-file-button" : "composer-tool composer-attachment-tool"}
           aria-label={busy ? "附件处理中" : "添加资料"}
+          title={creation ? "添加资料" : undefined}
           disabled={busy}
         >
           {busy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
-          <span className="composer-tool-label">添加资料</span>
-          <ChevronDown className="composer-resources-chevron" size={12} aria-hidden="true" />
+          {!creation && <span className="composer-tool-label">添加资料</span>}
+          {!creation && <ChevronDown className="composer-resources-chevron" size={12} aria-hidden="true" />}
         </DropdownMenu.Trigger>
         <DropdownMenuContent className="composer-resources-panel" aria-label="资料选项" side="top" sideOffset={8}>
           <DropdownMenu.Item className="composer-resource-option" aria-labelledby={`${panelId}-upload`} aria-describedby={`${panelId}-upload-hint`} onClick={onUpload}>

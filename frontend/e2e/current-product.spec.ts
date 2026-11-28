@@ -668,6 +668,172 @@ test("long conversations keep one scroll viewport without blank space above the 
   await expect(viewport.getByText("重新生成的回答。", { exact: true })).toBeHidden();
 });
 
+test("home web search choice reaches the first message and the new conversation", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  const requests: boolean[] = [];
+  await page.route("**/ag-ui", async route => {
+    const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
+    requests.push(forwardedProps.webSearch);
+    const userMessage = { id: 101, role: "user", content: messages.at(-1).content, created_at: "2026-09-22T08:00:00Z" };
+    const assistantMessage = { id: 102, role: "assistant", content: "这是模拟回复。", created_at: userMessage.created_at };
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.setViewportSize({ width: 1279, height: 1253 });
+  await page.goto("/#/home");
+  const home = page.getByRole("region", { name: "工作台", exact: true });
+  const toggle = home.getByRole("button", { name: "联网搜索" });
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.hover();
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.click();
+  await expect(toggle).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-web-search-desktop.png") });
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 320, height: 740 });
+  for (const name of ["添加资料", "联网搜索", "语音输入", "发送"]) {
+    await expect(home.getByRole("button", { name, exact: true })).toBeInViewport({ ratio: 1 });
+  }
+  await expect(toggle.locator("span")).toBeHidden();
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-web-search-mobile.png") });
+  await home.getByRole("textbox", { name: "工作台草稿" }).fill("查找最新公开资料");
+  await home.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await expect.poll(() => requests).toEqual([true]);
+  const chatToggle = page.getByRole("button", { name: "联网搜索", exact: true });
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "true");
+  await page.reload();
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "true");
+  expect(requests).toEqual([true]);
+});
+
+test("home sending keeps the input at the bottom with conversation messages above it", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  await page.setViewportSize({ width: 1279, height: 1000 });
+  let releaseFirst!: () => void;
+  const firstReply = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const requests: string[] = [];
+  await page.route("**/ag-ui", async route => {
+    const { threadId, runId, messages } = route.request().postDataJSON();
+    const content = messages.at(-1).content;
+    requests.push(content);
+    if (requests.length === 1) await firstReply;
+    const userMessage = { id: requests.length * 2 + 100, role: "user", content, created_at: "2026-09-22T08:00:00Z" };
+    const assistantMessage = { id: userMessage.id + 1, role: "assistant", content: `已完成：${content}`, created_at: userMessage.created_at };
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.goto("/#/home");
+  const homeInput = page.getByRole("textbox", { name: "工作台草稿" });
+  const before = await page.locator(".creation-entry-form").boundingBox();
+  await homeInput.fill("帮我写一份活动计划");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  const input = page.getByRole("textbox", { name: "输入消息", exact: true });
+  const frame = page.locator(".creation-entry-form");
+  await expect(frame).toHaveCount(1);
+  await expect(frame.getByRole("button", { name: "停止生成" })).toBeVisible();
+  const after = (await frame.boundingBox())!;
+  expect(after.width).toBeCloseTo(before!.width, 0);
+  expect(after.y).toBeGreaterThan(700);
+  expect(after.height).toBeCloseTo(before!.height, 0);
+  const thread = page.locator(".chat-thread");
+  expect((await thread.boundingBox())!.y + (await thread.boundingBox())!.height).toBeLessThanOrEqual(after.y);
+  await expect(page.getByRole("heading", { name: "让想法成为现实" })).toHaveCount(0);
+  await expect(page.getByText("探索创作灵感", { exact: true })).toHaveCount(0);
+  releaseFirst();
+  await expect(page.getByText("已完成：帮我写一份活动计划", { exact: true })).toBeVisible();
+  await input.fill("再补上执行步骤");
+  await frame.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByText("已完成：再补上执行步骤", { exact: true })).toBeVisible();
+  expect(requests).toEqual(["帮我写一份活动计划", "再补上执行步骤"]);
+  await page.screenshot({ path: testInfo.outputPath("home-chat-desktop.png"), animations: "disabled" });
+  await page.setViewportSize({ width: 320, height: 740 });
+  for (const name of ["添加资料", "联网搜索", "语音输入", "发送"]) await expect(frame.getByRole("button", { name, exact: true })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath("home-chat-mobile.png"), animations: "disabled" });
+  await page.reload();
+  await expect(frame).toHaveCount(1);
+  expect(requests).toHaveLength(2);
+});
+
+test("home has an icon-only attachment action and an inline model picker that carries into the first message", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  const connection = { id: "fixture", name: "测试服务", model_base_url: "https://fixture.test/v1", model_protocol: "openai", api_key_configured: true, enabled: true, revision: 1 };
+  const profiles = ["model-a", "model-b"].map(model_name => ({ id: model_name, connection_id: connection.id, model_name, enabled: true, revision: 1, capabilities: { chat: "supported" } }));
+  const catalog = { connections: [connection], profiles, default_profile_id: "model-a" };
+  await page.route("**/agent/model-connections", route => route.fulfill({ json: catalog }));
+  await page.route("**/agent/model-connections/fixture/catalog", route => route.fulfill({ json: { connection_id: "fixture", connection_revision: 1, models: ["model-a", "model-b"], cache_age_seconds: 0 } }));
+  await page.route("**/agent/model-connections/fixture/discover", route => route.fulfill({ json: { models: ["model-a", "model-b"] } }));
+  let created = { ...anotherConversation, model_profile_id: null as string | null };
+  let requestModel: string | null | undefined;
+  const writes: string[] = [];
+  page.on("request", request => { if (["POST", "PATCH"].includes(request.method())) writes.push(new URL(request.url()).pathname); });
+  await page.route("**/conversations", route => {
+    if (route.request().method() === "POST") created = { ...created, model_profile_id: route.request().postDataJSON().model_profile_id ?? null };
+    return route.fulfill({ json: route.request().method() === "POST" ? created : [conversation, created] });
+  });
+  await page.route("**/ag-ui", route => {
+    const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
+    requestModel = forwardedProps.modelProfileId;
+    const userMessage = { id: 101, role: "user", content: messages.at(-1).content, created_at: "2026-09-22T08:00:00Z" };
+    const assistantMessage = { id: 102, role: "assistant", content: "所选模型已回复。", created_at: userMessage.created_at };
+    const events = [{ type: "RUN_STARTED", threadId, runId }, { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } }, { type: "RUN_FINISHED", threadId, runId }];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.setViewportSize({ width: 1279, height: 1000 });
+  await page.goto("/#/home");
+  const home = page.getByRole("region", { name: "工作台", exact: true });
+  const attachment = home.getByRole("button", { name: "添加资料" });
+  await expect(attachment).toHaveText("");
+  await expect(attachment).toHaveAttribute("title", "添加资料");
+  await home.getByRole("textbox", { name: "工作台草稿" }).fill("请使用选中的模型回答");
+  await home.getByRole("button", { name: /切换模型，当前 model-a/ }).click();
+  await page.getByRole("option", { name: "model-b", exact: true }).click();
+  const model = home.getByRole("button", { name: /切换模型，当前 model-b/ });
+  await expect(model).toBeVisible();
+  expect(writes.filter(path => path.startsWith("/conversations") || path === "/ag-ui")).toEqual([]);
+  await expect(home.getByRole("textbox", { name: "工作台草稿" })).toHaveValue("请使用选中的模型回答");
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-inline-model-desktop.png") });
+  await page.setViewportSize({ width: 320, height: 740 });
+  for (const control of [attachment, model, home.getByRole("button", { name: "联网搜索" }), home.getByRole("button", { name: "语音输入" }), home.getByRole("button", { name: "发送", exact: true })]) await expect(control).toBeInViewport({ ratio: 1 });
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-inline-model-mobile.png") });
+  await home.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await expect.poll(() => requestModel).toBe("model-b");
+  const frame = page.locator(".creation-entry-form");
+  await expect(frame.getByRole("button", { name: /切换模型，当前 model-b/ })).toBeVisible();
+  await expect(frame.getByRole("button", { name: "添加资料" })).toHaveText("");
+  expect(created.model_profile_id).toBe("model-b");
+});
+
+test("home web search stays visible and disabled when the service is unavailable", async ({ page }) => {
+  await page.route("**/agent/capabilities", route => route.fulfill({ json: {
+    configured: true, active_model_name: "mock-model", tools: [], web_research: { enabled: false, provider: "none" },
+  } }));
+  await page.goto("/#/home");
+  const toggle = page.getByRole("region", { name: "工作台", exact: true }).getByRole("button", { name: "联网搜索" });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveAttribute("title", "联网搜索服务未启用");
+});
+
 test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
   const requests: Array<{ threadId: string; webSearch: boolean }> = [];
   await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));

@@ -31,7 +31,7 @@ describe("requiredDataForRoute", () => {
       "capabilities",
       "attachmentConfig"
     ]);
-    expect(requiredDataForRoute({ section: "dashboard" })).toEqual([]);
+    expect(requiredDataForRoute({ section: "dashboard" })).toEqual(["capabilities"]);
     expect(requiredDataForRoute({ section: "images" })).toEqual([]);
     expect(requiredDataForRoute({ section: "video" })).toEqual([]);
     expect(requiredDataForRoute({ section: "works" })).toEqual([]);

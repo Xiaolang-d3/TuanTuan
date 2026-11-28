@@ -17,6 +17,7 @@ type Options = {
   capabilities: AgentCapabilities | null;
   savedModelName: string;
   chatBusy: boolean;
+  draftSelection?: { profileId: string | null; onChange: (profileId: string | null) => void };
   invalidateConversationReads: () => void;
   setConversations: Dispatch<SetStateAction<Conversation[]>>;
   setModelUnavailable: (message: string | null) => void;
@@ -28,21 +29,26 @@ type Options = {
  * @param options 当前账号范围、会话状态、模型目录及更新回调。
  * @returns 聊天输入区可用的模型及管理操作。
  */
-export function useConversationModels({ fetchJson, scope, conversation, currentConversationId, currentConversationIdRef, modelCatalog, capabilities, savedModelName, chatBusy, invalidateConversationReads, setConversations, setModelUnavailable, setNoticeMessage }: Options) {
+export function useConversationModels({ fetchJson, scope, conversation, currentConversationId, currentConversationIdRef, modelCatalog, capabilities, savedModelName, chatBusy, draftSelection, invalidateConversationReads, setConversations, setModelUnavailable, setNoticeMessage }: Options) {
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
+  const draftMode = draftSelection !== undefined;
+  const draftModeRef = useRef(draftMode);
+  draftModeRef.current = draftMode;
   const [modelSelectionBusy, setModelSelectionBusy] = useState(false);
   const [modelSelectionFeedback, setModelSelectionFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const modelSelectionRequestRef = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
   const activeModelProfiles = modelCatalog.catalog.profiles.filter(profile => profile.enabled && modelCatalog.catalog.connections.some(connection => connection.id === profile.connection_id && isComposerModelConnectionAvailable(connection)));
-  const selectedModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === conversation?.model_profile_id);
+  const selectedModelProfileId = draftSelection ? draftSelection.profileId : conversation?.model_profile_id;
+  const selectedModelProfile = modelCatalog.catalog.profiles.find(profile => profile.id === selectedModelProfileId);
   const defaultModelProfile = composerDefaultModelProfile(modelCatalog.catalog);
   const currentPickerProfile = selectedModelProfile || defaultModelProfile;
   const currentProfileConnection = modelCatalog.catalog.connections.find(connection => connection.id === currentPickerProfile?.connection_id);
   const currentSubscriptionProfile = currentProfileConnection?.auth_kind === "chatgpt_subscription" ? currentPickerProfile : undefined;
   const subscriptionModelReady = currentSubscriptionProfile ? activeModelProfiles.some(profile => profile.id === currentSubscriptionProfile.id) : undefined;
   const currentModelName = currentPickerProfile?.model_name || capabilities?.active_model_name || savedModelName;
-  const modelProfileUnavailable = subscriptionModelReady === false || Boolean(selectedModelProfile && !activeModelProfiles.some(profile => profile.id === selectedModelProfile.id));
+  const modelProfileUnavailable = subscriptionModelReady === false || Boolean(selectedModelProfile && !activeModelProfiles.some(profile => profile.id === selectedModelProfile.id))
+    || Boolean(draftSelection?.profileId && modelCatalog.loaded && !selectedModelProfile);
 
   const { connections: composerServiceConnections, connection: composerConnection } = composerModelSources(modelCatalog.catalog, selectedModelProfile?.id);
   const composerDiscovery = useComposerModelDiscovery({ fetchJson, scope, connection: composerConnection, connections: composerServiceConnections, restoreCached: true });
@@ -54,18 +60,19 @@ export function useConversationModels({ fetchJson, scope, conversation, currentC
     setModelSelectionBusy(false);
     setModelSelectionFeedback(null);
     return () => { modelSelectionRequestRef.current.id += 1; modelSelectionRequestRef.current.controller?.abort(); };
-  }, [currentConversationId, scope]);
+  }, [currentConversationId, scope, draftMode]);
 
   async function selectConversationModel(profileId: string | null, serviceModel?: { connectionId: string; modelName: string; revision: number }) {
     const conversationId = currentConversationId;
-    if (!conversationId || chatBusy || modelSelectionBusy) return;
+    if ((!conversationId && !draftSelection) || chatBusy || modelSelectionBusy) return;
     if (modelCatalog.busy || (profileId && !activeModelProfiles.some(profile => profile.id === profileId))) return;
     modelSelectionRequestRef.current.controller?.abort();
     const requestId = ++modelSelectionRequestRef.current.id;
     const controller = new AbortController();
     modelSelectionRequestRef.current.controller = controller;
     const current = () => !controller.signal.aborted && modelSelectionRequestRef.current.id === requestId
-      && scopeRef.current === scope && currentConversationIdRef.current === conversationId;
+      && scopeRef.current === scope && draftModeRef.current === draftMode
+      && (draftMode || currentConversationIdRef.current === conversationId);
     setModelSelectionBusy(true);
     setModelSelectionFeedback(null);
     const targetName = serviceModel?.modelName || activeModelProfiles.find(profile => profile.id === profileId)?.model_name || defaultModelProfile?.model_name || "默认模型";
@@ -74,6 +81,10 @@ export function useConversationModels({ fetchJson, scope, conversation, currentC
         profileId = await modelCatalog.ensureProfile(serviceModel.connectionId, serviceModel.modelName, serviceModel.revision);
         if (!current()) return;
         if (!profileId) throw new Error("模型未确认保存，继续使用原模型；请重新打开列表或检查模型设置。");
+      }
+      if (draftSelection) {
+        if (current()) draftSelection.onChange(profileId);
+        return;
       }
       const updated = await fetchJson<Conversation>(`/conversations/${conversationId}`, {
         method: "PATCH", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model_profile_id: profileId })

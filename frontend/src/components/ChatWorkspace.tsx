@@ -71,7 +71,7 @@ function ChatWorkspaceContent({ attachments, webSearchActive, ...props }: ChatWo
   const handlePresentationContentChange = useCallback((conversationId: number, hasContent: boolean) => {
     setPresentationContent(previous => previous?.conversationId === conversationId && previous.hasContent === hasContent ? previous : { conversationId, hasContent });
   }, []);
-  const hasConversationContent = props.messages.length > 0 || (presentationContent?.conversationId === conversationId && presentationContent.hasContent) || (reviewContent?.conversationId === conversationId && reviewContent.hasContent);
+  const hasConversationContent = props.creationComposer === true || props.messages.length > 0 || (presentationContent?.conversationId === conversationId && presentationContent.hasContent) || (reviewContent?.conversationId === conversationId && reviewContent.hasContent);
   const composer = useConversationComposer(props);
   const quickPresentation = useQuickPresentationComposer({ ...props, pendingAttachments, onClearSubmittedAttachments: attachments.clearSubmittedAttachments }, composer);
   const { presentationService, pptSelected, quickMode, quickBusy, modelScope, submittedJob, reuseQuickPpt } = quickPresentation;
@@ -92,7 +92,7 @@ function ChatWorkspaceContent({ attachments, webSearchActive, ...props }: ChatWo
   ) : null;
 
   return (
-    <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.focused ? "is-focused" : ""} ${hasConversationContent ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
+    <section className={`chat-workspace ${props.density === "dock" ? "is-dock" : "is-page"} ${props.creationComposer ? "is-creation-chat" : ""} ${props.focused ? "is-focused" : ""} ${hasConversationContent ? "has-history" : "is-empty"} ${props.chatBusy ? "is-running" : ""} ${researchPanelOpen ? "has-research-panel" : ""}`}>
       <ResearchPanelActionsContext.Provider value={{ openDetails: openResearchDetails }}>
       <QuoteSelectionContext.Provider value={composer.applyQuote}>
       <DeleteTurnContext.Provider value={props.onDeleteTurn ?? null}>

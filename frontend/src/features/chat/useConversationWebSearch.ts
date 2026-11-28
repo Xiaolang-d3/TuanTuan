@@ -4,9 +4,10 @@ import { writeStorageItem } from "../../storage";
 type Account = { id?: number; email: string };
 
 export function useConversationWebSearch(apiBase: string, user: Account, conversationId: number | null) {
-  const key = conversationId === null ? null : `tuantuan-conversation-web-search:${JSON.stringify([
-    apiBase, user.id ?? user.email.toLowerCase(), conversationId,
+  const storageKey = (id: number | null) => id === null ? null : `tuantuan-conversation-web-search:${JSON.stringify([
+    apiBase, user.id ?? user.email.toLowerCase(), id,
   ])}`;
+  const key = storageKey(conversationId);
   const fallback = useRef(new Map<string, boolean>());
   const [, setRevision] = useState(0);
   const subscribe = useCallback((notify: () => void) => {
@@ -27,10 +28,11 @@ export function useConversationWebSearch(apiBase: string, user: Account, convers
   }
   const enabled = useSyncExternalStore(subscribe, getSnapshot, () => false);
 
-  function setEnabled(next: boolean) {
-    if (!key) return;
-    if (writeStorageItem(key, String(next))) fallback.current.delete(key);
-    else fallback.current.set(key, next);
+  function setEnabled(next: boolean, targetConversationId = conversationId) {
+    const targetKey = storageKey(targetConversationId);
+    if (!targetKey) return;
+    if (writeStorageItem(targetKey, String(next))) fallback.current.delete(targetKey);
+    else fallback.current.set(targetKey, next);
     setRevision((revision) => revision + 1);
   }
 
