@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ArrowUp, Bot, FileText, Globe, Mic, Plus, Square, Video } from "lucide-react";
 import { useVoiceAnswer } from "../../hooks/useVoiceAnswer";
@@ -24,6 +24,8 @@ type CreationEntryProps = {
   webSearchEnabled: boolean;
   webSearchAvailable: boolean;
   onWebSearchChange: (enabled: boolean) => void;
+  modelPicker?: ReactNode;
+  modelIssue?: string;
   onOpenVideo: () => void;
   onOpenDocuments: () => void;
   onOpenSkills: () => void;
@@ -39,6 +41,7 @@ type CreationEntryProps = {
 export function CreationEntry({
   draft, files, onFiles, onDraft, onOpen, onOpenVideo, onOpenDocuments, onOpenSkills, voiceInput, ready, busy,
   webSearchEnabled, webSearchAvailable, onWebSearchChange,
+  modelPicker, modelIssue,
 }: CreationEntryProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
@@ -113,8 +116,9 @@ export function CreationEntry({
         <CreationPromptLayout input={<textarea ref={draftInput} aria-label="工作台草稿" rows={2} maxLength={MAX_CREATION_DRAFT_LENGTH} value={draft}
           placeholder={PLACEHOLDER} onChange={event => onDraft(event.target.value)} />}
           tools={<>
-            <button className="creation-file-button" type="button" disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>
-              <Plus size={16} aria-hidden="true" /> 添加资料
+            <button className="creation-file-button" type="button" aria-label="添加资料" title="添加资料"
+              disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>
+              <Plus size={16} aria-hidden="true" />
             </button>
             <button className="creation-web-search-button" type="button" aria-label="联网搜索"
               aria-pressed={webSearchActive} disabled={controlsDisabled || !webSearchAvailable}
@@ -123,6 +127,7 @@ export function CreationEntry({
               <Globe size={16} aria-hidden="true" /><span>联网搜索</span>
             </button>
           </>}
+          modelPicker={modelPicker}
           actions={<>
             <button className="creation-voice-button" type="button" disabled={controlsDisabled}
               aria-pressed={voice.listening} aria-label={voiceLabel} title={voiceLabel} onClick={toggleVoice}>
@@ -132,6 +137,7 @@ export function CreationEntry({
               <ArrowUp size={17} aria-hidden="true" />
             </button>
           </>}>
+        {modelIssue && <p role="alert">{modelIssue}</p>}
         {fileIssue && <p role="alert">{fileIssue}</p>}
         {files.length > 0 && <ul className="creation-entry-files" aria-label="对话草稿附件">
           {files.map((file, index) => <li key={index}>

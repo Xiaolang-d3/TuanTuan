@@ -13,6 +13,7 @@ type CreationForm = {
   scope: string;
   draft: string;
   webSearch: boolean;
+  modelProfileId: string | null;
 };
 
 function restoreHomeConversations(scope: string): number[] {
@@ -29,11 +30,12 @@ type ConversationHandoff = {
   autoSend?: boolean;
   webSearch?: boolean;
   fromHome?: boolean;
+  modelProfileId?: string | null;
   onOpened?: () => void;
 };
 
 function restoreCreationForm(scope: string): CreationForm {
-  const form: CreationForm = { scope, draft: "", webSearch: false };
+  const form: CreationForm = { scope, draft: "", webSearch: false, modelProfileId: null };
   try {
     const saved = JSON.parse(readStorageItem(`tuantuan-home-draft:${scope}`, "sessionStorage") ?? "null");
     // 兼容旧版按“对话/图片”分开保存的草稿：取上次所在模式的内容。
@@ -41,6 +43,7 @@ function restoreCreationForm(scope: string): CreationForm {
     const draft = typeof saved?.draft === "string" ? saved.draft : legacy;
     if (typeof draft === "string") form.draft = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
     form.webSearch = saved?.webSearch === true;
+    if (typeof saved?.modelProfileId === "string" && saved.modelProfileId.length <= 120) form.modelProfileId = saved.modelProfileId || null;
   } catch { /* Invalid saved drafts are ignored. */ }
   return form;
 }
@@ -82,9 +85,10 @@ export function useHomeCreation({
   const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
   const savedCreationDraft = activeCreationForm.draft;
   const savedWebSearch = activeCreationForm.webSearch;
+  const savedModelProfileId = activeCreationForm.modelProfileId;
   useEffect(() => {
-    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ draft: savedCreationDraft, webSearch: savedWebSearch }), "sessionStorage");
-  }, [creationScope, savedCreationDraft, savedWebSearch]);
+    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ draft: savedCreationDraft, webSearch: savedWebSearch, modelProfileId: savedModelProfileId }), "sessionStorage");
+  }, [creationScope, savedCreationDraft, savedWebSearch, savedModelProfileId]);
   const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string; autoSend?: boolean; webSearch?: boolean }) | null>(null);
   const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
   const [conversationFiles, setConversationFiles] = useState<{ scope: string; drafts: Map<number, File[]> } | null>(null);
@@ -176,9 +180,11 @@ export function useHomeCreation({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
-  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: Pick<ConversationHandoff, "autoSend" | "webSearch" | "fromHome" | "onOpened">) {
+  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: Pick<ConversationHandoff, "autoSend" | "webSearch" | "fromHome" | "modelProfileId" | "onOpened">) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话",
+        ...(handoff?.modelProfileId !== undefined ? { model_profile_id: handoff.modelProfileId } : {}),
+      }), signal,
     }), content, notice, { skillId, files, ...handoff });
   }
 
@@ -194,6 +200,7 @@ export function useHomeCreation({
     void openNewChatDraft(content, notice, undefined, activeHomeFiles, {
       autoSend: sendNow,
       fromHome: true,
+      modelProfileId: activeCreationForm.modelProfileId ?? undefined,
       webSearch: webSearchAvailable && activeCreationForm.webSearch,
       onOpened: () => { if (sendNow) clearCreationDraft(content); },
     }).catch((error: unknown) => {

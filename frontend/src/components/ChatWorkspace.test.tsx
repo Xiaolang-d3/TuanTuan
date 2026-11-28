@@ -192,12 +192,14 @@ function renderChat(messages: ChatMessage[] = [message], extras: {
 describe("ChatWorkspace", () => {
   it("keeps the home input layout below the thread and supports follow-up sending and resources", async () => {
     cleanup();
-    const { view, ...props } = renderChat([], { creationComposer: true });
+    const { view, ...props } = renderChat([], { creationComposer: true, currentModelName: "所选模型" });
     const input = screen.getByRole("textbox", { name: "输入消息" });
     expect(input.closest("form")).toHaveClass("creation-prompt-surface");
     expect(screen.queryByText("今天，想完成什么？")).not.toBeInTheDocument();
     expect(view.container.querySelector(".chat-workspace")).toHaveClass("has-history");
     const form = input.closest("form")!;
+    expect(form).toContainElement(screen.getByRole("button", { name: "切换模型，当前 所选模型" }));
+    expect(screen.getByRole("button", { name: "添加资料" }).textContent).toBe("");
     expect(form.querySelector(".creation-entry-tools")).toContainElement(screen.getByRole("button", { name: "添加资料" }));
     expect(form.querySelector(".creation-entry-actions")).toContainElement(screen.getByRole("button", { name: "语音输入" }));
     fireEvent.change(input, { target: { value: "接着完善这个方案" } });

@@ -41,3 +41,13 @@ it("keeps the toggle visible but disabled when search is unavailable or the work
   rerender(<CreationEntry {...options} ready={false} />);
   expect(search).toBeDisabled();
 });
+
+it("keeps an accessible icon-only attachment action and the model picker inside the input frame", () => {
+  const options = props();
+  render(<CreationEntry {...options} modelPicker={<button type="button">选择模型</button>} />);
+  const attachment = screen.getByRole("button", { name: "添加资料" });
+  expect(attachment).toHaveAttribute("title", "添加资料");
+  expect(attachment.textContent).toBe("");
+  const input = screen.getByRole("textbox", { name: "工作台草稿" });
+  expect(input.closest("form")).toContainElement(screen.getByRole("button", { name: "选择模型" }));
+});

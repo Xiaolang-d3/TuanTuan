@@ -22,10 +22,11 @@ export function ComposerResources({ busy, documentsOnly, onUpload, onOpenLibrary
         <DropdownMenu.Trigger
           className={creation ? "creation-file-button" : "composer-tool composer-attachment-tool"}
           aria-label={busy ? "附件处理中" : "添加资料"}
+          title={creation ? "添加资料" : undefined}
           disabled={busy}
         >
           {busy ? <LoaderCircle className="spinning" size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
-          <span className="composer-tool-label">添加资料</span>
+          {!creation && <span className="composer-tool-label">添加资料</span>}
           {!creation && <ChevronDown className="composer-resources-chevron" size={12} aria-hidden="true" />}
         </DropdownMenu.Trigger>
         <DropdownMenuContent className="composer-resources-panel" aria-label="资料选项" side="top" sideOffset={8}>

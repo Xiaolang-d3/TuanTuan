@@ -18,7 +18,7 @@ function setup() {
     invalidateConversationReads: vi.fn(), setConversations: vi.fn(), selectConversation: vi.fn(),
   };
   const hook = renderHook(() => useHomeCreation(options));
-  return { ...hook, options, conversation };
+  return { ...hook, options, conversation, fetchJson };
 }
 
 it("工作台对话输入直接进入待发送状态，不再作为输入框草稿", async () => {
@@ -140,4 +140,26 @@ it("项目或技能创建的会话不继承首页输入框", async () => {
   options.currentConversationId = 11;
   rerender();
   expect(result.current.creationComposer).toBe(false);
+});
+
+it("首页选择的模型随新对话提交，不修改其他入口的默认模型", async () => {
+  const { result, options, fetchJson } = setup();
+  act(() => result.current.updateForm(form => ({ ...form, modelProfileId: "chosen-model" })));
+  act(() => result.current.openCreationWorkspace("使用这个模型"));
+  await waitFor(() => expect(options.selectConversation).toHaveBeenCalled());
+  expect(JSON.parse(String(fetchJson.mock.calls[0][1]?.body))).toMatchObject({ model_profile_id: "chosen-model" });
+  await act(() => result.current.openNewChatDraft("技能任务", "已准备"));
+  expect(JSON.parse(String(fetchJson.mock.calls[1][1]?.body))).not.toHaveProperty("model_profile_id");
+});
+
+it("首页模型选择按账号保存并恢复", () => {
+  sessionStorage.setItem("tuantuan-home-draft:a", JSON.stringify({ modelProfileId: "chosen-model" }));
+  const { result, options, rerender } = setup();
+  expect(result.current.form.modelProfileId).toBe("chosen-model");
+  options.creationScope = "b";
+  rerender();
+  expect(result.current.form.modelProfileId).toBeNull();
+  options.creationScope = "a";
+  rerender();
+  expect(result.current.form.modelProfileId).toBe("chosen-model");
 });

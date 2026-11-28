@@ -55,3 +55,47 @@ it("ignores a model write from the former account when both accounts have the sa
   expect(typeof update === "function" ? update([conversation]) : update).toEqual([{ ...conversation, model_profile_id: profile.id }]);
   expect(result.current.modelSelectionFeedback).toMatchObject({ kind: "success" });
 });
+
+function setupDraft() {
+  const profile = { id: "saved", connection_id: "service", model_name: "对话模型", enabled: true, revision: 1 };
+  const modelCatalog = {
+    catalog: { profiles: [profile], default_profile_id: "saved", connections: [{ id: "service", name: "服务", model_base_url: "https://models.example.test/v1", model_protocol: "openai" as const, api_key_configured: true, enabled: true, revision: 1 }] },
+    busy: false, loaded: true, loading: false, error: "", reload: vi.fn(), mutate: vi.fn(), ensureProfile: vi.fn(),
+  };
+  const fetchJson = vi.fn();
+  const onChange = vi.fn();
+  const setConversations = vi.fn();
+  const hook = renderHook(({ draft, scope }) => useConversationModels({
+    fetchJson: fetchJson as unknown as ReturnType<typeof createApiClient>, scope,
+    conversation: null, currentConversationId: 7, currentConversationIdRef: { current: 7 },
+    modelCatalog, capabilities: null, savedModelName: "", chatBusy: false,
+    draftSelection: draft ? { profileId: null, onChange } : undefined,
+    invalidateConversationReads: vi.fn(), setConversations, setModelUnavailable: vi.fn(), setNoticeMessage: vi.fn(),
+  }), { initialProps: { draft: true, scope: "account-a" } });
+  return { ...hook, fetchJson, onChange, setConversations, modelCatalog };
+}
+
+it("selects a saved model for the home draft without changing the existing conversation", async () => {
+  const { result, onChange, fetchJson, setConversations } = setupDraft();
+  await act(() => result.current.selectConversationModel("saved"));
+  expect(onChange).toHaveBeenCalledWith("saved");
+  expect(fetchJson).not.toHaveBeenCalled();
+  expect(setConversations).not.toHaveBeenCalled();
+});
+
+it("materializes a service model for the draft and ignores completion after leaving home", async () => {
+  const { result, rerender, modelCatalog, onChange, fetchJson } = setupDraft();
+  modelCatalog.ensureProfile.mockResolvedValueOnce("new-profile");
+  await act(() => result.current.selectServiceModel("new-model", "service"));
+  expect(onChange).toHaveBeenCalledWith("new-profile");
+  expect(fetchJson).not.toHaveBeenCalled();
+  onChange.mockClear();
+  let resolveProfile!: (id: string) => void;
+  modelCatalog.ensureProfile.mockImplementationOnce(() => new Promise(resolve => { resolveProfile = resolve; }));
+  let selection!: Promise<void>;
+  act(() => { selection = result.current.selectServiceModel("another-model", "service"); });
+  rerender({ draft: false, scope: "account-a" });
+  await act(async () => { resolveProfile("late-profile"); await selection; });
+  expect(onChange).not.toHaveBeenCalled();
+  expect(fetchJson).not.toHaveBeenCalled();
+});

@@ -349,9 +349,6 @@
 .chat-workspace.is-creation-chat .creation-entry-form textarea { max-height: min(176px, 30dvh); }
 .chat-workspace.is-creation-chat .creation-chat-footer { gap: 8px; flex-wrap: wrap; }
 .chat-workspace.is-creation-chat .creation-chat-footer .composer-input-hint { display: none; }
-.creation-chat-model { margin-left: auto; min-width: 0; max-width: 45%; }
-.creation-chat-model .model-picker { max-width: 100%; }
-.creation-chat-model .model-pill { max-width: 100%; height: 30px; border: 0; background: transparent; box-shadow: none; }
 .home-chat-shell .assistant-page .chat-workspace.is-creation-chat { --chat-canvas: var(--color-bg); }
 :root[data-theme="dark"] .home-chat-shell .assistant-page .chat-workspace.is-creation-chat { --chat-canvas: #181818; }
 .home-chat-shell .assistant-page .chat-workspace.is-creation-chat,
@@ -359,5 +356,4 @@
 .assistant-page .chat-workspace.is-creation-chat .chat-main > .chat-thread-surface > .chat-thread { padding-inline: var(--chat-gutter); }
 @media (max-width: 540px) {
   .chat-workspace.is-creation-chat .composer-connections-tool > span { display: none; }
-  .creation-chat-model { max-width: 50%; }
 }

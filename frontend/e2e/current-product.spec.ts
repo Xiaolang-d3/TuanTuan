@@ -772,6 +772,56 @@ test("home sending keeps the input at the bottom with conversation messages abov
   expect(requests).toHaveLength(2);
 });
 
+test("home has an icon-only attachment action and an inline model picker that carries into the first message", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  const connection = { id: "fixture", name: "测试服务", model_base_url: "https://fixture.test/v1", model_protocol: "openai", api_key_configured: true, enabled: true, revision: 1 };
+  const profiles = ["model-a", "model-b"].map(model_name => ({ id: model_name, connection_id: connection.id, model_name, enabled: true, revision: 1, capabilities: { chat: "supported" } }));
+  const catalog = { connections: [connection], profiles, default_profile_id: "model-a" };
+  await page.route("**/agent/model-connections", route => route.fulfill({ json: catalog }));
+  await page.route("**/agent/model-connections/fixture/catalog", route => route.fulfill({ json: { connection_id: "fixture", connection_revision: 1, models: ["model-a", "model-b"], cache_age_seconds: 0 } }));
+  await page.route("**/agent/model-connections/fixture/discover", route => route.fulfill({ json: { models: ["model-a", "model-b"] } }));
+  let created = { ...anotherConversation, model_profile_id: null as string | null };
+  let requestModel: string | null | undefined;
+  const writes: string[] = [];
+  page.on("request", request => { if (["POST", "PATCH"].includes(request.method())) writes.push(new URL(request.url()).pathname); });
+  await page.route("**/conversations", route => {
+    if (route.request().method() === "POST") created = { ...created, model_profile_id: route.request().postDataJSON().model_profile_id ?? null };
+    return route.fulfill({ json: route.request().method() === "POST" ? created : [conversation, created] });
+  });
+  await page.route("**/ag-ui", route => {
+    const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
+    requestModel = forwardedProps.modelProfileId;
+    const userMessage = { id: 101, role: "user", content: messages.at(-1).content, created_at: "2026-09-22T08:00:00Z" };
+    const assistantMessage = { id: 102, role: "assistant", content: "所选模型已回复。", created_at: userMessage.created_at };
+    const events = [{ type: "RUN_STARTED", threadId, runId }, { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } }, { type: "RUN_FINISHED", threadId, runId }];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.setViewportSize({ width: 1279, height: 1000 });
+  await page.goto("/#/home");
+  const home = page.getByRole("region", { name: "工作台", exact: true });
+  const attachment = home.getByRole("button", { name: "添加资料" });
+  await expect(attachment).toHaveText("");
+  await expect(attachment).toHaveAttribute("title", "添加资料");
+  await home.getByRole("textbox", { name: "工作台草稿" }).fill("请使用选中的模型回答");
+  await home.getByRole("button", { name: /切换模型，当前 model-a/ }).click();
+  await page.getByRole("option", { name: "model-b", exact: true }).click();
+  const model = home.getByRole("button", { name: /切换模型，当前 model-b/ });
+  await expect(model).toBeVisible();
+  expect(writes.filter(path => path.startsWith("/conversations") || path === "/ag-ui")).toEqual([]);
+  await expect(home.getByRole("textbox", { name: "工作台草稿" })).toHaveValue("请使用选中的模型回答");
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-inline-model-desktop.png") });
+  await page.setViewportSize({ width: 320, height: 740 });
+  for (const control of [attachment, model, home.getByRole("button", { name: "联网搜索" }), home.getByRole("button", { name: "语音输入" }), home.getByRole("button", { name: "发送", exact: true })]) await expect(control).toBeInViewport({ ratio: 1 });
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-inline-model-mobile.png") });
+  await home.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await expect.poll(() => requestModel).toBe("model-b");
+  const frame = page.locator(".creation-entry-form");
+  await expect(frame.getByRole("button", { name: /切换模型，当前 model-b/ })).toBeVisible();
+  await expect(frame.getByRole("button", { name: "添加资料" })).toHaveText("");
+  expect(created.model_profile_id).toBe("model-b");
+});
+
 test("home web search stays visible and disabled when the service is unavailable", async ({ page }) => {
   await page.route("**/agent/capabilities", route => route.fulfill({ json: {
     configured: true, active_model_name: "mock-model", tools: [], web_research: { enabled: false, provider: "none" },

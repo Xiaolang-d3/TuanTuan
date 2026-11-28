@@ -164,6 +164,7 @@ export function ChatComposer(props: ChatComposerProps) {
           }}
         >
           {creationMode ? <CreationPromptLayout
+            modelPicker={modelPicker}
             input={<ComposerPrimitive.Input ref={props.chatInputRef} rows={2} maxLength={200_000}
               aria-label="输入消息" aria-describedby="composer-input-hint"
               placeholder={props.hasClarification ? "回答上面的问题，或直接说下一件…" : "说说你想做什么，或描述想要的画面…"}
@@ -265,7 +266,6 @@ export function ChatComposer(props: ChatComposerProps) {
               <Plug size={16} aria-hidden="true" /><span>外部连接</span>
             </a>
           </div>
-          {creationMode && <div className="creation-chat-model">{modelPicker}</div>}
           <div className={`composer-input-hint${showComposerHint ? " is-active" : ""}`} aria-hidden={!showComposerHint}>
             <span className="composer-keyboard-hint" aria-hidden="true"><kbd>Enter</kbd><span>发送</span><span className="composer-hint-divider">·</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>换行</span></span>
             <span className="composer-touch-hint" aria-hidden="true">回车换行 · 点击 <ArrowUp size={12} /> 发送</span>
