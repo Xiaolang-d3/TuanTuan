@@ -668,6 +668,61 @@ test("long conversations keep one scroll viewport without blank space above the 
   await expect(viewport.getByText("重新生成的回答。", { exact: true })).toBeHidden();
 });
 
+test("home web search choice reaches the first message and the new conversation", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));
+  const requests: boolean[] = [];
+  await page.route("**/ag-ui", async route => {
+    const { threadId, runId, messages, forwardedProps } = route.request().postDataJSON();
+    requests.push(forwardedProps.webSearch);
+    const userMessage = { id: 101, role: "user", content: messages.at(-1).content, created_at: "2026-09-22T08:00:00Z" };
+    const assistantMessage = { id: 102, role: "assistant", content: "这是模拟回复。", created_at: userMessage.created_at };
+    const events = [
+      { type: "RUN_STARTED", threadId, runId },
+      { type: "STATE_SNAPSHOT", snapshot: { tuantuan: { status: "done", userMessage, assistantMessage } } },
+      { type: "RUN_FINISHED", threadId, runId },
+    ];
+    return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") });
+  });
+  await page.setViewportSize({ width: 1279, height: 1253 });
+  await page.goto("/#/home");
+  const home = page.getByRole("region", { name: "工作台", exact: true });
+  const toggle = home.getByRole("button", { name: "联网搜索" });
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-web-search-desktop.png") });
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 320, height: 740 });
+  for (const name of ["添加资料", "联网搜索", "语音输入", "发送"]) {
+    await expect(home.getByRole("button", { name, exact: true })).toBeInViewport({ ratio: 1 });
+  }
+  await expect(toggle.locator("span")).toBeHidden();
+  await page.locator(".creation-entry-form").screenshot({ path: testInfo.outputPath("home-web-search-mobile.png") });
+  await home.getByRole("textbox", { name: "工作台草稿" }).fill("查找最新公开资料");
+  await home.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page).toHaveURL(/#\/chat\/2$/);
+  await expect.poll(() => requests).toEqual([true]);
+  const chatToggle = page.getByRole("button", { name: "联网搜索", exact: true });
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "true");
+  await page.reload();
+  await expect(chatToggle).toHaveAttribute("aria-pressed", "true");
+  expect(requests).toEqual([true]);
+});
+
+test("home web search stays visible and disabled when the service is unavailable", async ({ page }) => {
+  await page.route("**/agent/capabilities", route => route.fulfill({ json: {
+    configured: true, active_model_name: "mock-model", tools: [], web_research: { enabled: false, provider: "none" },
+  } }));
+  await page.goto("/#/home");
+  const toggle = page.getByRole("region", { name: "工作台", exact: true }).getByRole("button", { name: "联网搜索" });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveAttribute("title", "联网搜索服务未启用");
+});
+
 test("web search consent is explicit and persists only for the selected conversation", async ({ page }, testInfo) => {
   const requests: Array<{ threadId: string; webSearch: boolean }> = [];
   await page.addInitScript(() => localStorage.setItem("tuantuan-theme", "dark"));

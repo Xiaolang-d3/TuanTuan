@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, Bot, FileText, Mic, Plus, Square, Video } from "lucide-react";
+import { ArrowUp, Bot, FileText, Globe, Mic, Plus, Square, Video } from "lucide-react";
 import { useVoiceAnswer } from "../../hooks/useVoiceAnswer";
 import { CHAT_ATTACHMENT_ACCEPT, chatAttachmentKind, MAX_CHAT_ATTACHMENTS } from "../chat/attachment-formats";
 import { VoiceDraftEditor } from "../chat/voiceDraft";
@@ -20,6 +20,9 @@ type CreationEntryProps = {
   onFiles: (files: File[]) => void;
   onDraft: (text: string) => void;
   onOpen: (text: string) => void;
+  webSearchEnabled: boolean;
+  webSearchAvailable: boolean;
+  onWebSearchChange: (enabled: boolean) => void;
   onOpenVideo: () => void;
   onOpenDocuments: () => void;
   onOpenSkills: () => void;
@@ -34,6 +37,7 @@ type CreationEntryProps = {
  */
 export function CreationEntry({
   draft, files, onFiles, onDraft, onOpen, onOpenVideo, onOpenDocuments, onOpenSkills, voiceInput, ready, busy,
+  webSearchEnabled, webSearchAvailable, onWebSearchChange,
 }: CreationEntryProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const draftInput = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +60,7 @@ export function CreationEntry({
   const action = busy ? "正在打开…" : "发送";
   const voiceLabel = voice.listening ? "停止语音输入" : "语音输入";
   const controlsDisabled = !ready || busy || finishingVoice;
+  const webSearchActive = webSearchAvailable && webSearchEnabled;
 
   function toggleVoice() {
     if (voice.listening) {
@@ -120,6 +125,12 @@ export function CreationEntry({
           <div className="creation-entry-tools">
             <button className="creation-file-button" type="button" disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>
               <Plus size={16} aria-hidden="true" /> 添加资料
+            </button>
+            <button className="creation-web-search-button" type="button" aria-label="联网搜索"
+              aria-pressed={webSearchActive} disabled={controlsDisabled || !webSearchAvailable}
+              title={webSearchAvailable ? "允许新对话按需联网搜索" : "联网搜索服务未启用"}
+              onClick={() => onWebSearchChange(!webSearchActive)}>
+              <Globe size={16} aria-hidden="true" /><span>联网搜索</span>
             </button>
           </div>
           <div className="creation-entry-actions">

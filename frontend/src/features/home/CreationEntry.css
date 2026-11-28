@@ -91,7 +91,7 @@
 .creation-entry-files li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .creation-entry-files li span { min-width: 0; overflow-wrap: anywhere; }
 .creation-entry-files li button { padding: 2px 6px; border: 0; border-radius: 5px; }
-.home-page .creation-file-button {
+.home-page :is(.creation-file-button, .creation-web-search-button) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -104,6 +104,12 @@
   white-space: nowrap;
 }
 .home-page .creation-file-button:hover:not(:disabled) { color: var(--color-text); }
+.home-page .creation-web-search-button:hover:not(:disabled),
+.home-page .creation-web-search-button[aria-pressed="true"] {
+  color: var(--creation-accent);
+  background: color-mix(in srgb, var(--creation-accent) 12%, transparent);
+}
+.home-page .creation-web-search-button:disabled { opacity: .5; cursor: not-allowed; }
 .home-page .creation-entry-files li button:hover:not(:disabled) { background: var(--color-surface-subtle); }
 
 .creation-entry-footer { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
@@ -192,6 +198,8 @@
   .creation-hero { margin-top: 16px; }
   .creation-entry-form { padding: 8px; border-radius: 19px; }
   .creation-entry-tools { gap: 3px 4px; }
+  .home-page .creation-web-search-button { width: 36px; justify-content: center; padding: 0; }
+  .creation-web-search-button > span { display: none; }
   .creation-entry-modes { gap: 6px 8px; }
   .home-page .creation-entry-modes button { gap: 4px; padding-inline: 6px; font-size: 12px; }
   .creation-inspiration { margin-top: 30px; }

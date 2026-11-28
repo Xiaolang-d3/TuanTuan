@@ -40,3 +40,11 @@ it("updates the active choice when another tab turns it off", () => {
   });
   expect(result.current.enabled).toBe(false);
 });
+
+it("sets a new conversation choice before selecting it without changing the current conversation", () => {
+  const { result, rerender } = renderHook(({ id }) => useConversationWebSearch(base, user, id), { initialProps: { id: 1 } });
+  act(() => result.current.setEnabled(true, 2));
+  expect(result.current.enabled).toBe(false);
+  rerender({ id: 2 });
+  expect(result.current.enabled).toBe(true);
+});

@@ -209,6 +209,7 @@ export function App({
   } = agentPreferences;
   const homeCreation = useHomeCreation({
     fetchJson, userEmail, creationScope, databaseReady, chatBusy, clearChatMessages: () => setChatMessages([]),
+    webSearchAvailable, selectNewConversationWebSearch: (id, enabled) => conversationWebSearch.setEnabled(enabled, id),
     selectNewConversationSkill: (id, skillId) => setChatSkillSelection({ id: skillId, scope: skillSelectionScopeFor(id) }),
     setErrorMessage, setNoticeMessage, navigateRoute, currentConversationId, conversationBusy, setConversationBusy,
     invalidateConversationReads, setConversations, selectConversation
@@ -399,7 +400,7 @@ export function App({
     ]).then(() => {
       // 工作台直接发送的消息要等历史加载完成后再发，否则会被这次刷新覆盖。
       const draft = claimAutoSend(true);
-      if (draft) void sendChatMessage(draft.content, [], [], undefined, undefined, undefined, conversationId);
+      if (draft) void sendChatMessage(draft.content, [], [], draft.webSearch, undefined, undefined, conversationId);
     }).catch((error: unknown) => {
       claimAutoSend(false);
       setErrorMessage(error instanceof Error ? error.message : "切换对话失败");
@@ -709,6 +710,9 @@ export function App({
                 onFiles={homeCreation.setHomeFiles}
                 onDraft={text => homeCreation.updateForm(form => ({ ...form, draft: text }))}
                 onOpen={homeCreation.openCreationWorkspace}
+                webSearchEnabled={homeCreation.form.webSearch}
+                webSearchAvailable={webSearchAvailable}
+                onWebSearchChange={enabled => homeCreation.updateForm(form => ({ ...form, webSearch: enabled }))}
                 onOpenVideo={() => navigateRoute({ section: "video" })}
                 onOpenDocuments={() => { setInitialDocumentId(null); setDocumentsOpen(true); }}
                 onOpenSkills={() => navigateRoute({ section: "skills" })}

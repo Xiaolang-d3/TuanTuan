@@ -12,16 +12,18 @@ import type { useWorkspaceConversations } from "./useWorkspaceConversations";
 type CreationForm = {
   scope: string;
   draft: string;
+  webSearch: boolean;
 };
 
 function restoreCreationForm(scope: string): CreationForm {
-  const form: CreationForm = { scope, draft: "" };
+  const form: CreationForm = { scope, draft: "", webSearch: false };
   try {
     const saved = JSON.parse(readStorageItem(`tuantuan-home-draft:${scope}`, "sessionStorage") ?? "null");
     // 兼容旧版按“对话/图片”分开保存的草稿：取上次所在模式的内容。
     const legacy = saved?.drafts?.[saved?.mode === "chat" ? "chat" : "images"] || saved?.drafts?.chat || saved?.drafts?.images;
     const draft = typeof saved?.draft === "string" ? saved.draft : legacy;
     if (typeof draft === "string") form.draft = draft.slice(0, MAX_CREATION_DRAFT_LENGTH);
+    form.webSearch = saved?.webSearch === true;
   } catch { /* Invalid saved drafts are ignored. */ }
   return form;
 }
@@ -35,6 +37,8 @@ type Options = Pick<ReturnType<typeof useWorkspaceConversations>,
     creationScope: string;
     databaseReady: boolean;
     chatBusy: boolean;
+    webSearchAvailable: boolean;
+    selectNewConversationWebSearch: (conversationId: number, enabled: boolean) => void;
     clearChatMessages: () => void;
     selectNewConversationSkill: (conversationId: number, skillId: string) => void;
     setErrorMessage: (message: string) => void;
@@ -48,16 +52,18 @@ type Options = Pick<ReturnType<typeof useWorkspaceConversations>,
  */
 export function useHomeCreation({
   fetchJson, userEmail, creationScope, databaseReady, chatBusy, clearChatMessages, selectNewConversationSkill,
+  webSearchAvailable, selectNewConversationWebSearch,
   setErrorMessage, setNoticeMessage, currentConversationId, conversationBusy, setConversationBusy,
   invalidateConversationReads, setConversations, selectConversation
 }: Options) {
   const [creationForm, setCreationForm] = useState(() => restoreCreationForm(creationScope));
   const activeCreationForm = useMemo(() => creationForm.scope === creationScope ? creationForm : restoreCreationForm(creationScope), [creationForm, creationScope]);
   const savedCreationDraft = activeCreationForm.draft;
+  const savedWebSearch = activeCreationForm.webSearch;
   useEffect(() => {
-    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ draft: savedCreationDraft }), "sessionStorage");
-  }, [creationScope, savedCreationDraft]);
-  const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string; autoSend?: boolean }) | null>(null);
+    writeStorageItem(`tuantuan-home-draft:${creationScope}`, JSON.stringify({ draft: savedCreationDraft, webSearch: savedWebSearch }), "sessionStorage");
+  }, [creationScope, savedCreationDraft, savedWebSearch]);
+  const [homeComposerDraft, setHomeComposerDraft] = useState<(ChatComposerDraft & { scope: string; autoSend?: boolean; webSearch?: boolean }) | null>(null);
   const [homeFiles, setHomeFiles] = useState<{ scope: string; files: File[] } | null>(null);
   const [conversationFiles, setConversationFiles] = useState<{ scope: string; drafts: Map<number, File[]> } | null>(null);
   const activeHomeFiles = homeFiles?.scope === creationScope ? homeFiles.files : [];
@@ -92,7 +98,7 @@ export function useHomeCreation({
     setConversationBusy(false);
   }, [fetchJson, userEmail, setConversationBusy]);
 
-  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files, autoSend, onOpened }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[]; autoSend?: boolean; onOpened?: () => void } = {}) {
+  async function openHomeConversation(create: (signal: AbortSignal) => Promise<Conversation>, content: string, notice: string, { skillId, ownerSignal, files, autoSend, webSearch, onOpened }: { skillId?: string; ownerSignal?: AbortSignal; files?: File[]; autoSend?: boolean; webSearch?: boolean; onOpened?: () => void } = {}) {
     if (ownerSignal?.aborted) return;
     if (openingConversationRef.current || conversationBusy || chatBusy) {
       throw new Error("请等待当前对话操作完成后再打开新的工作区");
@@ -124,12 +130,14 @@ export function useHomeCreation({
         content,
         // 工作台直接发送：会话打开后由 App 在消息加载完成时发出，而不是填入输入框。
         autoSend: Boolean(autoSend && !files?.length),
+        webSearch,
       } : null);
       if (files?.length) {
         setConversationDraftFiles(created.id, files);
         setHomeFiles(previous => previous?.scope === creationScope && previous.files === files ? null : previous);
       }
       if (skillId) selectNewConversationSkill(created.id, skillId);
+      if (webSearch !== undefined) selectNewConversationWebSearch(created.id, webSearch);
       selectConversation(created.id);
       setNoticeMessage(notice);
       onOpened?.();
@@ -143,7 +151,7 @@ export function useHomeCreation({
     await openHomeConversation(signal => createHomeAnalysisConversation(fetchJson, item, signal), homeAnalysisDraft(item), "资讯分析草稿已准备，编辑后发送");
   }
 
-  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: { autoSend?: boolean; onOpened?: () => void }) {
+  function openNewChatDraft(content: string, notice: string, skillId?: string, files?: File[], handoff?: { autoSend?: boolean; webSearch?: boolean; onOpened?: () => void }) {
     return openHomeConversation(signal => fetchJson<Conversation>("/conversations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "新对话" }), signal,
     }), content, notice, { skillId, files, ...handoff });
@@ -160,6 +168,7 @@ export function useHomeCreation({
     const notice = sendNow ? "" : activeHomeFiles.length ? "对话草稿已准备，编辑后发送" : "已新建对话";
     void openNewChatDraft(content, notice, undefined, activeHomeFiles, {
       autoSend: sendNow,
+      webSearch: webSearchAvailable && activeCreationForm.webSearch,
       onOpened: () => { if (sendNow) clearCreationDraft(content); },
     }).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setErrorMessage(error instanceof Error ? error.message : "打开对话工作区失败");
